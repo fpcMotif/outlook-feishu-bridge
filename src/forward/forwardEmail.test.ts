@@ -103,6 +103,27 @@ describe("forwardEmail", () => {
     expect(vi.mocked(deps.forwardToFeishu).mock.calls[0][0].feishuDocUrl).toBe("https://doc");
   });
 
+  it("threads Act II request content and coworker labels into the forward payload", async () => {
+    const deps = makeDeps();
+    await forwardEmail(
+      deps,
+      makeMailItem(),
+      makeTargets({
+        contacts: ["ou_jenny"],
+        requestSelections: [{ requestType: "Quotation", note: "Need L-Carnitine pricing." }],
+        selectedCoworkers: [{ openId: "ou_jenny", name: "Jenny Xu" }],
+      }),
+      "sess",
+    );
+
+    const fwd = vi.mocked(deps.forwardToFeishu).mock.calls[0][0];
+    expect(fwd.contacts).toEqual(["ou_jenny"]);
+    expect(fwd.requestSelections).toEqual([
+      { requestType: "Quotation", note: "Need L-Carnitine pricing." },
+    ]);
+    expect(fwd.selectedCoworkers).toEqual([{ openId: "ou_jenny", name: "Jenny Xu" }]);
+  });
+
   it("uploads attachments through storage and routes images to uploadImage", async () => {
     globalThis.fetch = vi.fn(async () => ({ json: async () => ({ storageId: "S1" }) }) as Response) as unknown as typeof fetch;
     const deps = makeDeps();

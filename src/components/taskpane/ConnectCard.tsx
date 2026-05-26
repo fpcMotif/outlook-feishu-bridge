@@ -1,6 +1,57 @@
-import { LogIn } from "lucide-react";
-
 import { Button } from "@/components/ui/button";
+
+function OutlookLogo() {
+  return (
+    <svg viewBox="0 0 28 28" className="size-7" aria-hidden="true">
+      <rect x="11" y="7.5" width="14.5" height="13" rx="1.6" fill="#0f6cbd" />
+      <path
+        d="M11.8 9.6l6.45 4.3 6.45-4.3"
+        fill="none"
+        stroke="#fff"
+        strokeWidth="1.4"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+      <rect x="2.5" y="5.5" width="11.5" height="17" rx="2.4" fill="#0a4c92" />
+      <ellipse cx="8.25" cy="14" rx="2.6" ry="3.3" fill="none" stroke="#fff" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
+function FeishuGlyph({ className = "size-6" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 28 28" className={className} fill="currentColor" aria-hidden="true">
+      <path d="M4.2 18.6c5 .6 9.3-1.5 12.2-6 .2 2.2-.4 4.3-1.7 6 3-.1 5.7-1.6 7.9-4.5.1 4.1-2.6 7.5-6.9 8.8-4.4 1.3-8.9-.3-11.5-4.3Z" />
+      <circle cx="20" cy="8.6" r="2.1" />
+    </svg>
+  );
+}
+
+function ConnectVisual() {
+  return (
+    <div className="bg-card-soft flex items-center justify-center gap-4 rounded-2xl border py-6">
+      <span
+        role="img"
+        aria-label="Outlook"
+        className="bg-card flex size-14 items-center justify-center rounded-[18px] border shadow-sm"
+      >
+        <OutlookLogo />
+      </span>
+      <span className="flex items-center gap-1.5" aria-hidden="true">
+        <span className="bg-border size-1 rounded-full" />
+        <span className="bg-border size-1 rounded-full" />
+        <span className="bg-border size-1 rounded-full" />
+      </span>
+      <span
+        role="img"
+        aria-label="Feishu"
+        className="bg-primary text-primary-foreground flex size-14 items-center justify-center rounded-[18px] shadow-sm"
+      >
+        <FeishuGlyph className="size-7" />
+      </span>
+    </div>
+  );
+}
 
 export function ConnectCard({
   onLogin,
@@ -10,31 +61,30 @@ export function ConnectCard({
   onLoginFallback: () => void;
 }) {
   return (
-    <div className="bg-card-soft rounded-2xl border border-dashed p-4">
-      <div className="flex items-start gap-3">
-        <span className="bg-secondary text-primary mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full">
-          <LogIn className="size-4" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="text-sm font-semibold">Connect your Feishu account</div>
-          <p className="text-muted-foreground mt-0.5 text-xs leading-relaxed">
-            Message colleagues &amp; groups and forward as yourself. Bot &amp; Bitable work without
-            it.
-          </p>
-          <div className="mt-2.5 flex items-center gap-3">
-            <Button size="sm" onClick={onLogin}>
-              Log in to Feishu
-            </Button>
-            <button
-              type="button"
-              onClick={onLoginFallback}
-              className="text-muted-foreground hover:text-primary text-xs underline-offset-2 hover:underline"
-            >
-              Use backup
-            </button>
-          </div>
-        </div>
+    <section
+      aria-label="Feishu sign in"
+      className="bg-card rounded-[24px] border p-6 shadow-[0_22px_60px_rgba(20,56,92,0.12)]"
+    >
+      <ConnectVisual />
+      <div className="mt-5 text-center">
+        <h2 className="font-serif text-[26px] leading-tight">Connect to Feishu</h2>
+        <p className="text-muted-foreground mx-auto mt-2 max-w-[36ch] text-sm leading-relaxed">
+          Sign in to forward this Outlook email straight to the right team in Feishu.
+        </p>
       </div>
-    </div>
+      <div className="mt-5 flex flex-col gap-2">
+        <Button className="h-11 w-full rounded-[14px]" onClick={onLogin}>
+          <FeishuGlyph className="size-4" />
+          <span>Continue with Feishu</span>
+        </Button>
+        <button
+          type="button"
+          onClick={onLoginFallback}
+          className="text-muted-foreground hover:text-primary h-8 text-xs font-medium underline-offset-2 hover:underline"
+        >
+          Use backup login (email code)
+        </button>
+      </div>
+    </section>
   );
 }

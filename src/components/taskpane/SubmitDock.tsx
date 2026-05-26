@@ -7,6 +7,7 @@ export function SubmitDock({
   canSubmit,
   sending,
   hint,
+  label,
   footer,
   onSubmit,
 }: {
@@ -14,6 +15,7 @@ export function SubmitDock({
   canSubmit: boolean;
   sending: boolean;
   hint: string;
+  label?: string;
   footer?: string;
   onSubmit: () => void;
 }) {
@@ -36,7 +38,9 @@ export function SubmitDock({
           {sending ? <Loader2 className="size-4 animate-spin" /> : null}
           {sending
             ? "Submitting…"
-            : count > 0
+            : label
+              ? label
+              : count > 0
               ? `Submit ${count} request${count > 1 ? "s" : ""}`
               : hint}
         </span>

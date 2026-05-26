@@ -8,9 +8,16 @@ export interface ForwardTargets {
   bitable: boolean;
   contacts: string[];
   groups: string[];
+  requestSelections?: RequestSelection[];
+  selectedCoworkers?: Contact[];
   attachPdf: boolean;
   includeAttachments: boolean;
   createDoc: boolean;
+}
+
+export interface RequestSelection {
+  requestType: string;
+  note: string;
 }
 
 export interface Contact {

@@ -83,26 +83,19 @@ export function TaskPane({ host }: { host: string | null }) {
   const handleLogout = devPreview ? () => setDevLoggedIn(false) : feishuAuth.logout;
 
   return (
-    <div className="bg-background flex min-h-screen justify-center">
-      <div className="flex h-screen w-full max-w-[460px] flex-col overflow-hidden">
-        <PaneHeader
-          isLoggedIn={isLoggedIn}
-          user={user}
-          onLogin={handleLogin}
-          onLogout={handleLogout}
-        />
-        <main className="flex min-h-0 flex-1 flex-col">
-          {item ? (
-            <ForwardScreen
-              isLoggedIn={isLoggedIn}
-              onLogin={handleLogin}
-              onLoginFallback={handleLoginFallback}
-            />
-          ) : (
-            <EmptyState loading={loading} error={error} onRead={readCurrentItem} />
-          )}
-        </main>
-      </div>
+    <div className="bg-background flex h-screen w-full flex-col overflow-hidden">
+      {isLoggedIn && user ? <PaneHeader user={user} onLogout={handleLogout} /> : null}
+      <main className="flex min-h-0 flex-1 flex-col">
+        {item ? (
+          <ForwardScreen
+            isLoggedIn={isLoggedIn}
+            onLogin={handleLogin}
+            onLoginFallback={handleLoginFallback}
+          />
+        ) : (
+          <EmptyState loading={loading} error={error} onRead={readCurrentItem} />
+        )}
+      </main>
     </div>
   );
 }

@@ -91,6 +91,8 @@ function buildForwardArgs(item: MailItemData, targets: ForwardTargets, sid?: str
     sessionId: sid,
     contacts: targets.contacts.length > 0 ? targets.contacts : undefined,
     groups: targets.groups.length > 0 ? targets.groups : undefined,
+    requestSelections: targets.requestSelections?.length ? targets.requestSelections : undefined,
+    selectedCoworkers: targets.selectedCoworkers?.length ? targets.selectedCoworkers : undefined,
   };
 }
 

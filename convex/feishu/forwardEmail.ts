@@ -7,6 +7,32 @@ const attachmentKeyValidator = v.object({
   fileName: v.string(),
   type: v.union(v.literal("file"), v.literal("image")),
 });
+const requestSelectionValidator = v.object({
+  requestType: v.string(),
+  note: v.string(),
+});
+const selectedCoworkerValidator = v.object({
+  openId: v.string(),
+  name: v.string(),
+  avatarUrl: v.optional(v.string()),
+});
+
+type RequestSelection = { requestType: string; note: string };
+type SelectedCoworker = { openId: string; name: string; avatarUrl?: string };
+type AttachmentKey = { fileKey: string; fileName: string; type: "file" | "image" };
+type EmailMeta = { subject: string; from: string; bodyPreview: string };
+type DispatchArgs = {
+  targets: { bot: boolean; chat: boolean; bitable: boolean };
+  to: string[];
+  dateTimeCreated?: number;
+  attachmentFileKeys?: AttachmentKey[];
+  feishuDocUrl?: string;
+  sessionId?: string;
+  contacts?: string[];
+  groups?: string[];
+  requestSelections?: RequestSelection[];
+  selectedCoworkers?: SelectedCoworker[];
+};
 
 export const forwardToFeishu = action({
   args: {
@@ -28,6 +54,8 @@ export const forwardToFeishu = action({
     sessionId: v.optional(v.string()),
     contacts: v.optional(v.array(v.string())),
     groups: v.optional(v.array(v.string())),
+    requestSelections: v.optional(v.array(requestSelectionValidator)),
+    selectedCoworkers: v.optional(v.array(selectedCoworkerValidator)),
     // The PDF arrives as bytes (small) or a storageId (large); this action
     // uploads it to Feishu, so the client skips a separate upload round-trip.
     pdfBytes: v.optional(v.bytes()),
@@ -72,8 +100,8 @@ export const forwardToFeishu = action({
 
 async function dispatchToTargets(
   ctx: ActionCtx,
-  args: { targets: { bot: boolean; chat: boolean; bitable: boolean }; to: string[]; dateTimeCreated?: number; attachmentFileKeys?: { fileKey: string; fileName: string; type: "file" | "image" }[]; feishuDocUrl?: string; sessionId?: string; contacts?: string[]; groups?: string[] },
-  emailMeta: { subject: string; from: string; bodyPreview: string },
+  args: DispatchArgs,
+  emailMeta: EmailMeta,
   pdfFileKey: string | undefined,
 ) {
   // Independent receivers (bot webhook, team chat, Bitable, contacts, groups)
@@ -103,15 +131,9 @@ async function dispatchToTargets(
   }
 
   if (args.targets.bitable) {
-    tasks.push(
-      ctx.runAction(internal.feishu.bitable.createRecord, {
-        ...emailMeta,
-        to: args.to,
-        dateTimeCreated: args.dateTimeCreated,
-      }).then((result: { recordId: string }) => {
-        bitableRecordId = result.recordId;
-      }),
-    );
+    tasks.push(createBitableRecord(ctx, args, emailMeta).then((recordId) => {
+      bitableRecordId = recordId;
+    }));
   }
 
   tasks.push(sendToContactsAndGroups(ctx, args, emailMeta, pdfFileKey));
@@ -119,6 +141,21 @@ async function dispatchToTargets(
   await Promise.all(tasks);
 
   return { feishuMessageId, bitableRecordId };
+}
+
+async function createBitableRecord(
+  ctx: ActionCtx,
+  args: DispatchArgs,
+  emailMeta: EmailMeta,
+): Promise<string> {
+  const result: { recordId: string } = await ctx.runAction(internal.feishu.bitable.createRecord, {
+    ...emailMeta,
+    to: args.to,
+    dateTimeCreated: args.dateTimeCreated,
+    requestSelections: args.requestSelections,
+    selectedCoworkers: args.selectedCoworkers,
+  });
+  return result.recordId;
 }
 
 async function storeRecord(
@@ -129,7 +166,9 @@ async function storeRecord(
     userEmail?: string; dateTimeCreated?: number;
     targets: { bot: boolean; chat: boolean; bitable: boolean };
     contacts?: string[]; groups?: string[];
-    attachmentFileKeys?: { fileKey: string; fileName: string; type: "file" | "image" }[];
+    requestSelections?: RequestSelection[];
+    selectedCoworkers?: SelectedCoworker[];
+    attachmentFileKeys?: AttachmentKey[];
     feishuDocUrl?: string; feishuDocToken?: string;
   },
   bodyPreview: string,
@@ -152,6 +191,8 @@ async function storeRecord(
     sentToBitable: args.targets.bitable,
     sentToContacts: args.contacts,
     sentToGroups: args.groups,
+    requestSelections: args.requestSelections,
+    selectedCoworkers: args.selectedCoworkers,
     feishuMessageId: ids.feishuMessageId,
     bitableRecordId: ids.bitableRecordId,
     pdfFileKey,

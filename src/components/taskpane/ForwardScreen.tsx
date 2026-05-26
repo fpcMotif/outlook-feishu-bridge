@@ -1,6 +1,7 @@
 /* eslint-disable max-lines-per-function */
 import { useState } from "react";
 
+import { CoworkerPicker } from "./CoworkerPicker";
 import { ConnectCard } from "./ConnectCard";
 import { ReceivedScreen } from "./ReceivedScreen";
 import { REQUESTS, RequestCards } from "./RequestCards";
@@ -33,24 +34,22 @@ function LoginScreen({
   onLoginFallback: () => void;
 }) {
   return (
-    <div className="flex min-h-0 flex-1 flex-col px-5">
-      <div className="flex flex-1 flex-col justify-center py-8">
-        <header className="px-1 pb-5">
-          <div className="text-muted-foreground mb-3 flex items-center gap-2 text-[11px] font-semibold tracking-[0.14em] uppercase">
-            <span className="bg-muted-foreground inline-block h-px w-3.5" />
-            Account required
-          </div>
-          <h1 className="font-serif text-[34px] leading-[0.98] tracking-tight">
-            Connect Feishu
-            <br />
-            to continue
-          </h1>
-          <p className="text-foreground/70 mt-2 max-w-[32ch] text-sm leading-relaxed">
-            Log in before choosing request cards so the email can be routed from your account.
-          </p>
-        </header>
-        <ConnectCard onLogin={onLogin} onLoginFallback={onLoginFallback} />
-      </div>
+    <div className="no-scrollbar flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-5 pt-8 pb-6">
+      <header className="px-1">
+        <div className="text-accent-foreground mb-3 flex items-center gap-2 text-[11px] font-semibold uppercase">
+          <span className="bg-muted-foreground inline-block h-px w-3.5" />
+          Outlook handoff
+        </div>
+        <h1 className="font-serif text-[34px] leading-[0.98]">
+          Sign in before
+          <br />
+          routing the email
+        </h1>
+        <p className="text-foreground/70 mt-2 max-w-[32ch] text-sm leading-relaxed">
+          Keep account connection separate from the request cards, then continue cleanly.
+        </p>
+      </header>
+      <ConnectCard onLogin={onLogin} onLoginFallback={onLoginFallback} />
     </div>
   );
 }
@@ -65,13 +64,33 @@ export function ForwardScreen({
   onLoginFallback: () => void;
 }) {
   const [notes, setNotes] = useState<Record<string, string>>({});
-  const [screen, setScreen] = useState<"build" | "received">("build");
+  const [screen, setScreen] = useState<"build" | "contacts" | "received">("build");
   const [sending, setSending] = useState(false);
+  const [selectedContacts, setSelectedContacts] = useState<string[]>([]);
 
-  const filledCount = REQUESTS.filter((r) => (notes[r.id] ?? "").trim() !== "").length;
+  const filledRequests = REQUESTS.flatMap((r) => {
+    const note = (notes[r.id] ?? "").trim();
+    return note ? [{ id: r.id, title: r.title, note }] : [];
+  });
+  const filledCount = filledRequests.length;
+  const selectedCount = selectedContacts.length;
+
+  const toggleContact = (openId: string) => {
+    setSelectedContacts((current) =>
+      current.includes(openId)
+        ? current.filter((id) => id !== openId)
+        : [...current, openId],
+    );
+  };
 
   const handleSubmit = () => {
-    if (filledCount === 0 || sending) return;
+    if (sending) return;
+    if (screen === "build") {
+      if (filledCount === 0) return;
+      setScreen("contacts");
+      return;
+    }
+    if (selectedCount === 0) return;
     setSending(true);
     window.setTimeout(() => {
       setSending(false);
@@ -80,11 +99,37 @@ export function ForwardScreen({
   };
 
   if (screen === "received") {
-    return <ReceivedScreen channelCount={filledCount} onForwardAnother={() => setScreen("build")} />;
+    return <ReceivedScreen channelCount={selectedCount} onForwardAnother={() => setScreen("build")} />;
   }
 
   if (!isLoggedIn) {
     return <LoginScreen onLogin={onLogin} onLoginFallback={onLoginFallback} />;
+  }
+
+  if (screen === "contacts") {
+    return (
+      <>
+        <CoworkerPicker
+          requests={filledRequests}
+          selectedOpenIds={selectedContacts}
+          onToggle={toggleContact}
+          onBack={() => setScreen("build")}
+        />
+        <SubmitDock
+          count={selectedCount}
+          canSubmit={selectedCount > 0}
+          sending={sending}
+          hint="Choose a Feishu coworker"
+          label={
+            selectedCount > 0
+              ? `Submit to ${selectedCount} coworker${selectedCount > 1 ? "s" : ""}`
+              : undefined
+          }
+          footer={`${filledCount} request${filledCount > 1 ? "s" : ""} ready for Bitable + Convex sync`}
+          onSubmit={handleSubmit}
+        />
+      </>
+    );
   }
 
   return (
@@ -104,6 +149,8 @@ export function ForwardScreen({
         canSubmit={filledCount > 0}
         sending={sending}
         hint="Start a request above"
+        label={filledCount > 0 ? "Continue to Act II" : undefined}
+        footer="Act I: request details"
         onSubmit={handleSubmit}
       />
     </>

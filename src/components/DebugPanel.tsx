@@ -22,6 +22,7 @@ const PANEL: CSSProperties = {
   color: "#3f3",
   borderTop: "2px solid #3f3",
   overflow: "auto",
+  pointerEvents: "none",
 };
 const HEADER: CSSProperties = {
   position: "sticky",
@@ -31,6 +32,7 @@ const HEADER: CSSProperties = {
   gap: "6px",
   padding: "2px 6px",
   background: "#000",
+  pointerEvents: "auto",
 };
 const BTN: CSSProperties = {
   color: "#3f3",
@@ -89,7 +91,7 @@ function DebugBody({ office, entries }: { office: OfficeInfo; entries: DebugEntr
 
 export function DebugPanel({ office }: { office: OfficeInfo }) {
   const [, setTick] = useState(0);
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   const [conn, setConn] = useState("?");
 
   useEffect(() => subscribeDebug(() => setTick((t) => t + 1)), []);

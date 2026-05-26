@@ -16,56 +16,70 @@ vi.mock("../hooks/useFeishuAuth", () => ({
 const mockUseMailItem = vi.mocked(useMailItem);
 const mockUseFeishuAuth = vi.mocked(useFeishuAuth);
 
+function mockLoggedOutPreview() {
+  mockUseMailItem.mockReturnValue({
+    mailItem: null,
+    loading: false,
+    error: null,
+    readCurrentItem: vi.fn(),
+  });
+  mockUseFeishuAuth.mockReturnValue({
+    sessionId: "test-session",
+    isLoading: false,
+    isLoggedIn: false,
+    user: null,
+    userAccessToken: undefined,
+    login: vi.fn(),
+    loginFallback: vi.fn(),
+    logout: vi.fn(),
+  });
+}
+
+function renderPreview() {
+  render(<TaskPane host="browser" />);
+}
+
+function unlockRequestBuilder() {
+  fireEvent.click(screen.getByRole("button", { name: /Log in to Feishu/i }));
+}
+
 describe("TaskPane browser preview auth flow", () => {
   beforeEach(() => {
     vi.useRealTimers();
     window.history.replaceState({}, "", "/");
-    mockUseMailItem.mockReturnValue({
-      mailItem: null,
-      loading: false,
-      error: null,
-      readCurrentItem: vi.fn(),
-    });
-    mockUseFeishuAuth.mockReturnValue({
-      sessionId: "test-session",
-      isLoading: false,
-      isLoggedIn: false,
-      user: null,
-      userAccessToken: undefined,
-      login: vi.fn(),
-      loginFallback: vi.fn(),
-      logout: vi.fn(),
-    });
+    mockLoggedOutPreview();
   });
 
   it("starts on a standalone login page and unlocks the request builder after dev login", () => {
-    render(<TaskPane host="browser" />);
+    renderPreview();
 
     expect(screen.getByText("Connect your Feishu account")).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /Quotation/i }),
     ).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /Log in to Feishu/i }));
+    unlockRequestBuilder();
 
     expect(screen.queryByText("Connect your Feishu account")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Quotation/i })).toBeInTheDocument();
   });
 
-  it("supports the full browser-preview request path after login", async () => {
+  it("supports the full browser-preview request path after login", () => {
     vi.useFakeTimers();
-    render(<TaskPane host="browser" />);
+    renderPreview();
 
-    fireEvent.click(screen.getByRole("button", { name: /Log in to Feishu/i }));
+    unlockRequestBuilder();
     fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
     fireEvent.change(screen.getByRole("textbox"), {
       target: { value: "Need a quarterly L-Carnitine quote." },
     });
-    fireEvent.click(screen.getByRole("button", { name: /Submit 1 request/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Continue to Act II/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Jenny Xu/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Submit to 1 coworker/i }));
 
     expect(screen.getByRole("button", { name: /Submitting/i })).toBeInTheDocument();
 
-    await act(async () => {
+    act(() => {
       vi.advanceTimersByTime(900);
     });
 

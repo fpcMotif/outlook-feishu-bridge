@@ -18,6 +18,18 @@ export const storeEmailRecord = internalMutation({
     sentToBitable: v.boolean(),
     sentToContacts: v.optional(v.array(v.string())),
     sentToGroups: v.optional(v.array(v.string())),
+    requestSelections: v.optional(
+      v.array(v.object({ requestType: v.string(), note: v.string() })),
+    ),
+    selectedCoworkers: v.optional(
+      v.array(
+        v.object({
+          openId: v.string(),
+          name: v.string(),
+          avatarUrl: v.optional(v.string()),
+        }),
+      ),
+    ),
     feishuMessageId: v.optional(v.string()),
     bitableRecordId: v.optional(v.string()),
     pdfFileKey: v.optional(v.string()),

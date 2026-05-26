@@ -9,6 +9,18 @@ export const createRecord = internalAction({
     to: v.array(v.string()),
     bodyPreview: v.string(),
     dateTimeCreated: v.optional(v.number()),
+    requestSelections: v.optional(
+      v.array(v.object({ requestType: v.string(), note: v.string() })),
+    ),
+    selectedCoworkers: v.optional(
+      v.array(
+        v.object({
+          openId: v.string(),
+          name: v.string(),
+          avatarUrl: v.optional(v.string()),
+        }),
+      ),
+    ),
   },
   handler: async (ctx, args): Promise<{ recordId: string }> => {
     const appToken = process.env.FEISHU_BITABLE_APP_TOKEN;
@@ -27,6 +39,11 @@ export const createRecord = internalAction({
           From: args.from,
           To: args.to.join(", "),
           "Body Preview": args.bodyPreview,
+          "Request Types": args.requestSelections?.map((r) => r.requestType).join(", ") ?? "",
+          "Request Notes": args.requestSelections
+            ?.map((r) => `${r.requestType}: ${r.note}`)
+            .join("\n\n") ?? "",
+          Coworkers: args.selectedCoworkers?.map((c) => c.name).join(", ") ?? "",
           Date: args.dateTimeCreated ?? Date.now(),
         },
       },

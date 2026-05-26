@@ -1,5 +1,3 @@
-import { Button } from "@/components/ui/button";
-
 import { FeishuProfile } from "./FeishuProfile";
 
 interface FeishuUser {
@@ -26,14 +24,10 @@ function BridgeLogo() {
 }
 
 export function PaneHeader({
-  isLoggedIn,
   user,
-  onLogin,
   onLogout,
 }: {
-  isLoggedIn: boolean;
-  user: FeishuUser | null;
-  onLogin: () => void;
+  user: FeishuUser;
   onLogout: () => void;
 }) {
   return (
@@ -49,13 +43,7 @@ export function PaneHeader({
       </div>
 
       <div className="flex items-center">
-        {isLoggedIn && user ? (
-          <FeishuProfile user={user} onLogout={onLogout} />
-        ) : (
-          <Button size="sm" onClick={onLogin}>
-            Log in
-          </Button>
-        )}
+        <FeishuProfile user={user} onLogout={onLogout} />
       </div>
     </header>
   );

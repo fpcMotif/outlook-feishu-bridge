@@ -1,0 +1,200 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-sans: "Geist Sans", "Inter Tight", system-ui, sans-serif;
+  --font-serif: "Instrument Serif", "Newsreader", "Times New Roman", serif;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-card-soft: var(--card-soft);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-deep: var(--primary-deep);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-sage: var(--sage);
+  --color-sage-soft: var(--sage-soft);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+}
+
+:root {
+  --radius: 0.875rem;
+  --background: #f3f2f1;
+  --foreground: #323130;
+  --card: #ffffff;
+  --card-foreground: #323130;
+  --card-soft: #f8f8f8;
+  --popover: #ffffff;
+  --popover-foreground: #323130;
+  --primary: #0078d4;
+  --primary-foreground: #ffffff;
+  --primary-deep: #106ebe;
+  --secondary: #edebe9;
+  --secondary-foreground: #323130;
+  --muted: #edebe9;
+  --muted-foreground: #605e5c;
+  --accent: #deecf9;
+  --accent-foreground: #005a9e;
+  --sage: #107c10;
+  --sage-soft: #dff6dd;
+  --destructive: #c50f1f;
+  --destructive-foreground: #ffffff;
+  --border: #d2d0ce;
+  --input: #d2d0ce;
+  --ring: #0078d4;
+}
+
+.dark {
+  --background: #1b1a19;
+  --foreground: #f3f2f1;
+  --card: #252423;
+  --card-foreground: #f3f2f1;
+  --card-soft: #323130;
+  --popover: #252423;
+  --popover-foreground: #f3f2f1;
+  --primary: #4cc2ff;
+  --primary-foreground: #1b1a19;
+  --primary-deep: #6fd2ff;
+  --secondary: #323130;
+  --secondary-foreground: #f3f2f1;
+  --muted: #323130;
+  --muted-foreground: #c8c6c4;
+  --accent: #004578;
+  --accent-foreground: #c7e0f4;
+  --sage: #92c353;
+  --sage-soft: #274b25;
+  --destructive: #f1707b;
+  --destructive-foreground: #1b1a19;
+  --border: #484644;
+  --input: #484644;
+  --ring: #4cc2ff;
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: "ss01", "cv11";
+  }
+}
+
+/* Radix Accordion height animation — the design's 450ms eased drawer. */
+@keyframes accordion-down {
+  from {
+    height: 0;
+  }
+  to {
+    height: var(--radix-accordion-content-height);
+  }
+}
+@keyframes accordion-up {
+  from {
+    height: var(--radix-accordion-content-height);
+  }
+  to {
+    height: 0;
+  }
+}
+.drawer-content {
+  overflow: hidden;
+}
+.drawer-content[data-state="open"] {
+  animation: accordion-down 0.42s cubic-bezier(0.6, 0.05, 0.2, 1);
+}
+.drawer-content[data-state="closed"] {
+  animation: accordion-up 0.38s cubic-bezier(0.6, 0.05, 0.2, 1);
+}
+
+/* Pulsing "active" status node + success ring (received screen). */
+@keyframes pulse-dot {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(0.7);
+    opacity: 0.6;
+  }
+}
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.55);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.35;
+  }
+  100% {
+    transform: scale(1.4);
+    opacity: 0;
+  }
+}
+@keyframes pop-in {
+  from {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+.animate-pulse-dot {
+  animation: pulse-dot 1.6s ease-out infinite;
+}
+.animate-pulse-ring {
+  animation: pulse-ring 2.6s ease-out infinite;
+}
+.animate-pop-in {
+  animation: pop-in 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+}
+
+/* Profile popover enter — subtle scale + fade from the top-right. */
+@keyframes profile-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.profile-pop {
+  transform-origin: top right;
+  animation: profile-pop 0.16s ease-out;
+}
+
+/* Hide scrollbars on the task-pane scroll region (matches the design). */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}

@@ -1,0 +1,26 @@
+# Cloudflare Pages response headers (the CF equivalent of deploy/nginx/addin-headers.conf).
+# Kept in sync with that nginx config — it is the source of truth for the CSP.
+# frame-ancestors is load-bearing: it must list EVERY Office host that frames the
+# taskpane (the new Outlook runs on *.cloud.microsoft, NOT *.office.com).
+# script-src needs 'unsafe-eval' + https://ajax.aspnetcdn.com: Office.js fetches
+# MicrosoftAjax.js from that CDN during init and it uses eval().
+# connect-src reaches Convex (incl. websocket) + Feishu + Sentry. On Cloudflare
+# (served outside mainland China) Sentry ingest is DIRECT to *.sentry.io — the
+# /_sentry/ nginx tunnel only exists on the ECS box. See ADR-0002 / ADR-0007.
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-eval' https://appsforoffice.microsoft.com https://*.oaspapps.com https://ajax.aspnetcdn.com; style-src 'self' 'unsafe-inline'; connect-src 'self' https://*.convex.cloud https://*.convex.site wss://*.convex.cloud https://open.feishu.cn https://*.microsoft.com https://*.office.com https://*.office365.com https://*.cloud.microsoft https://*.oaspapps.com https://*.sentry.io; img-src 'self' https: data: blob:; frame-src 'self' https://*.oaspapps.com https://*.microsoft.com https://*.office.com https://*.office365.com https://*.outlook.com https://*.cloud.microsoft https://*.microsoft365.com; frame-ancestors https://*.microsoft.com https://*.office.com https://*.office365.com https://*.outlook.com https://*.cloud.microsoft https://*.microsoft365.com;
+  X-Content-Type-Options: nosniff
+
+# The SPA entry must revalidate so the Outlook WebView picks up each deploy's new
+# hashed assets. Cloudflare matches _headers against the ORIGINAL request path (NOT
+# the _redirects-rewritten /index.html), and the taskpane loads the SPA at the root,
+# so the no-cache rule is keyed on `/` (plus /index.html for direct hits).
+/
+  Cache-Control: no-cache
+
+/index.html
+  Cache-Control: no-cache
+
+# Content-hashed Vite assets are immutable by name — cache forever.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable

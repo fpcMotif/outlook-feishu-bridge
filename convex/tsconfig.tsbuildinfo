@@ -1,0 +1,1 @@
+{"root":["./emails.ts","./http.ts","./schema.ts","./feishu/auth.ts","./feishu/bitable.ts","./feishu/bot.ts","./feishu/chat.ts","./feishu/forwardemail.ts","./feishu/userauth.ts"],"version":"6.0.2"}

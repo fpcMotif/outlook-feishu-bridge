@@ -1,0 +1,37 @@
+# Feishu fallback OAuth callback (ADR-0008). One-time install on the ECS box:
+#   sudo cp deploy/feishu-auth.service /etc/systemd/system/feishu-auth.service
+#   sudo systemctl daemon-reload && sudo systemctl enable --now feishu-auth
+# Thereafter `deploy.sh auth` ships the code, writes /etc/feishu-auth.env, and
+# `systemctl restart feishu-auth`. Requires Bun on the box (one-time:
+#   curl -fsSL https://bun.sh/install | bash
+#   sudo cp "$HOME/.bun/bin/bun" /usr/local/bin/bun   # COPY to a system path, not a
+#                                                     # symlink into ~/.bun — see below
+# Adjust User= and the paths below if your deploy user / layout differ.
+[Unit]
+Description=Feishu fallback OAuth callback (Bun, ADR-0008)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Dedicated unprivileged system user (created during one-time setup):
+#   useradd --system --no-create-home --shell /usr/sbin/nologin feishu-auth
+User=feishu-auth
+WorkingDirectory=/opt/feishu-auth
+# Holds FEISHU_APP_SECRET — written chmod 600 by deploy.sh auth.
+EnvironmentFile=/etc/feishu-auth.env
+# Absolute path: systemd has no PATH. Bun must be a real binary here (a COPY, not
+# a symlink into ~/.bun) so it stays reachable independent of any home dir.
+ExecStart=/usr/local/bin/bun run index.ts
+# A server should never exit on its own; always bring it back.
+Restart=always
+RestartSec=2
+# Safe hardening (won't interfere with Bun's home/cache): drop privilege
+# escalation, give a private /tmp, make system dirs read-only. (Deliberately NOT
+# ProtectHome — that would hide a home-installed Bun and break ExecStart.)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

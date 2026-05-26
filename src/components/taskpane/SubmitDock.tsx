@@ -21,7 +21,7 @@ export function SubmitDock({
 }) {
   const live = canSubmit && !sending;
   return (
-    <div className="bg-background relative z-10 shrink-0 px-5 pt-3 pb-2">
+    <div className="submit-dock bg-background relative z-10 shrink-0 px-5 pt-3 pb-2">
       <div className="from-background pointer-events-none absolute inset-x-0 -top-6 h-6 bg-gradient-to-t to-transparent" />
       <button
         type="button"
@@ -46,9 +46,9 @@ export function SubmitDock({
         </span>
         {live && count > 0 ? <ArrowRight className="size-[18px]" /> : null}
       </button>
-      <div className="text-muted-foreground mt-2 truncate text-center text-[11px]">
-        {footer ?? "Encrypted · routed to your Feishu workspace"}
-      </div>
+      {footer ? (
+        <div className="text-muted-foreground mt-2 truncate text-center text-[11px]">{footer}</div>
+      ) : null}
     </div>
   );
 }

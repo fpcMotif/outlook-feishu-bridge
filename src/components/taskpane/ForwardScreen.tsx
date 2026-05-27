@@ -10,11 +10,11 @@ import { SubmitDock } from "./SubmitDock";
 function Hero() {
   return (
     <header className="px-1 pt-3 pb-5">
-      <div className="text-muted-foreground mb-3 flex items-center gap-2 text-[11px] font-semibold tracking-[0.14em] uppercase">
+      <div className="text-muted-foreground mb-3 flex items-center gap-2 text-[11px] font-semibold uppercase">
         <span className="bg-muted-foreground inline-block h-px w-3.5" />
         New request
       </div>
-      <h1 className="font-serif text-[34px] leading-[0.98] tracking-tight">
+      <h1 className="font-serif text-[34px] leading-[0.98]">
         How can we
         <br />
         help today?
@@ -34,7 +34,7 @@ function LoginScreen({
   onLoginFallback: () => void;
 }) {
   return (
-    <div className="no-scrollbar flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-5 pt-8 pb-6">
+    <div className="screen-flow no-scrollbar flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-5 pt-8 pb-6">
       <header className="px-1">
         <div className="text-accent-foreground mb-3 flex items-center gap-2 text-[11px] font-semibold uppercase">
           <span className="bg-muted-foreground inline-block h-px w-3.5" />
@@ -125,7 +125,6 @@ export function ForwardScreen({
               ? `Submit to ${selectedCount} coworker${selectedCount > 1 ? "s" : ""}`
               : undefined
           }
-          footer={`${filledCount} request${filledCount > 1 ? "s" : ""} ready for Bitable + Convex sync`}
           onSubmit={handleSubmit}
         />
       </>
@@ -134,7 +133,7 @@ export function ForwardScreen({
 
   return (
     <>
-      <div className="no-scrollbar flex-1 overflow-y-auto px-5 pt-1 pb-2">
+      <div className="screen-flow no-scrollbar flex-1 overflow-y-auto px-5 pt-1 pb-2">
         <Hero />
         <div className="space-y-3">
           <RequestCards
@@ -149,8 +148,7 @@ export function ForwardScreen({
         canSubmit={filledCount > 0}
         sending={sending}
         hint="Start a request above"
-        label={filledCount > 0 ? "Continue to Act II" : undefined}
-        footer="Act I: request details"
+        label={filledCount > 0 ? "Continue" : undefined}
         onSubmit={handleSubmit}
       />
     </>

@@ -18,14 +18,15 @@ function fillQuotationAndContinue() {
   fireEvent.change(screen.getByRole("textbox"), {
     target: { value: "Need a quarterly L-Carnitine quote." },
   });
-  fireEvent.click(screen.getByRole("button", { name: /Continue to Act II/i }));
+  expect(screen.queryByText("Bitable preview")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: /^Continue$/i }));
 }
 
 describe("ForwardScreen login gate", () => {
   it("keeps the Feishu login surface separate from the request builder", () => {
     renderForwardScreen(false);
 
-    expect(screen.getByText("Connect your Feishu account")).toBeInTheDocument();
+    expect(screen.getByText("Connect to Feishu")).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /Quotation/i }),
     ).not.toBeInTheDocument();
@@ -37,23 +38,29 @@ describe("ForwardScreen login gate", () => {
   it("shows the request builder without the login prompt after sign-in", () => {
     renderForwardScreen(true);
 
-    expect(screen.queryByText("Connect your Feishu account")).not.toBeInTheDocument();
+    expect(screen.queryByText("Connect to Feishu")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Quotation/i })).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /Start a request above/i }),
     ).toBeInTheDocument();
   });
 
-  it("moves filled requests into Act II coworker selection before submit", () => {
+  it("moves filled requests into coworker selection before submit", () => {
     renderForwardScreen(true);
     fillQuotationAndContinue();
 
-    expect(screen.getByText("Act II")).toBeInTheDocument();
+    expect(screen.getByText("Forward to")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /Select Feishu/i })).toBeInTheDocument();
     expect(screen.getByText("Quotation")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Jenny Xu/i })).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /Choose a Feishu coworker/i }),
     ).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: /Jenny Xu/i }));
+
+    expect(screen.getByText("Bitable preview")).toBeInTheDocument();
+    expect(screen.getByText("Recipient")).toBeInTheDocument();
+    expect(screen.getAllByText("Need a quarterly L-Carnitine quote.")).toHaveLength(2);
   });
 });

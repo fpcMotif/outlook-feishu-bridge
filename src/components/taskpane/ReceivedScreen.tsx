@@ -52,7 +52,7 @@ export function ReceivedScreen({
   ];
 
   return (
-    <div className="no-scrollbar flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-6 pt-12 pb-6">
+    <div className="screen-flow no-scrollbar flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-6 pt-12 pb-6">
       <div className="relative mb-7 flex size-36 items-center justify-center">
         <span className="border-primary/30 animate-pulse-ring absolute inset-0 rounded-full border" />
         <span className="border-primary/30 animate-pulse-ring absolute inset-0 rounded-full border [animation-delay:0.8s]" />

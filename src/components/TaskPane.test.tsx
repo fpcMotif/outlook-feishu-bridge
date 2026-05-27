@@ -40,7 +40,7 @@ function renderPreview() {
 }
 
 function unlockRequestBuilder() {
-  fireEvent.click(screen.getByRole("button", { name: /Log in to Feishu/i }));
+  fireEvent.click(screen.getByRole("button", { name: /Continue with Feishu/i }));
 }
 
 describe("TaskPane browser preview auth flow", () => {
@@ -53,14 +53,14 @@ describe("TaskPane browser preview auth flow", () => {
   it("starts on a standalone login page and unlocks the request builder after dev login", () => {
     renderPreview();
 
-    expect(screen.getByText("Connect your Feishu account")).toBeInTheDocument();
+    expect(screen.getByText("Connect to Feishu")).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /Quotation/i }),
     ).not.toBeInTheDocument();
 
     unlockRequestBuilder();
 
-    expect(screen.queryByText("Connect your Feishu account")).not.toBeInTheDocument();
+    expect(screen.queryByText("Connect to Feishu")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Quotation/i })).toBeInTheDocument();
   });
 
@@ -73,8 +73,10 @@ describe("TaskPane browser preview auth flow", () => {
     fireEvent.change(screen.getByRole("textbox"), {
       target: { value: "Need a quarterly L-Carnitine quote." },
     });
-    fireEvent.click(screen.getByRole("button", { name: /Continue to Act II/i }));
+    expect(screen.queryByText("Bitable preview")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^Continue$/i }));
     fireEvent.click(screen.getByRole("button", { name: /Jenny Xu/i }));
+    expect(screen.getByText("Bitable preview")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Submit to 1 coworker/i }));
 
     expect(screen.getByRole("button", { name: /Submitting/i })).toBeInTheDocument();

@@ -104,31 +104,132 @@
   }
 }
 
-/* Radix Accordion height animation — the design's 450ms eased drawer. */
+/* Radix Accordion height animation. */
 @keyframes accordion-down {
   from {
     height: 0;
+    opacity: 0;
+    transform: translateY(-8px);
   }
   to {
     height: var(--radix-accordion-content-height);
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 @keyframes accordion-up {
   from {
     height: var(--radix-accordion-content-height);
+    opacity: 1;
+    transform: translateY(0);
   }
   to {
     height: 0;
+    opacity: 0;
+    transform: translateY(-6px);
   }
 }
 .drawer-content {
   overflow: hidden;
+  transform-origin: top;
+  will-change: height, opacity, transform;
 }
 .drawer-content[data-state="open"] {
-  animation: accordion-down 0.42s cubic-bezier(0.6, 0.05, 0.2, 1);
+  animation: accordion-down 0.44s cubic-bezier(0.2, 0, 0, 1) both;
 }
 .drawer-content[data-state="closed"] {
-  animation: accordion-up 0.38s cubic-bezier(0.6, 0.05, 0.2, 1);
+  animation: accordion-up 0.32s cubic-bezier(0.4, 0, 1, 1) both;
+}
+
+@keyframes screen-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes card-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes dock-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes sync-preview-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes sync-scan {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(220%);
+  }
+}
+.screen-flow {
+  animation: screen-in 0.28s cubic-bezier(0.2, 0, 0, 1) both;
+}
+.request-card-enter {
+  animation: card-fade-up 0.38s cubic-bezier(0.2, 0, 0, 1) both;
+  animation-delay: calc(var(--card-index, 0) * 45ms);
+}
+.submit-dock {
+  animation: dock-rise 0.34s cubic-bezier(0.2, 0, 0, 1) both;
+}
+.sync-preview {
+  position: relative;
+  overflow: hidden;
+  animation: sync-preview-in 0.28s cubic-bezier(0.2, 0, 0, 1) both;
+}
+.sync-preview::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  left: 0;
+  width: 42%;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5), transparent);
+  animation: sync-scan 1.8s cubic-bezier(0.2, 0, 0, 1) 0.15s both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drawer-content,
+  .drawer-content[data-state="open"],
+  .drawer-content[data-state="closed"],
+  .screen-flow,
+  .request-card-enter,
+  .submit-dock,
+  .sync-preview,
+  .sync-preview::after,
+  .animate-pulse-dot,
+  .animate-pulse-ring,
+  .animate-pop-in {
+    animation-duration: 0.01ms;
+    animation-iteration-count: 1;
+  }
 }
 
 /* Pulsing "active" status node + success ring (received screen). */

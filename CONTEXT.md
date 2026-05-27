@@ -43,7 +43,7 @@ The click→Feishu path that [`src/forward/forwardEmail.ts`](src/forward/forward
 _Avoid_: "the upload" (PDF, attachment, and Doc media are three distinct upload paths), "send the email" (we forward a *copy* into Feishu; the Outlook mail is untouched besides the category tag).
 
 **User-identity call**:
-A Feishu API call made with the signed-in person's user access token — used to forward mail *as them*, list *their* groups (`/im/v1/chats`), and search the directory (`/search/v1/user`); contrast a **tenant-identity call** made with the app/bot token (bot-webhook posts, Docs, Bitable).
+A Feishu API call made with the signed-in person's user access token — used today only to search the directory (`/search/v1/user`) for real coworker `open_id`s; contrast a **tenant-identity call** made with the app/bot token (Docs, Bitable).
 _Avoid_: "the Feishu token" — there are two, user vs tenant.
 
 **Email PDF**:
@@ -76,5 +76,5 @@ _Avoid_: "email screenshot" / "rendered email image" — it carries no images an
 - "Convex" sometimes refers to the SaaS company, sometimes to our specific deployment. We say **Convex Backend** when we mean ours.
 - The SPA base path is **host-specific**: `/addin/` on the **ECS Host**, `/` on the **Global Host** ([ADR-0009](docs/adr/0009-cloudflare-global-host-dual-deploy.md)). A mismatch — an ECS manifest pointing at root, or a `/addin/` build deployed to the Global Host's root — 404s on assets.
 - `/search/v1/user` reads as legacy but is **current** — it's the official Search Users API (GET, keyword in the `query` URL param, scope `contact:user:search`); there is no `contact/v3` search. The earlier Feishu `99991679` was a malformed call (POSTed body) + a missing user scope, not a dead endpoint. See [ADR-0003](docs/adr/0003-feishu-user-scopes-and-search-v1.md).
-- **User-identity call** scopes (`im:chat:readonly`, `contact:user:search`, `im:message`, `offline_access`) must be listed in the authorize-URL `scope` param, or the user token can't make those calls (Feishu `99991679`). Changing the set forces every user to log out and re-authorize.
+- **User-identity call** scopes (`contact:user:search`, `offline_access`) must be listed in the authorize-URL `scope` param, or the user token can't search coworkers / refresh cleanly. The app no longer asks for `im:chat:readonly` or `im:message` because this flow does not list groups or send IM messages. Changing the set forces every user to log out and re-authorize.
 - The **Email PDF** intentionally contains **no images** — they're forwarded as Feishu attachments instead (avoids duplication + bloat). A reader expecting a visual replica of the email will be surprised; it's text-only by design. See [ADR-0005](docs/adr/0005-email-pdf-is-text-only-vector.md).

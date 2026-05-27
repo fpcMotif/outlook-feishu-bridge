@@ -1,16 +1,24 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { ForwardScreen } from "./ForwardScreen";
+import { ForwardScreen, type ServiceRecordSyncInput } from "./ForwardScreen";
+import type { SearchCoworkers } from "./CoworkerPicker";
+
+const JENNY = { openId: "ou_real_jenny", name: "Jenny Xu" };
+const searchCoworkers: SearchCoworkers = (query) =>
+  Promise.resolve(query.toLowerCase().includes("jenny") ? [JENNY] : []);
 
 function renderForwardScreen(
   isLoggedIn: boolean,
   clientEmail = "m.hoffmann@bayerpharma.de",
+  onSyncServiceRecord?: (input: ServiceRecordSyncInput) => Promise<void>,
 ) {
   render(
     <ForwardScreen
       isLoggedIn={isLoggedIn}
       clientEmail={clientEmail}
+      searchCoworkers={searchCoworkers}
+      onSyncServiceRecord={onSyncServiceRecord}
       onLogin={vi.fn()}
       onLoginFallback={vi.fn()}
     />,
@@ -23,6 +31,13 @@ function fillQuotationAndContinue() {
     target: { value: "Need a quarterly L-Carnitine quote." },
   });
   fireEvent.click(screen.getByRole("button", { name: /^Continue$/i }));
+}
+
+async function searchJenny() {
+  fireEvent.change(screen.getByPlaceholderText("Search Feishu coworkers..."), {
+    target: { value: "Jenny" },
+  });
+  return await screen.findByRole("button", { name: /Jenny Xu/i });
 }
 
 describe("ForwardScreen login gate", () => {
@@ -62,7 +77,7 @@ describe("ForwardScreen request details", () => {
     expect(screen.queryByText("Ready")).not.toBeInTheDocument();
   });
 
-  it("moves filled requests into Act II coworker selection before submit", () => {
+  it("moves filled requests into Act II coworker selection before submit", async () => {
     renderForwardScreen(true);
     fillQuotationAndContinue();
 
@@ -71,7 +86,7 @@ describe("ForwardScreen request details", () => {
     expect(screen.getByDisplayValue("m.hoffmann@bayerpharma.de")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Feishu coworker" })).toBeInTheDocument();
     expect(screen.queryByText("Need a quarterly L-Carnitine quote.")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Jenny Xu/i })).toBeInTheDocument();
+    expect(await searchJenny()).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /Choose a Feishu coworker/i }),
     ).toBeDisabled();
@@ -88,23 +103,53 @@ describe("ForwardScreen request details", () => {
     expect(screen.getByDisplayValue("updated.client@example.com")).toBeInTheDocument();
   });
 
-  it("keeps coworker selection on cards without selected tags", () => {
+  it("keeps coworker selection on cards without selected tags", async () => {
     renderForwardScreen(true);
     fillQuotationAndContinue();
 
-    fireEvent.click(screen.getByRole("button", { name: /Jenny Xu/i }));
+    fireEvent.click(await searchJenny());
 
     expect(screen.getByRole("button", { name: /Submit to 1 coworker/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Remove coworker/i })).not.toBeInTheDocument();
   });
 });
 
-describe("ForwardScreen sync flow", () => {
-  it("shows Act IV while syncing before the success screen", () => {
+describe("ForwardScreen service sync payload", () => {
+  it("calls the service-record sync with request content, client, and coworker", async () => {
+    const onSyncServiceRecord = vi.fn(() => Promise.resolve());
+    renderForwardScreen(true, "buyer@example.com", onSyncServiceRecord);
+    fillQuotationAndContinue();
+
+    fireEvent.change(screen.getByLabelText("Client email"), {
+      target: { value: "updated.client@example.com" },
+    });
+    fireEvent.click(await searchJenny());
+    fireEvent.click(screen.getByRole("button", { name: /Submit to 1 coworker/i }));
+
+    expect(onSyncServiceRecord).toHaveBeenCalledWith({
+      clientEmail: "updated.client@example.com",
+      requestSelections: [
+        { requestType: "Quotation", note: "Need a quarterly L-Carnitine quote." },
+      ],
+      selectedCoworkers: [JENNY],
+    });
+  });
+});
+
+describe("ForwardScreen sync progress", () => {
+  it("shows Act IV while syncing before the success screen", async () => {
     vi.useFakeTimers();
     renderForwardScreen(true);
     fillQuotationAndContinue();
 
+    fireEvent.change(screen.getByPlaceholderText("Search Feishu coworkers..."), {
+      target: { value: "Jenny" },
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
     fireEvent.click(screen.getByRole("button", { name: /Jenny Xu/i }));
     fireEvent.click(screen.getByRole("button", { name: /Submit to 1 coworker/i }));
 
@@ -113,8 +158,13 @@ describe("ForwardScreen sync flow", () => {
     ).toBeInTheDocument();
     expect(screen.getByRole("progressbar", { name: /Sync progress/i })).toBeInTheDocument();
 
-    act(() => {
-      vi.advanceTimersByTime(3700);
+    await act(async () => {
+      vi.advanceTimersByTime(3600);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(250);
+      await Promise.resolve();
     });
 
     expect(screen.getByRole("heading", { name: /Synced to Feishu/i })).toBeInTheDocument();

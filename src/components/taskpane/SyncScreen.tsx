@@ -16,6 +16,7 @@ const SYNC_DURATION_MS = 3600;
 const PROGRESS_TICK_MS = 180;
 const PACKET_MIN_PROGRESS = 12;
 const PACKET_MAX_PROGRESS = 88;
+const COMPLETE_HOLD_MS = 250;
 
 const PHASES = [
   { at: 0, label: "Reading Outlook context", detail: "Parsing the request card and selected coworkers." },
@@ -31,10 +32,26 @@ function phaseForProgress(progress: number) {
   return PHASES[0];
 }
 
-function useSyncProgress(onComplete: () => void) {
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+function useSyncProgress({
+  onSync,
+  onComplete,
+  onError,
+}: {
+  onSync: () => Promise<void>;
+  onComplete: () => void;
+  onError: (message: string) => void;
+}) {
   const [progress, setProgress] = useState(8);
 
   useEffect(() => {
+    let cancelled = false;
+    let doneTimer: number | undefined;
     const progressTimer = window.setInterval(() => {
       setProgress((current) => {
         if (current >= 98) return current;
@@ -43,13 +60,25 @@ function useSyncProgress(onComplete: () => void) {
       });
     }, PROGRESS_TICK_MS);
 
-    const doneTimer = window.setTimeout(onComplete, SYNC_DURATION_MS);
+    void Promise.all([onSync(), delay(SYNC_DURATION_MS)])
+      .then(() => {
+        if (cancelled) return;
+        window.clearInterval(progressTimer);
+        setProgress(100);
+        doneTimer = window.setTimeout(onComplete, COMPLETE_HOLD_MS);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        window.clearInterval(progressTimer);
+        onError(err instanceof Error ? err.message : "Could not sync to Feishu Bitable.");
+      });
 
     return () => {
+      cancelled = true;
       window.clearInterval(progressTimer);
-      window.clearTimeout(doneTimer);
+      if (doneTimer !== undefined) window.clearTimeout(doneTimer);
     };
-  }, [onComplete]);
+  }, [onComplete, onError, onSync]);
 
   return progress;
 }
@@ -228,14 +257,17 @@ export function SyncScreen({
   requests,
   clientEmail,
   channelCount,
+  onSync,
   onComplete,
 }: {
   requests: SyncRequest[];
   clientEmail: string;
   channelCount: number;
+  onSync: () => Promise<void>;
   onComplete: () => void;
 }) {
-  const progress = useSyncProgress(onComplete);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const progress = useSyncProgress({ onSync, onComplete, onError: setSyncError });
   const summary = useMemo(() => {
     const requestLabel = `${requests.length} request${requests.length === 1 ? "" : "s"}`;
     const channelLabel = `${channelCount} coworker${channelCount === 1 ? "" : "s"}`;
@@ -246,6 +278,11 @@ export function SyncScreen({
     <div className="no-scrollbar flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-5 pt-6 pb-5">
       <SyncHeader />
       <SyncPanel requests={requests} progress={progress} />
+      {syncError ? (
+        <p className="text-destructive mt-4 w-full max-w-[520px] px-1 text-sm leading-relaxed">
+          {syncError}
+        </p>
+      ) : null}
       <SyncSummary summary={summary} />
     </div>
   );

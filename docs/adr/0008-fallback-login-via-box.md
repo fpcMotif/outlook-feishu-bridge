@@ -23,7 +23,7 @@ The box is a **manual "trouble logging in?" fallback** — Convex stays the defa
 - **Token in `localStorage`.** An XSS exposure; acceptable for an internal add-in (the SPA already keeps a session id there). Reconsider if this app ever holds higher-value scopes.
 - **The box gains a process.** A long-running Bun service under **systemd** + an nginx proxy `location`; `FEISHU_APP_SECRET` now also lives on the box (systemd `EnvironmentFile`, never in the repo). The box was already load-bearing (it serves the SPA), so this is not a new single point of failure.
 - **Feishu console** must whitelist the box redirect URI; the scope set is unchanged.
-- **No server-side refresh yet.** `offline_access` is still requested (refresh token stored but unused), so a `/refresh` endpoint can be added later without re-registering anything.
+- **No server-side refresh yet.** `offline_access` is still requested (refresh token stored but unused), so a `/refresh` endpoint can be added later without re-registering anything. The fallback path uses the same reduced user scopes as the primary path: `contact:user:search offline_access`.
 
 ## Alternatives rejected
 

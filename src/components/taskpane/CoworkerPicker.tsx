@@ -1,23 +1,13 @@
 /* eslint-disable max-lines-per-function */
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowLeft, Check, Search, UserRound, X } from "lucide-react";
 
 import type { Contact } from "@/forward/targets";
 
-// Prototype directory. Swap this filter for the real Feishu searchContacts
-// action (GET /search/v1/user) once a live session token is available.
-export const PREVIEW_COWORKERS: Contact[] = [
-  { openId: "ou_jenny", name: "Jenny Xu" },
-  { openId: "ou_michael", name: "Michael Chen" },
-  { openId: "ou_sales_ops", name: "Sales Ops" },
-  { openId: "ou_wei", name: "Wei Liang" },
-  { openId: "ou_maria", name: "Maria Hoffmann" },
-  { openId: "ou_carlos", name: "Carlos Mendez" },
-  { openId: "ou_aiko", name: "Aiko Tanaka" },
-  { openId: "ou_lena", name: "Lena Fischer" },
-];
-
 const RECENTS_KEY = "feishu_recent_coworkers";
+const SEARCH_DEBOUNCE_MS = 250;
+
+export type SearchCoworkers = (query: string) => Promise<Contact[]>;
 
 function loadRecents(): Contact[] {
   try {
@@ -62,13 +52,13 @@ function CoworkerOption({
 }: {
   contact: Contact;
   selected: boolean;
-  onToggle: (openId: string) => void;
+  onToggle: (contact: Contact) => void;
 }) {
   return (
     <button
       type="button"
       aria-pressed={selected}
-      onClick={() => onToggle(contact.openId)}
+      onClick={() => onToggle(contact)}
       className="bg-card flex w-full items-center gap-3 rounded-[14px] px-4 py-3 text-left shadow-[var(--shadow-border)] transition-[background-color,box-shadow,scale] duration-150 ease-[var(--ease-out-strong)] active:scale-[0.97] data-[pressed=true]:bg-accent data-[pressed=true]:shadow-[0_0_0_1.5px_var(--primary)]"
       data-pressed={selected}
     >
@@ -139,47 +129,71 @@ export function CoworkerPicker({
   clientEmail,
   onClientEmailChange,
   selectedOpenIds,
+  searchCoworkers,
   onToggle,
   onBack,
 }: {
   clientEmail: string;
   onClientEmailChange: (email: string) => void;
   selectedOpenIds: string[];
-  onToggle: (openId: string) => void;
+  searchCoworkers: SearchCoworkers;
+  onToggle: (contact: Contact) => void;
   onBack: () => void;
 }) {
   const [query, setQuery] = useState("");
   const [focused, setFocused] = useState(false);
   const [recents, setRecents] = useState<Contact[]>(loadRecents);
+  const [results, setResults] = useState<Contact[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
 
-  const q = query.trim().toLowerCase();
-  const directoryById = useMemo(() => {
-    const map = new Map<string, Contact>();
-    for (const c of [...PREVIEW_COWORKERS, ...recents]) map.set(c.openId, c);
-    return map;
-  }, [recents]);
+  const q = query.trim();
 
-  const results = useMemo(
-    () => (q ? PREVIEW_COWORKERS.filter((c) => c.name.toLowerCase().includes(q)) : []),
-    [q],
-  );
-
-  const searching = q.length > 0;
-  const list = searching ? results : recents.length > 0 ? recents : PREVIEW_COWORKERS.slice(0, 4);
-  const listLabel = searching ? "Results" : recents.length > 0 ? "Recent" : "Suggested";
-
-  const handleToggle = (openId: string) => {
-    const contact = directoryById.get(openId);
-    if (contact) {
-      const next = [contact, ...loadRecents().filter((c) => c.openId !== openId)].slice(0, 6);
-      try {
-        localStorage.setItem(RECENTS_KEY, JSON.stringify(next));
-      } catch {
-        /* ignore quota / unavailable storage */
-      }
-      setRecents(next);
+  useEffect(() => {
+    if (!q) {
+      setResults([]);
+      setSearching(false);
+      setSearchError(null);
+      return;
     }
-    onToggle(openId);
+
+    let cancelled = false;
+    setSearching(true);
+    setSearchError(null);
+    const timer = window.setTimeout(() => {
+      void searchCoworkers(q)
+        .then((contacts) => {
+          if (!cancelled) setResults(contacts);
+        })
+        .catch((err: unknown) => {
+          if (!cancelled) {
+            setResults([]);
+            setSearchError(err instanceof Error ? err.message : "Could not search coworkers.");
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setSearching(false);
+        });
+    }, SEARCH_DEBOUNCE_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [q, searchCoworkers]);
+
+  const list = q ? results : recents;
+  const listLabel = q ? "Results" : recents.length > 0 ? "Recent" : "Search";
+
+  const handleToggle = (contact: Contact) => {
+    const next = [contact, ...loadRecents().filter((c) => c.openId !== contact.openId)].slice(0, 6);
+    try {
+      localStorage.setItem(RECENTS_KEY, JSON.stringify(next));
+    } catch {
+      /* ignore quota / unavailable storage */
+    }
+    setRecents(next);
+    onToggle(contact);
   };
 
   return (
@@ -212,7 +226,11 @@ export function CoworkerPicker({
         {listLabel}
       </div>
       <div className="space-y-2">
-        {list.length > 0 ? (
+        {searching ? (
+          <p className="text-muted-foreground px-1 py-2 text-sm">Searching...</p>
+        ) : searchError ? (
+          <p className="text-destructive px-1 py-2 text-sm">{searchError}</p>
+        ) : list.length > 0 ? (
           list.map((contact) => (
             <CoworkerOption
               key={contact.openId}
@@ -221,8 +239,10 @@ export function CoworkerPicker({
               onToggle={handleToggle}
             />
           ))
-        ) : (
+        ) : q ? (
           <p className="text-muted-foreground px-1 py-2 text-sm">No coworkers match "{query}"</p>
+        ) : (
+          <p className="text-muted-foreground px-1 py-2 text-sm">Search by name to add a coworker.</p>
         )}
       </div>
     </div>

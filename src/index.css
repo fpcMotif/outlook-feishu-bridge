@@ -38,57 +38,73 @@
 }
 
 :root {
-  --radius: 0.875rem;
-  --background: #f5f8fb;
-  --foreground: #25324a;
-  --card: #ffffff;
-  --card-foreground: #25324a;
-  --card-soft: #eef5fb;
-  --popover: #ffffff;
-  --popover-foreground: #25324a;
-  --primary: #0f6cbd;
-  --primary-foreground: #ffffff;
-  --primary-deep: #0b5a9e;
-  --secondary: #e7eef6;
-  --secondary-foreground: #25324a;
-  --muted: #e7eef6;
-  --muted-foreground: #5f6f86;
-  --accent: #dceeff;
-  --accent-foreground: #0f548c;
-  /* Fresh green — Sample dot, "Ready" / connected */
-  --sage: #107c10;
-  --sage-soft: #e4f3e5;
-  --destructive: #c50f1f;
-  --destructive-foreground: #ffffff;
-  --border: #d3dfeb;
-  --input: #d3dfeb;
-  --ring: #0f6cbd;
+  --radius: 0.5rem;
+  --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out-strong: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --background: oklch(0.983 0.002 67.803);
+  --foreground: oklch(0.224 0.003 196.939);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.224 0.003 196.939);
+  --card-soft: oklch(0.973 0.013 251.557);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.224 0.003 196.939);
+  --primary: oklch(0.532 0.148 251.075);
+  --primary-foreground: oklch(1 0 0);
+  --primary-deep: oklch(0.463 0.13 251.337);
+  --secondary: oklch(0.913 0.013 251.566);
+  --secondary-foreground: oklch(0.224 0.003 196.939);
+  --muted: oklch(0.913 0.013 251.566);
+  --muted-foreground: oklch(0.503 0.014 248.109);
+  --accent: oklch(0.973 0.013 251.557);
+  --accent-foreground: oklch(0.436 0.112 249.122);
+  /* Fresh green: Sample dot, "Ready" / connected */
+  --sage: oklch(0.51 0.165 142.668);
+  --sage-soft: oklch(0.949 0.024 147.288);
+  --destructive: oklch(0.523 0.206 25.85);
+  --destructive-foreground: oklch(1 0 0);
+  --border: oklch(0.918 0.006 255.477);
+  --input: oklch(0.918 0.006 255.477);
+  --ring: oklch(0.532 0.148 251.075);
+  --shadow-border:
+    0 0 0 1px color-mix(in oklch, var(--foreground) 7%, transparent),
+    0 1px 2px -1px color-mix(in oklch, var(--foreground) 8%, transparent),
+    0 2px 4px color-mix(in oklch, var(--foreground) 4%, transparent);
+  --shadow-floating:
+    0 0 0 1px color-mix(in oklch, var(--border) 82%, transparent),
+    0 20px 46px -30px color-mix(in oklch, var(--primary) 42%, transparent);
 }
 
 .dark {
-  --background: #121a24;
-  --foreground: #f4f8fc;
-  --card: #1b2634;
-  --card-foreground: #f4f8fc;
-  --card-soft: #233247;
-  --popover: #1b2634;
-  --popover-foreground: #f4f8fc;
-  --primary: #62abdf;
-  --primary-foreground: #07111f;
-  --primary-deep: #84c4ef;
-  --secondary: #243246;
-  --secondary-foreground: #f4f8fc;
-  --muted: #243246;
-  --muted-foreground: #bfcede;
-  --accent: #0f3f67;
-  --accent-foreground: #cfe8ff;
-  --sage: #7ccf7c;
-  --sage-soft: #203f2a;
-  --destructive: #f1707b;
-  --destructive-foreground: #07111f;
-  --border: #34455a;
-  --input: #34455a;
-  --ring: #62abdf;
+  --background: oklch(0.215 0.023 254.309);
+  --foreground: oklch(0.977 0.007 247.895);
+  --card: oklch(0.265 0.031 254.751);
+  --card-foreground: oklch(0.977 0.007 247.895);
+  --card-soft: oklch(0.314 0.043 256.879);
+  --popover: oklch(0.265 0.031 254.751);
+  --popover-foreground: oklch(0.977 0.007 247.895);
+  --primary: oklch(0.715 0.106 241.347);
+  --primary-foreground: oklch(0.176 0.033 256.392);
+  --primary-deep: oklch(0.793 0.09 238.801);
+  --secondary: oklch(0.314 0.041 257.296);
+  --secondary-foreground: oklch(0.977 0.007 247.895);
+  --muted: oklch(0.314 0.041 257.296);
+  --muted-foreground: oklch(0.845 0.028 249.886);
+  --accent: oklch(0.359 0.085 248.426);
+  --accent-foreground: oklch(0.92 0.041 246.021);
+  --sage: oklch(0.781 0.141 144.077);
+  --sage-soft: oklch(0.337 0.053 153.099);
+  --destructive: oklch(0.702 0.159 16.869);
+  --destructive-foreground: oklch(0.176 0.033 256.392);
+  --border: oklch(0.385 0.042 254.044);
+  --input: oklch(0.385 0.042 254.044);
+  --ring: oklch(0.715 0.106 241.347);
+  --shadow-border:
+    0 0 0 1px color-mix(in oklch, var(--foreground) 8%, transparent),
+    0 1px 2px -1px color-mix(in oklch, oklch(0 0 0) 22%, transparent);
+  --shadow-floating:
+    0 0 0 1px color-mix(in oklch, var(--foreground) 9%, transparent),
+    0 22px 48px -28px color-mix(in oklch, oklch(0 0 0) 58%, transparent);
 }
 
 @layer base {
@@ -102,134 +118,42 @@
     -webkit-font-smoothing: antialiased;
     font-feature-settings: "ss01", "cv11";
   }
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+  p,
+  li {
+    text-wrap: pretty;
+  }
 }
 
-/* Radix Accordion height animation. */
+/* Radix accordion reveal. Height is intentional here because the content owns its layout. */
 @keyframes accordion-down {
   from {
     height: 0;
-    opacity: 0;
-    transform: translateY(-8px);
   }
   to {
     height: var(--radix-accordion-content-height);
-    opacity: 1;
-    transform: translateY(0);
   }
 }
 @keyframes accordion-up {
   from {
     height: var(--radix-accordion-content-height);
-    opacity: 1;
-    transform: translateY(0);
   }
   to {
     height: 0;
-    opacity: 0;
-    transform: translateY(-6px);
   }
 }
 .drawer-content {
   overflow: hidden;
-  transform-origin: top;
-  will-change: height, opacity, transform;
 }
 .drawer-content[data-state="open"] {
-  animation: accordion-down 0.44s cubic-bezier(0.2, 0, 0, 1) both;
+  animation: accordion-down 0.24s var(--ease-drawer);
 }
 .drawer-content[data-state="closed"] {
-  animation: accordion-up 0.32s cubic-bezier(0.4, 0, 1, 1) both;
-}
-
-@keyframes screen-in {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-@keyframes card-fade-up {
-  from {
-    opacity: 0;
-    transform: translateY(12px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-@keyframes dock-rise {
-  from {
-    opacity: 0;
-    transform: translateY(14px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-@keyframes sync-preview-in {
-  from {
-    opacity: 0;
-    transform: translateY(8px) scale(0.98);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-@keyframes sync-scan {
-  from {
-    transform: translateX(-100%);
-  }
-  to {
-    transform: translateX(220%);
-  }
-}
-.screen-flow {
-  animation: screen-in 0.28s cubic-bezier(0.2, 0, 0, 1) both;
-}
-.request-card-enter {
-  animation: card-fade-up 0.38s cubic-bezier(0.2, 0, 0, 1) both;
-  animation-delay: calc(var(--card-index, 0) * 45ms);
-}
-.submit-dock {
-  animation: dock-rise 0.34s cubic-bezier(0.2, 0, 0, 1) both;
-}
-.sync-preview {
-  position: relative;
-  overflow: hidden;
-  animation: sync-preview-in 0.28s cubic-bezier(0.2, 0, 0, 1) both;
-}
-.sync-preview::after {
-  content: "";
-  position: absolute;
-  inset-block: 0;
-  left: 0;
-  width: 42%;
-  pointer-events: none;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5), transparent);
-  animation: sync-scan 1.8s cubic-bezier(0.2, 0, 0, 1) 0.15s both;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .drawer-content,
-  .drawer-content[data-state="open"],
-  .drawer-content[data-state="closed"],
-  .screen-flow,
-  .request-card-enter,
-  .submit-dock,
-  .sync-preview,
-  .sync-preview::after,
-  .animate-pulse-dot,
-  .animate-pulse-ring,
-  .animate-pop-in {
-    animation-duration: 0.01ms;
-    animation-iteration-count: 1;
-  }
+  animation: accordion-up 0.18s var(--ease-out-strong);
 }
 
 /* Pulsing "active" status node + success ring (received screen). */
@@ -259,7 +183,7 @@
 }
 @keyframes pop-in {
   from {
-    transform: scale(0.6);
+    transform: scale(0.94);
     opacity: 0;
   }
   to {
@@ -268,16 +192,122 @@
   }
 }
 .animate-pulse-dot {
-  animation: pulse-dot 1.6s ease-out infinite;
+  animation: pulse-dot 1.6s var(--ease-out-strong) infinite;
 }
 .animate-pulse-ring {
-  animation: pulse-ring 2.6s ease-out infinite;
+  animation: pulse-ring 2.6s var(--ease-out-strong) infinite;
 }
 .animate-pop-in {
-  animation: pop-in 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+  animation: pop-in 0.22s var(--ease-out-strong) backwards;
 }
 
-/* Profile popover enter — subtle scale + fade from the top-right. */
+@keyframes sync-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+    filter: blur(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+@keyframes sync-packet-drift {
+  0%,
+  100% {
+    transform: translate(-50%, -50%);
+  }
+  50% {
+    transform: translate(-50%, calc(-50% - 4px));
+  }
+}
+@keyframes sync-fold-card {
+  0%,
+  10% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) rotateX(0deg) rotateY(0deg) scale(1);
+  }
+  38% {
+    transform: translate3d(34px, -2px, 0) rotateX(8deg) rotateY(-12deg) scale(0.88);
+  }
+  72%,
+  100% {
+    opacity: 0.92;
+    transform: translate3d(112px, 0, 0) rotateX(0deg) rotateY(-58deg) scale(0.48);
+  }
+}
+@keyframes sync-fold-panel-left {
+  0%,
+  18% {
+    transform: rotateY(0deg);
+  }
+  64%,
+  100% {
+    transform: rotateY(58deg);
+  }
+}
+@keyframes sync-fold-panel-right {
+  0%,
+  18% {
+    transform: rotateY(0deg);
+  }
+  64%,
+  100% {
+    transform: rotateY(-58deg);
+  }
+}
+@keyframes sync-orb-pulse {
+  0% {
+    opacity: 0.22;
+    scale: 0.78;
+  }
+  100% {
+    opacity: 0;
+    scale: 1.35;
+  }
+}
+.sync-enter {
+  animation: sync-enter 0.28s var(--ease-out-strong) both;
+  animation-delay: var(--enter-delay, 0ms);
+}
+.sync-packet-shell {
+  left: var(--sync-progress);
+  transition:
+    left 220ms var(--ease-out-strong),
+    opacity 160ms var(--ease-out-strong);
+}
+.sync-packet-card {
+  animation: sync-packet-drift 1.8s var(--ease-in-out-strong) infinite;
+  will-change: transform;
+}
+.sync-fold-stage {
+  perspective: 900px;
+}
+.sync-fold-card {
+  transform-style: preserve-3d;
+  transform-origin: center;
+  animation: sync-fold-card var(--sync-duration, 3600ms) var(--ease-in-out-strong) both;
+  will-change: transform, opacity;
+}
+.sync-fold-panel {
+  backface-visibility: hidden;
+  transform-style: preserve-3d;
+}
+.sync-fold-panel-left {
+  transform-origin: right center;
+  animation: sync-fold-panel-left var(--sync-duration, 3600ms) var(--ease-in-out-strong) both;
+}
+.sync-fold-panel-right {
+  transform-origin: left center;
+  animation: sync-fold-panel-right var(--sync-duration, 3600ms) var(--ease-in-out-strong) both;
+}
+.sync-orb-pulse {
+  background: color-mix(in oklch, var(--primary) 24%, transparent);
+  animation: sync-orb-pulse 1.7s var(--ease-out-strong) infinite;
+}
+
+/* Profile popover enter: subtle scale + fade from the top-right. */
 @keyframes profile-pop {
   from {
     opacity: 0;
@@ -290,7 +320,24 @@
 }
 .profile-pop {
   transform-origin: top right;
-  animation: profile-pop 0.16s ease-out;
+  animation: profile-pop 0.16s var(--ease-out-strong);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sync-enter,
+  .sync-fold-card,
+  .sync-fold-panel-left,
+  .sync-fold-panel-right,
+  .sync-packet-shell,
+  .sync-packet-card,
+  .sync-orb-pulse,
+  .animate-pulse-dot,
+  .animate-pulse-ring,
+  .animate-pop-in,
+  .profile-pop {
+    animation: none;
+    transition-duration: 1ms;
+  }
 }
 
 /* Hide scrollbars on the task-pane scroll region (matches the design). */

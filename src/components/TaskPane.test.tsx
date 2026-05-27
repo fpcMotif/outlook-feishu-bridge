@@ -73,20 +73,23 @@ describe("TaskPane browser preview auth flow", () => {
     fireEvent.change(screen.getByRole("textbox"), {
       target: { value: "Need a quarterly L-Carnitine quote." },
     });
-    expect(screen.queryByText("Bitable preview")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /^Continue$/i }));
+    expect(screen.getByDisplayValue("m.hoffmann@bayerpharma.de")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Jenny Xu/i }));
-    expect(screen.getByText("Bitable preview")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Submit to 1 coworker/i }));
 
-    expect(screen.getByRole("button", { name: /Submitting/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: /Syncing to Feishu Bitable/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: /Sync progress/i })).toBeInTheDocument();
 
     act(() => {
-      vi.advanceTimersByTime(900);
+      vi.advanceTimersByTime(3700);
     });
 
     expect(
-      screen.getByRole("heading", { name: /Forwarded to Feishu/i }),
+      screen.getByRole("heading", { name: /Synced to Feishu/i }),
     ).toBeInTheDocument();
+    vi.useRealTimers();
   });
 });

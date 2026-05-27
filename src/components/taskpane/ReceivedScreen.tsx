@@ -19,7 +19,8 @@ function StepRow({ step, last }: { step: Step; last: boolean }) {
         className={cn(
           "relative z-10 mt-0.5 size-[18px] shrink-0 rounded-full border-[1.5px]",
           step.state === "done" && "border-primary bg-primary",
-          step.state === "active" && "border-primary bg-card shadow-[0_0_0_4px_color-mix(in_oklch,var(--primary)_18%,transparent)]",
+          step.state === "active" &&
+            "border-primary bg-card shadow-[0_0_0_4px_color-mix(in_oklch,var(--primary)_18%,transparent)]",
         )}
       >
         {step.state === "active" ? (
@@ -34,6 +35,35 @@ function StepRow({ step, last }: { step: Step; last: boolean }) {
   );
 }
 
+function SuccessHalo() {
+  return (
+    <div className="relative mb-7 flex size-36 items-center justify-center">
+      <span className="border-primary/30 animate-pulse-ring absolute inset-0 rounded-full border" />
+      <span className="border-primary/30 animate-pulse-ring absolute inset-0 rounded-full border [animation-delay:0.8s]" />
+      <span className="border-primary/30 animate-pulse-ring absolute inset-0 rounded-full border [animation-delay:1.6s]" />
+      <span className="bg-primary text-primary-foreground animate-pop-in relative z-10 flex size-20 items-center justify-center rounded-full shadow-[var(--shadow-floating)]">
+        <Check className="size-10" strokeWidth={2.4} />
+      </span>
+    </div>
+  );
+}
+
+function buildSteps(channelCount: number): Step[] {
+  return [
+    { title: "Submitted", sub: "Just now", state: "done" },
+    {
+      title: "Bitable row created",
+      sub:
+        channelCount > 0
+          ? `${channelCount} coworker${channelCount > 1 ? "s" : ""} attached`
+          : "Request details attached",
+      state: "done",
+    },
+    { title: "Convex backup saved", sub: "Recovery record available", state: "done" },
+    { title: "Tagged in Outlook", sub: "Marking Sent to Feishu", state: "active" },
+  ];
+}
+
 export function ReceivedScreen({
   channelCount,
   onForwardAnother,
@@ -41,30 +71,15 @@ export function ReceivedScreen({
   channelCount: number;
   onForwardAnother: () => void;
 }) {
-  const steps: Step[] = [
-    { title: "Submitted", sub: "Just now", state: "done" },
-    {
-      title: "Delivered to Feishu",
-      sub: channelCount > 0 ? `${channelCount} channel${channelCount > 1 ? "s" : ""} · card + content` : "Card + content",
-      state: "done",
-    },
-    { title: "Tagged in Outlook", sub: "Marked “Sent to Feishu”", state: "active" },
-  ];
+  const steps = buildSteps(channelCount);
 
   return (
-    <div className="screen-flow no-scrollbar flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-6 pt-12 pb-6">
-      <div className="relative mb-7 flex size-36 items-center justify-center">
-        <span className="border-primary/30 animate-pulse-ring absolute inset-0 rounded-full border" />
-        <span className="border-primary/30 animate-pulse-ring absolute inset-0 rounded-full border [animation-delay:0.8s]" />
-        <span className="border-primary/30 animate-pulse-ring absolute inset-0 rounded-full border [animation-delay:1.6s]" />
-        <span className="bg-primary text-primary-foreground shadow-primary/40 animate-pop-in relative z-10 flex size-20 items-center justify-center rounded-full shadow-lg">
-          <Check className="size-10" strokeWidth={2.4} />
-        </span>
-      </div>
+    <div className="no-scrollbar flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-6 pt-12 pb-6">
+      <SuccessHalo />
 
-      <h1 className="font-serif text-3xl">Forwarded to Feishu</h1>
-      <p className="text-muted-foreground mt-1.5 max-w-[34ch] text-center text-sm leading-relaxed">
-        Your email is on its way. Recipients get the card first, then the PDF and any attachments.
+      <h1 className="font-serif text-3xl text-balance">Synced to Feishu</h1>
+      <p className="text-muted-foreground mt-1.5 max-w-[34ch] text-center text-sm leading-relaxed text-pretty">
+        The request is synced to Bitable, backed up in Convex, and ready for the selected coworkers.
       </p>
 
       <div className="mt-9 w-full max-w-[320px]">
@@ -75,7 +90,7 @@ export function ReceivedScreen({
 
       <div className="mt-auto w-full max-w-[320px] pt-8">
         <Button className="h-12 w-full rounded-2xl text-[15px]" onClick={onForwardAnother}>
-          Forward another
+          Route another email
         </Button>
       </div>
     </div>

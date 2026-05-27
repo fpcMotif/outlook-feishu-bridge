@@ -18,9 +18,9 @@ const PANEL: CSSProperties = {
   zIndex: 99999,
   fontFamily: "monospace",
   fontSize: "11px",
-  background: "#101010",
-  color: "#3f3",
-  borderTop: "2px solid #3f3",
+  background: "oklch(0.18 0.018 254)",
+  color: "oklch(0.84 0.17 145)",
+  borderTop: "2px solid oklch(0.84 0.17 145)",
   overflow: "auto",
   pointerEvents: "none",
 };
@@ -31,13 +31,13 @@ const HEADER: CSSProperties = {
   justifyContent: "space-between",
   gap: "6px",
   padding: "2px 6px",
-  background: "#000",
+  background: "oklch(0.12 0.012 254)",
   pointerEvents: "auto",
 };
 const BTN: CSSProperties = {
-  color: "#3f3",
+  color: "oklch(0.84 0.17 145)",
   background: "transparent",
-  border: "1px solid #3f3",
+  border: "1px solid oklch(0.84 0.17 145)",
   cursor: "pointer",
 };
 
@@ -65,9 +65,9 @@ function convexConn(): string {
 }
 
 function levelColor(level: DebugEntry["level"]): string {
-  if (level === "error") return "#f66";
-  if (level === "warn") return "#fd5";
-  return "#3f3";
+  if (level === "error") return "oklch(0.72 0.17 24)";
+  if (level === "warn") return "oklch(0.86 0.15 85)";
+  return "oklch(0.84 0.17 145)";
 }
 
 function DebugBody({ office, entries }: { office: OfficeInfo; entries: DebugEntry[] }) {
@@ -77,8 +77,10 @@ function DebugBody({ office, entries }: { office: OfficeInfo; entries: DebugEntr
       <div>convexUrl {String(import.meta.env.VITE_CONVEX_URL)}</div>
       <div>siteUrl {String(import.meta.env.VITE_CONVEX_SITE_URL)}</div>
       <div>feishuAppId {String(import.meta.env.VITE_FEISHU_APP_ID)}</div>
-      {office.error ? <div style={{ color: "#f66" }}>office.error {office.error}</div> : null}
-      <hr style={{ borderColor: "#333" }} />
+      {office.error ? (
+        <div style={{ color: "oklch(0.72 0.17 24)" }}>office.error {office.error}</div>
+      ) : null}
+      <hr style={{ borderColor: "oklch(0.34 0.02 254)" }} />
       {entries.map((e) => (
         <div key={e.id} style={{ color: levelColor(e.level), whiteSpace: "pre-wrap" }}>
           {e.time} {e.level === "log" ? "" : `[${e.level}] `}
@@ -93,17 +95,12 @@ export function DebugPanel({ office }: { office: OfficeInfo }) {
   const [, setTick] = useState(0);
   const [open, setOpen] = useState(false);
   const [conn, setConn] = useState("?");
-  const enabled =
-    import.meta.env.VITE_DEBUG_PANEL === "1" ||
-    new URLSearchParams(location.search).get("debug") === "1";
 
   useEffect(() => subscribeDebug(() => setTick((t) => t + 1)), []);
   useEffect(() => {
     const id = setInterval(() => setConn(convexConn()), 1000);
     return () => clearInterval(id);
   }, []);
-
-  if (!enabled) return null;
 
   return (
     <div style={{ ...PANEL, maxHeight: open ? "45vh" : "1.7em" }}>

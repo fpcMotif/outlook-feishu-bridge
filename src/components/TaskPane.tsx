@@ -12,11 +12,11 @@ import { PaneHeader } from "./taskpane/PaneHeader";
 // "browser" after 3s). A sample item lets the full drawer flow render for
 // preview; ForwardScreen simulates the submit so nothing is actually sent.
 const DEV_SAMPLE: MailItemData = {
-  subject: "Inquiry — bulk pricing for L-Carnitine 500kg quarterly",
+  subject: "Inquiry - bulk pricing for L-Carnitine 500kg quarterly",
   from: "m.hoffmann@bayerpharma.de",
   to: ["jenny.xu@fenchem.com"],
   cc: ["procurement@bayerpharma.de"],
-  body: "Hi Jenny, we are preparing the 2026 procurement plan and would like quarterly bulk pricing for L-Carnitine USP, ≥99%. Volume ~2,500 kg/year (Q1–Q4 2026). Please also share COA and lead times to Hamburg port. We'd like to lock a contract by end of next week.",
+  body: "Hi Jenny, we are preparing the 2026 procurement plan and would like quarterly bulk pricing for L-Carnitine USP, >=99%. Volume ~2,500 kg/year (Q1-Q4 2026). Please also share COA and lead times to Hamburg port. We'd like to lock a contract by end of next week.",
   dateTimeCreated: new Date(),
   internetMessageId: "<dev-sample@fenchem.com>",
   itemId: "dev-sample",
@@ -41,7 +41,7 @@ function EmptyState({
       <span className="bg-secondary text-muted-foreground mb-4 flex size-14 items-center justify-center rounded-2xl">
         {loading ? <Loader2 className="size-6 animate-spin" /> : <MailOpen className="size-6" />}
       </span>
-      <h2 className="font-serif text-2xl">{loading ? "Reading your email…" : "No message open"}</h2>
+      <h2 className="font-serif text-2xl">{loading ? "Reading your email..." : "No message open"}</h2>
       <p className="text-muted-foreground mt-1.5 max-w-[32ch] text-sm leading-relaxed">
         {error ?? "Open a received message in Outlook, then forward it to Feishu from here."}
       </p>
@@ -89,6 +89,7 @@ export function TaskPane({ host }: { host: string | null }) {
         {item ? (
           <ForwardScreen
             isLoggedIn={isLoggedIn}
+            clientEmail={item.from}
             onLogin={handleLogin}
             onLoginFallback={handleLoginFallback}
           />

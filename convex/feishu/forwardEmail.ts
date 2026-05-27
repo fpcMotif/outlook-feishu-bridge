@@ -2,24 +2,18 @@ import { action, type ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
 
-const attachmentKeyValidator = v.object({
-  fileKey: v.string(),
-  fileName: v.string(),
-  type: v.union(v.literal("file"), v.literal("image")),
-});
-const requestSelectionValidator = v.object({
-  requestType: v.string(),
-  note: v.string(),
-});
-const selectedCoworkerValidator = v.object({
-  openId: v.string(),
-  name: v.string(),
-  avatarUrl: v.optional(v.string()),
-});
+import {
+  attachmentKeyValidator,
+  requestSelectionValidator,
+  selectedCoworkerValidator,
+  toEmailRecord,
+  type AttachmentKey,
+  type ForwardRecordInput,
+  type ForwardResultIds,
+  type RequestSelection,
+  type SelectedCoworker,
+} from "../emailRecord";
 
-type RequestSelection = { requestType: string; note: string };
-type SelectedCoworker = { openId: string; name: string; avatarUrl?: string };
-type AttachmentKey = { fileKey: string; fileName: string; type: "file" | "image" };
 type EmailMeta = { subject: string; from: string; bodyPreview: string };
 type DispatchArgs = {
   targets: { bot: boolean; chat: boolean; bitable: boolean };
@@ -89,7 +83,7 @@ export const forwardToFeishu = action({
     const ids = await dispatchToTargets(ctx, args, emailMeta, pdfFileKey);
     const tDispatch = Date.now();
 
-    await storeRecord(ctx, args, bodyPreview, ids, pdfFileKey);
+    await storeRecord(ctx, args, ids, pdfFileKey);
     console.log(
       `[forward] pdfUpload ${tPdf - tStart}ms, dispatch ${tDispatch - tPdf}ms, storeRecord ${Date.now() - tDispatch}ms, total ${Date.now() - tStart}ms`,
     );
@@ -160,46 +154,11 @@ async function createBitableRecord(
 
 async function storeRecord(
   ctx: ActionCtx,
-  args: {
-    subject: string; from: string; to: string[]; cc: string[];
-    internetMessageId: string; itemId?: string; conversationId?: string;
-    userEmail?: string; dateTimeCreated?: number;
-    targets: { bot: boolean; chat: boolean; bitable: boolean };
-    contacts?: string[]; groups?: string[];
-    requestSelections?: RequestSelection[];
-    selectedCoworkers?: SelectedCoworker[];
-    attachmentFileKeys?: AttachmentKey[];
-    feishuDocUrl?: string; feishuDocToken?: string;
-  },
-  bodyPreview: string,
-  ids: { feishuMessageId?: string; bitableRecordId?: string },
+  input: ForwardRecordInput,
+  ids: ForwardResultIds,
   pdfFileKey: string | undefined,
 ) {
-  await ctx.runMutation(internal.emails.storeEmailRecord, {
-    subject: args.subject,
-    from: args.from,
-    to: args.to,
-    cc: args.cc,
-    bodyPreview,
-    internetMessageId: args.internetMessageId,
-    itemId: args.itemId,
-    conversationId: args.conversationId,
-    userEmail: args.userEmail,
-    dateTimeCreated: args.dateTimeCreated,
-    sentToBot: args.targets.bot,
-    sentToChat: args.targets.chat,
-    sentToBitable: args.targets.bitable,
-    sentToContacts: args.contacts,
-    sentToGroups: args.groups,
-    requestSelections: args.requestSelections,
-    selectedCoworkers: args.selectedCoworkers,
-    feishuMessageId: ids.feishuMessageId,
-    bitableRecordId: ids.bitableRecordId,
-    pdfFileKey,
-    attachmentFileKeys: args.attachmentFileKeys,
-    feishuDocUrl: args.feishuDocUrl,
-    feishuDocToken: args.feishuDocToken,
-  });
+  await ctx.runMutation(internal.emails.storeEmailRecord, toEmailRecord(input, ids, pdfFileKey));
 }
 
 async function sendToContactsAndGroups(

@@ -4,8 +4,12 @@ import tailwindcss from '@tailwindcss/vite'
 import basicSsl from '@vitejs/plugin-basic-ssl'
 import { fileURLToPath } from 'node:url'
 
-export default defineConfig({
-  plugins: [react(), tailwindcss(), basicSsl()],
+export default defineConfig(({ mode }) => ({
+  plugins: [
+    react(),
+    tailwindcss(),
+    ...(mode === 'outlook' ? [basicSsl()] : []),
+  ],
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
@@ -14,4 +18,4 @@ export default defineConfig({
   server: {
     port: 3000,
   },
-})
+}))

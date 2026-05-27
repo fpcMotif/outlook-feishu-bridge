@@ -40,7 +40,7 @@ function renderPreview() {
 }
 
 function unlockRequestBuilder() {
-  fireEvent.click(screen.getByRole("button", { name: /Log in to Feishu/i }));
+  fireEvent.click(screen.getByRole("button", { name: /Continue with Feishu/i }));
 }
 
 describe("TaskPane browser preview auth flow", () => {
@@ -53,14 +53,14 @@ describe("TaskPane browser preview auth flow", () => {
   it("starts on a standalone login page and unlocks the request builder after dev login", () => {
     renderPreview();
 
-    expect(screen.getByText("Connect your Feishu account")).toBeInTheDocument();
+    expect(screen.getByText("Connect to Feishu")).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /Quotation/i }),
     ).not.toBeInTheDocument();
 
     unlockRequestBuilder();
 
-    expect(screen.queryByText("Connect your Feishu account")).not.toBeInTheDocument();
+    expect(screen.queryByText("Connect to Feishu")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Quotation/i })).toBeInTheDocument();
   });
 
@@ -73,18 +73,23 @@ describe("TaskPane browser preview auth flow", () => {
     fireEvent.change(screen.getByRole("textbox"), {
       target: { value: "Need a quarterly L-Carnitine quote." },
     });
-    fireEvent.click(screen.getByRole("button", { name: /Continue to Act II/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Continue$/i }));
+    expect(screen.getByDisplayValue("m.hoffmann@bayerpharma.de")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Jenny Xu/i }));
     fireEvent.click(screen.getByRole("button", { name: /Submit to 1 coworker/i }));
 
-    expect(screen.getByRole("button", { name: /Submitting/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: /Syncing to Feishu Bitable/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: /Sync progress/i })).toBeInTheDocument();
 
     act(() => {
-      vi.advanceTimersByTime(900);
+      vi.advanceTimersByTime(3700);
     });
 
     expect(
-      screen.getByRole("heading", { name: /Forwarded to Feishu/i }),
+      screen.getByRole("heading", { name: /Synced to Feishu/i }),
     ).toBeInTheDocument();
+    vi.useRealTimers();
   });
 });

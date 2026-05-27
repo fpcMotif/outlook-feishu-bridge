@@ -34,7 +34,7 @@ describe('App loading and error states', () => {
     expect(screen.getByText('Office.js failed to load')).toBeInTheDocument()
   })
 
-  it('applies red text color to error message', () => {
+  it('applies destructive text color to error message', () => {
     mockUseOffice.mockReturnValue({
       isReady: false,
       host: null,
@@ -42,7 +42,7 @@ describe('App loading and error states', () => {
     })
     render(<App />)
     const errorEl = screen.getByText('Something went wrong')
-    expect(errorEl).toHaveClass('text-red-600')
+    expect(errorEl).toHaveClass('text-destructive')
   })
 
   it('does not render TaskPane while loading', () => {

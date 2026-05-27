@@ -45,7 +45,7 @@ export function FeishuProfile({ user, onLogout }: { user: FeishuUser; onLogout: 
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="focus-visible:ring-ring/30 relative inline-flex rounded-full outline-none focus-visible:ring-[3px]"
+        className="focus-visible:ring-ring/30 relative inline-flex min-h-10 min-w-10 items-center justify-center rounded-full outline-none transition-[box-shadow,scale] duration-150 ease-[var(--ease-out-strong)] active:scale-[0.97] focus-visible:ring-[3px]"
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-label="Feishu profile"
@@ -63,7 +63,7 @@ export function FeishuProfile({ user, onLogout }: { user: FeishuUser; onLogout: 
         <div
           role="dialog"
           aria-label="Feishu account"
-          className="bg-popover text-popover-foreground profile-pop absolute right-0 top-full z-50 mt-2 w-72 overflow-hidden rounded-2xl border shadow-lg"
+          className="bg-popover text-popover-foreground profile-pop absolute top-full right-0 z-50 mt-2 w-72 overflow-hidden rounded-2xl shadow-[var(--shadow-floating)]"
         >
           <div className="flex items-center gap-3 p-3.5">
             <Avatar className="size-10">
@@ -80,7 +80,7 @@ export function FeishuProfile({ user, onLogout }: { user: FeishuUser; onLogout: 
               <div className="mt-1 flex items-center gap-1.5 text-xs">
                 <span className="bg-sage size-1.5 rounded-full" />
                 <span className="text-sage font-medium">Connected</span>
-                {user.org ? <span className="text-muted-foreground">· {user.org}</span> : null}
+                {user.org ? <span className="text-muted-foreground">- {user.org}</span> : null}
               </div>
             </div>
           </div>

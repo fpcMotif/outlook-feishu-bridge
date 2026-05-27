@@ -25,7 +25,7 @@ if (!root) throw new Error("Root element not found");
 createRoot(root).render(
   <StrictMode>
     <Sentry.ErrorBoundary
-      fallback={<p className="p-4 text-red-600 text-sm">Something went wrong — reload the add-in.</p>}
+      fallback={<p className="text-destructive p-4 text-sm">Something went wrong - reload the add-in.</p>}
     >
       <ConvexProvider client={convex}>
         <App />

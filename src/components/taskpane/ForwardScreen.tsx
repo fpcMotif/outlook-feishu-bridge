@@ -1,16 +1,17 @@
 /* eslint-disable max-lines-per-function */
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { CoworkerPicker } from "./CoworkerPicker";
 import { ConnectCard } from "./ConnectCard";
 import { ReceivedScreen } from "./ReceivedScreen";
 import { REQUESTS, RequestCards } from "./RequestCards";
 import { SubmitDock } from "./SubmitDock";
+import { SyncScreen } from "./SyncScreen";
 
 function Hero() {
   return (
     <header className="px-1 pt-3 pb-5">
-      <div className="text-muted-foreground mb-3 flex items-center gap-2 text-[11px] font-semibold tracking-[0.14em] uppercase">
+      <div className="text-accent-foreground mb-3 flex items-center gap-2 text-[11px] font-semibold uppercase">
         <span className="bg-muted-foreground inline-block h-px w-3.5" />
         New request
       </div>
@@ -20,7 +21,7 @@ function Hero() {
         help today?
       </h1>
       <p className="text-foreground/70 mt-2 max-w-[32ch] text-sm leading-relaxed">
-        Pick a track. We&apos;ll route it to the right team in seconds.
+        Route it to the right coworker in seconds.
       </p>
     </header>
   );
@@ -56,17 +57,23 @@ function LoginScreen({
 
 export function ForwardScreen({
   isLoggedIn,
+  clientEmail,
   onLogin,
   onLoginFallback,
 }: {
   isLoggedIn: boolean;
+  clientEmail: string;
   onLogin: () => void;
   onLoginFallback: () => void;
 }) {
   const [notes, setNotes] = useState<Record<string, string>>({});
-  const [screen, setScreen] = useState<"build" | "contacts" | "received">("build");
-  const [sending, setSending] = useState(false);
+  const [confirmedClientEmail, setConfirmedClientEmail] = useState(clientEmail);
+  const [screen, setScreen] = useState<"build" | "contacts" | "sync" | "received">("build");
   const [selectedContacts, setSelectedContacts] = useState<string[]>([]);
+
+  useEffect(() => {
+    setConfirmedClientEmail(clientEmail);
+  }, [clientEmail]);
 
   const filledRequests = REQUESTS.flatMap((r) => {
     const note = (notes[r.id] ?? "").trim();
@@ -84,22 +91,30 @@ export function ForwardScreen({
   };
 
   const handleSubmit = () => {
-    if (sending) return;
     if (screen === "build") {
       if (filledCount === 0) return;
       setScreen("contacts");
       return;
     }
     if (selectedCount === 0) return;
-    setSending(true);
-    window.setTimeout(() => {
-      setSending(false);
-      setScreen("received");
-    }, 900);
+    setScreen("sync");
   };
+
+  const finishSync = useCallback(() => setScreen("received"), []);
 
   if (screen === "received") {
     return <ReceivedScreen channelCount={selectedCount} onForwardAnother={() => setScreen("build")} />;
+  }
+
+  if (screen === "sync") {
+    return (
+      <SyncScreen
+        requests={filledRequests}
+        clientEmail={confirmedClientEmail}
+        channelCount={selectedCount}
+        onComplete={finishSync}
+      />
+    );
   }
 
   if (!isLoggedIn) {
@@ -110,7 +125,8 @@ export function ForwardScreen({
     return (
       <>
         <CoworkerPicker
-          requests={filledRequests}
+          clientEmail={confirmedClientEmail}
+          onClientEmailChange={setConfirmedClientEmail}
           selectedOpenIds={selectedContacts}
           onToggle={toggleContact}
           onBack={() => setScreen("build")}
@@ -118,7 +134,7 @@ export function ForwardScreen({
         <SubmitDock
           count={selectedCount}
           canSubmit={selectedCount > 0}
-          sending={sending}
+          sending={false}
           hint="Choose a Feishu coworker"
           label={
             selectedCount > 0
@@ -147,10 +163,10 @@ export function ForwardScreen({
       <SubmitDock
         count={filledCount}
         canSubmit={filledCount > 0}
-        sending={sending}
+        sending={false}
         hint="Start a request above"
-        label={filledCount > 0 ? "Continue to Act II" : undefined}
-        footer="Act I: request details"
+        label={filledCount > 0 ? "Continue" : undefined}
+        footer="Request Types & Details"
         onSubmit={handleSubmit}
       />
     </>

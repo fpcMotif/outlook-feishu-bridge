@@ -93,12 +93,17 @@ export function DebugPanel({ office }: { office: OfficeInfo }) {
   const [, setTick] = useState(0);
   const [open, setOpen] = useState(false);
   const [conn, setConn] = useState("?");
+  const enabled =
+    import.meta.env.VITE_DEBUG_PANEL === "1" ||
+    new URLSearchParams(location.search).get("debug") === "1";
 
   useEffect(() => subscribeDebug(() => setTick((t) => t + 1)), []);
   useEffect(() => {
     const id = setInterval(() => setConn(convexConn()), 1000);
     return () => clearInterval(id);
   }, []);
+
+  if (!enabled) return null;
 
   return (
     <div style={{ ...PANEL, maxHeight: open ? "45vh" : "1.7em" }}>

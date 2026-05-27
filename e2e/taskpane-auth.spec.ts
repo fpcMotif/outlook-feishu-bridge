@@ -30,33 +30,36 @@ test("browser preview keeps login separate and completes a request", async ({ pa
 
   await page.goto("/");
   await expect(page).toHaveTitle("Outlook Feishu Bridge");
-  await expect(page.getByText("Connect your Feishu account")).toBeVisible({
+  await expect(page.getByText("Connect to Feishu")).toBeVisible({
     timeout: 12_000,
   });
   await expect(page.getByRole("button", { name: "Quotation" })).toHaveCount(0);
   await screenshot(page, "outlook-sales-login.png");
 
-  await page.getByRole("button", { name: "Log in to Feishu" }).click();
+  await page.getByRole("button", { name: "Continue with Feishu" }).click();
 
-  await expect(page.getByText("Connect your Feishu account")).toHaveCount(0);
+  await expect(page.getByText("Connect to Feishu")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Quotation" })).toBeVisible();
   await page.getByRole("button", { name: "Quotation" }).click();
   await page.getByRole("textbox").fill("Need a quarterly L-Carnitine quote.");
-  await expect(page.getByRole("button", { name: "Continue to Act II" })).toBeEnabled();
+  await expect(page.getByText("Bitable preview")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Continue" })).toBeEnabled();
   await expect(page.locator(":root")).toHaveCSS("--primary", "#0f6cbd");
   await screenshot(page, "outlook-sales-builder.png");
 
-  await page.getByRole("button", { name: "Continue to Act II" }).click();
-  await expect(page.getByText("Act II")).toBeVisible();
+  await page.getByRole("button", { name: "Continue" }).click();
+  await expect(page.getByText("Forward to")).toBeVisible();
   await expect(page.getByRole("button", { name: /Jenny Xu/ })).toBeVisible();
   await expect(page.getByRole("button", { name: "Choose a Feishu coworker" })).toBeDisabled();
   await screenshot(page, "outlook-sales-act-ii.png");
 
   await page.getByRole("button", { name: /Jenny Xu/ }).click();
+  await expect(page.getByText("Bitable preview")).toBeVisible();
+  await expect(page.getByText("Recipient")).toBeVisible();
   await page.getByRole("button", { name: "Submit to 1 coworker" }).click();
 
   await expect(page.getByText("Forwarded to Feishu")).toBeVisible();
-  await expect(page.getByText("Connect your Feishu account")).toHaveCount(0);
+  await expect(page.getByText("Connect to Feishu")).toHaveCount(0);
   await screenshot(page, "outlook-sales-received.png");
   expect(consoleErrors).toEqual([]);
 });

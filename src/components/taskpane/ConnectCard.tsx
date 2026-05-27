@@ -29,11 +29,11 @@ function FeishuGlyph({ className = "size-6" }: { className?: string }) {
 
 function ConnectVisual() {
   return (
-    <div className="bg-card-soft flex items-center justify-center gap-4 rounded-2xl border py-6">
+    <div className="bg-card-soft flex items-center justify-center gap-4 rounded-[20px] py-6 shadow-[var(--shadow-border)]">
       <span
         role="img"
         aria-label="Outlook"
-        className="bg-card flex size-14 items-center justify-center rounded-[18px] border shadow-sm"
+        className="bg-card flex size-14 items-center justify-center rounded-xl shadow-[var(--shadow-border)]"
       >
         <OutlookLogo />
       </span>
@@ -45,7 +45,7 @@ function ConnectVisual() {
       <span
         role="img"
         aria-label="Feishu"
-        className="bg-primary text-primary-foreground flex size-14 items-center justify-center rounded-[18px] shadow-sm"
+        className="bg-primary text-primary-foreground flex size-14 items-center justify-center rounded-xl shadow-[var(--shadow-border)]"
       >
         <FeishuGlyph className="size-7" />
       </span>
@@ -63,7 +63,7 @@ export function ConnectCard({
   return (
     <section
       aria-label="Feishu sign in"
-      className="bg-card rounded-[24px] border p-6 shadow-[0_22px_60px_rgba(20,56,92,0.12)]"
+      className="bg-card rounded-[28px] p-6 shadow-[var(--shadow-floating)]"
     >
       <ConnectVisual />
       <div className="mt-5 text-center">
@@ -80,7 +80,7 @@ export function ConnectCard({
         <button
           type="button"
           onClick={onLoginFallback}
-          className="text-muted-foreground hover:text-primary h-8 text-xs font-medium underline-offset-2 hover:underline"
+          className="text-muted-foreground hover:text-primary inline-flex min-h-10 items-center justify-center text-xs font-medium underline-offset-2 transition-[color,scale] duration-150 ease-[var(--ease-out-strong)] hover:underline active:scale-[0.97]"
         >
           Use backup login (email code)
         </button>

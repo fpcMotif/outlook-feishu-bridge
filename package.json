@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:https": "vite --mode outlook",
     "build": "vite build",
     "preview": "vite preview",
     "lint": "oxlint --deny-warnings -D correctness -D suspicious -D pedantic --tsconfig tsconfig.app.json src/ convex/",

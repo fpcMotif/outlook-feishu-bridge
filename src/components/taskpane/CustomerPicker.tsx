@@ -14,6 +14,10 @@ export interface CustomerPickerProps {
   searchCustomers: (query: string) => Promise<CustomerRecord[]>;
   emailDomain: string;
   selectedCustomer: CustomerRecord | null;
+  // The signed-in Feishu user's open_id (the Initiator, ADR-0014). When
+  // provided, the search panel offers a "Show mine" quick toggle that filters
+  // the directory to customers whose Owner column equals this open_id.
+  currentUserOpenId?: string;
   onChange: (customer: CustomerRecord | null) => void;
 }
 
@@ -21,6 +25,7 @@ export function CustomerPicker({
   directory,
   emailDomain,
   selectedCustomer,
+  currentUserOpenId,
   onChange,
   searchCustomers,
 }: CustomerPickerProps) {
@@ -31,6 +36,7 @@ export function CustomerPicker({
       <SearchPanel
         directory={directory}
         searchCustomers={searchCustomers}
+        currentUserOpenId={currentUserOpenId}
         onCancel={() => setSearching(false)}
         onSelect={(c) => {
           onChange(c);
@@ -73,32 +79,42 @@ export function CustomerPicker({
 }
 
 // Search panel — typing filters the in-memory Customer Directory by a simple
-// substring match across name + fullName + accountNo + domain. Per ADR-0013 we
-// will swap in Fuse.js ranking once the basic flow is wired; the substring
-// fallback is enough to prove the override flow.
+// substring match across name + fullName + accountNo + domain + owner.name.
+// A "Show mine" toggle additionally narrows to customers whose Owner column
+// equals the signed-in user's open_id. Substring + per-keystroke filtering is
+// enough at the current ~250-row scale; if rank quality becomes an issue at
+// ~5000 we swap in Fuse.js (ADR-0013 future work).
 function SearchPanel({
   directory,
   searchCustomers,
+  currentUserOpenId,
   onCancel,
   onSelect,
 }: {
   directory: CustomerDirectoryState;
   searchCustomers: (query: string) => Promise<CustomerRecord[]>;
+  currentUserOpenId?: string;
   onCancel: () => void;
   onSelect: (c: CustomerRecord) => void;
 }) {
   const [query, setQuery] = useState("");
   const [serverMatches, setServerMatches] = useState<CustomerRecord[]>([]);
+  const [showMine, setShowMine] = useState(false);
   const q = query.trim().toLowerCase();
-  const localMatches: CustomerRecord[] = q
-    ? directory.records.filter(
-        (c) =>
-          c.name.toLowerCase().includes(q) ||
-          (c.fullName?.toLowerCase().includes(q) ?? false) ||
-          (c.accountNo?.toLowerCase().includes(q) ?? false) ||
-          (c.domain?.toLowerCase().includes(q) ?? false),
-      )
-    : [];
+
+  // Apply "Show mine" first (cheap predicate), then the substring query.
+  const ownedByMe = (c: CustomerRecord) =>
+    !showMine || (currentUserOpenId !== undefined && c.owner?.openId === currentUserOpenId);
+  const matchesText = (c: CustomerRecord) =>
+    !q ||
+    c.name.toLowerCase().includes(q) ||
+    (c.fullName?.toLowerCase().includes(q) ?? false) ||
+    (c.accountNo?.toLowerCase().includes(q) ?? false) ||
+    (c.domain?.toLowerCase().includes(q) ?? false) ||
+    (c.owner?.name?.toLowerCase().includes(q) ?? false);
+
+  const localMatches: CustomerRecord[] =
+    q || showMine ? directory.records.filter((c) => ownedByMe(c) && matchesText(c)) : [];
 
   useEffect(() => {
     if (!q || (directory.status === "ready" && localMatches.length > 0)) {
@@ -126,15 +142,28 @@ function SearchPanel({
         <span className="text-muted-foreground text-[11px] font-semibold uppercase">
           Pick a customer
         </span>
-        <button
-          type="button"
-          onClick={onCancel}
-          aria-label="Cancel"
-          className="text-muted-foreground inline-flex min-h-8 items-center gap-1 rounded-md px-1 text-[11px] font-semibold"
-        >
-          <X className="size-3.5" />
-          Cancel
-        </button>
+        <div className="flex items-center gap-1">
+          {currentUserOpenId ? (
+            <button
+              type="button"
+              aria-pressed={showMine}
+              onClick={() => setShowMine((v) => !v)}
+              className="data-[on=true]:bg-accent data-[on=true]:text-accent-foreground text-muted-foreground inline-flex min-h-8 items-center rounded-md px-2 text-[11px] font-semibold"
+              data-on={showMine}
+            >
+              Show mine
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={onCancel}
+            aria-label="Cancel"
+            className="text-muted-foreground inline-flex min-h-8 items-center gap-1 rounded-md px-1 text-[11px] font-semibold"
+          >
+            <X className="size-3.5" />
+            Cancel
+          </button>
+        </div>
       </div>
       <div className="bg-background flex items-center gap-2 rounded-xl px-3 shadow-[var(--shadow-border)]">
         <Search className="text-primary size-4 shrink-0" />
@@ -158,10 +187,11 @@ function SearchPanel({
             >
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-semibold">{c.name}</span>
-                {c.domain ? (
+                {c.domain || c.countryRegion || c.owner ? (
                   <span className="text-muted-foreground block truncate text-[11px]">
-                    {c.domain}
-                    {c.countryRegion ? ` · ${c.countryRegion}` : ""}
+                    {[c.domain, c.countryRegion, c.owner ? `owned by ${c.owner.name}` : null]
+                      .filter(Boolean)
+                      .join(" · ")}
                   </span>
                 ) : null}
               </span>

@@ -4,6 +4,7 @@
 // controlled: the parent owns `selectedCustomer` and computes the initial
 // auto-match via findCustomerByEmail; this component only displays + interacts.
 
+/* eslint-disable max-lines-per-function */
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -132,5 +133,64 @@ describe("CustomerPicker override commit", () => {
     expect(onChange).toHaveBeenCalledWith(STOCKMEIER);
     // Back to chip view — search input is no longer rendered.
     expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
+  });
+});
+
+// Searching customers by their Owner — the Feishu user listed in the Customer
+// Table's `Owner` column (projected as `owner: { openId, name }`). Typing the
+// owner's name in the existing search box matches all customers owned by them;
+// a "Show mine" toggle limits results to customers owned by the signed-in user
+// (the Initiator, ADR-0014).
+describe("CustomerPicker owner filter", () => {
+  const florianRow = {
+    recordId: "rec_florian_acct",
+    name: "Acme Chemicals",
+    domain: "acme.example",
+    owner: { openId: "ou_florian", name: "Florian Meurer" },
+  };
+  const jennyRow = {
+    recordId: "rec_jenny_acct",
+    name: "Beta Pharma",
+    domain: "beta.example",
+    owner: { openId: "ou_jenny", name: "Jenny Xu" },
+  };
+
+  it("matches a customer whose owner.name contains the query", () => {
+    render(
+      <CustomerPicker
+        directory={{ status: "ready", records: [florianRow, jennyRow] }}
+        searchCustomers={vi.fn()}
+        emailDomain="something.example"
+        selectedCustomer={null}
+        onChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /search/i }));
+    fireEvent.change(screen.getByRole("searchbox", { name: /search customers/i }), {
+      target: { value: "florian" },
+    });
+
+    expect(screen.getByRole("button", { name: /Acme Chemicals/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Beta Pharma/i })).not.toBeInTheDocument();
+  });
+
+  it("filters to the Initiator's customers when 'Show mine' is on", () => {
+    render(
+      <CustomerPicker
+        directory={{ status: "ready", records: [florianRow, jennyRow] }}
+        searchCustomers={vi.fn()}
+        emailDomain="something.example"
+        selectedCustomer={null}
+        currentUserOpenId="ou_florian"
+        onChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /search/i }));
+    fireEvent.click(screen.getByRole("button", { name: /show mine/i }));
+
+    expect(screen.getByRole("button", { name: /Acme Chemicals/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Beta Pharma/i })).not.toBeInTheDocument();
   });
 });

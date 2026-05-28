@@ -192,4 +192,3 @@ for (const sig of ["SIGINT", "SIGTERM"] as const) {
   });
 }
 
-console.log(`[feishu-fallback] listening on :${server.port}`);

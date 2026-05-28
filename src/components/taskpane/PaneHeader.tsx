@@ -37,7 +37,7 @@ export function PaneHeader({
           <BridgeLogo />
         </span>
         <div className="leading-tight">
-          <div className="text-[13px] font-semibold tracking-[-0.005em]">Feishu Bridge</div>
+          <div className="text-[13px] font-semibold tracking-[-0.005em]">feishu-sync</div>
           <div className="text-muted-foreground mt-px text-[10.5px]">Sync requests in one tap</div>
         </div>
       </div>

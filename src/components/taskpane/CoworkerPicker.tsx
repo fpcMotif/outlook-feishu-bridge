@@ -1,14 +1,15 @@
 /* eslint-disable max-lines-per-function */
+import * as React from "react";
 import { useEffect, useMemo, useReducer, useState } from "react";
 import { ArrowLeft, Check, Search, UserRound, X } from "lucide-react";
 
-import type { Contact } from "@/forward/targets";
+import type { Coworker } from "./coworkers";
 import { useCoworkerSearch } from "../../hooks/useCoworkerSearch";
 
 // Dev/preview fallback directory, used only when the live Feishu search is
 // unavailable (browser preview has no Convex user session). In real Outlook the
 // search hook returns actual coworkers (real open_ids). See ADR-0003.
-const PREVIEW_COWORKERS: Contact[] = [
+const PREVIEW_COWORKERS: Coworker[] = [
   { openId: "ou_jenny", name: "Jenny Xu" },
   { openId: "ou_michael", name: "Michael Chen" },
   { openId: "ou_sales_ops", name: "Sales Ops" },
@@ -22,29 +23,29 @@ const PREVIEW_COWORKERS: Contact[] = [
 const RECENTS_KEY = "feishu_recent_coworkers";
 const SEARCH_DEBOUNCE_MS = 250;
 
-function loadRecents(): Contact[] {
+function loadRecents(): Coworker[] {
   try {
     const raw = localStorage.getItem(RECENTS_KEY);
-    return raw ? (JSON.parse(raw) as Contact[]) : [];
+    return raw ? (JSON.parse(raw) as Coworker[]) : [];
   } catch {
     return [];
   }
 }
 
-function sameContacts(a: Contact[], b: Contact[]) {
+function sameCoworkers(a: Coworker[], b: Coworker[]) {
   return (
     a.length === b.length &&
     a.every(
-      (contact, index) =>
-        contact.openId === b[index]?.openId &&
-        contact.name === b[index]?.name &&
-        contact.avatarUrl === b[index]?.avatarUrl,
+      (coworker, index) =>
+        coworker.openId === b[index]?.openId &&
+        coworker.name === b[index]?.name &&
+        coworker.avatarUrl === b[index]?.avatarUrl,
     )
   );
 }
 
-function searchResultsReducer(state: Contact[], results: Contact[]) {
-  return sameContacts(state, results) ? state : results;
+function searchResultsReducer(state: Coworker[], results: Coworker[]) {
+  return sameCoworkers(state, results) ? state : results;
 }
 
 function ClientInfo({
@@ -75,19 +76,19 @@ function ClientInfo({
 }
 
 function CoworkerOption({
-  contact,
+  coworker,
   selected,
   onSelect,
 }: {
-  contact: Contact;
+  coworker: Coworker;
   selected: boolean;
-  onSelect: (contact: Contact) => void;
+  onSelect: (coworker: Coworker) => void;
 }) {
   return (
     <button
       type="button"
       aria-pressed={selected}
-      onClick={() => onSelect(contact)}
+      onClick={() => onSelect(coworker)}
       className="bg-card flex w-full items-center gap-3 rounded-[14px] px-4 py-3 text-left shadow-[var(--shadow-border)] transition-[background-color,box-shadow,scale] duration-150 ease-[var(--ease-out-strong)] active:scale-[0.97] data-[pressed=true]:bg-accent data-[pressed=true]:shadow-[0_0_0_1.5px_var(--primary)]"
       data-pressed={selected}
     >
@@ -95,7 +96,7 @@ function CoworkerOption({
         <UserRound className="size-5" />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-semibold">{contact.name}</span>
+        <span className="block truncate text-sm font-semibold">{coworker.name}</span>
         <span className="text-muted-foreground block truncate text-xs">Feishu coworker</span>
       </span>
       {selected ? <Check className="text-primary size-5" /> : null}
@@ -158,6 +159,7 @@ function CoworkerSearchSection({
 export function CoworkerPicker({
   clientEmail,
   onClientEmailChange,
+  customerSlot,
   sessionId,
   userAccessToken,
   selectedOpenId,
@@ -166,16 +168,17 @@ export function CoworkerPicker({
 }: {
   clientEmail: string;
   onClientEmailChange: (email: string) => void;
+  customerSlot?: React.ReactNode;
   sessionId: string;
   userAccessToken?: string;
   selectedOpenId?: string;
-  onSelect: (contact: Contact) => void;
+  onSelect: (coworker: Coworker) => void;
   onBack: () => void;
 }) {
   const search = useCoworkerSearch(sessionId, userAccessToken);
   const [query, setQuery] = useState("");
   const [focused, setFocused] = useState(false);
-  const [recents, setRecents] = useState<Contact[]>(loadRecents);
+  const [recents, setRecents] = useState<Coworker[]>(loadRecents);
   const [results, dispatchResults] = useReducer(searchResultsReducer, []);
 
   const q = query.trim();
@@ -208,27 +211,27 @@ export function CoworkerPicker({
   }, [q, search]);
 
   const directoryById = useMemo(() => {
-    const map = new Map<string, Contact>();
+    const map = new Map<string, Coworker>();
     for (const c of [...PREVIEW_COWORKERS, ...recents, ...results]) map.set(c.openId, c);
     return map;
   }, [recents, results]);
 
   const searching = q.length > 0;
   const suggested = PREVIEW_COWORKERS.slice(0, 4).filter(
-    (contact) => !recents.some((recent) => recent.openId === contact.openId),
+    (coworker) => !recents.some((recent) => recent.openId === coworker.openId),
   );
   const list = searching ? results : [...recents, ...suggested].slice(0, 6);
   const listLabel = searching ? "Results" : recents.length > 0 ? "Recent & suggested" : "Suggested";
 
-  const handleSelect = (contact: Contact) => {
-    const next = [contact, ...loadRecents().filter((c) => c.openId !== contact.openId)].slice(0, 6);
+  const handleSelect = (coworker: Coworker) => {
+    const next = [coworker, ...loadRecents().filter((c) => c.openId !== coworker.openId)].slice(0, 6);
     try {
       localStorage.setItem(RECENTS_KEY, JSON.stringify(next));
     } catch {
       /* ignore quota / unavailable storage */
     }
     setRecents(next);
-    onSelect(contact);
+    onSelect(coworker);
   };
 
   return (
@@ -249,6 +252,7 @@ export function CoworkerPicker({
       </header>
 
       <ClientInfo clientEmail={clientEmail} onClientEmailChange={onClientEmailChange} />
+      {customerSlot ? <div className="mt-3">{customerSlot}</div> : null}
 
       <CoworkerSearchSection
         query={query}
@@ -262,11 +266,11 @@ export function CoworkerPicker({
       </div>
       <div className="space-y-2">
         {list.length > 0 ? (
-          list.map((contact) => (
+          list.map((coworker) => (
             <CoworkerOption
-              key={contact.openId}
-              contact={directoryById.get(contact.openId) ?? contact}
-              selected={selectedOpenId === contact.openId}
+              key={coworker.openId}
+              coworker={directoryById.get(coworker.openId) ?? coworker}
+              selected={selectedOpenId === coworker.openId}
               onSelect={handleSelect}
             />
           ))

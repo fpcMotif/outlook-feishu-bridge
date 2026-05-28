@@ -29,9 +29,9 @@ export function dlog(msg: string): void {
   emit("log", msg);
 }
 
-// Profiling helper for the forward pipeline. Pass a performance.now() start;
-// logs the elapsed ms with a stopwatch prefix so the per-segment breakdown is
-// readable straight off the DebugPanel (see ADR-0006). Returns the elapsed ms.
+// Profiling helper for load and sync work. Pass a performance.now() start; logs
+// elapsed ms with a stopwatch prefix so the per-segment breakdown is readable
+// straight off the DebugPanel. Returns the elapsed ms.
 export function dtime(label: string, startMs: number): number {
   const elapsed = performance.now() - startMs;
   emit("log", `⏱ ${label}: ${Math.round(elapsed)}ms`);
@@ -41,7 +41,7 @@ export function dtime(label: string, startMs: number): number {
 // Load-cycle stopwatch. performance.now() is ms since the taskpane document
 // started loading — i.e. roughly since the add-in icon was clicked (Outlook
 // navigates the pane to our URL then). Use this to profile boot → Office.js
-// init → mail readable, the phase BEFORE a forward (see ADR-0006).
+// init → mail readable, the phase BEFORE Bitable Sync.
 export function dload(label: string): void {
   emit("log", `⏱ ${label}: ${Math.round(performance.now())}ms since pane load`);
 }

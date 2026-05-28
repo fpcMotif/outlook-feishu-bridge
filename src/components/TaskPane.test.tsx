@@ -24,6 +24,13 @@ vi.mock("../hooks/useCoworkerSearch", () => ({
   useCoworkerSearch: () => vi.fn(() => Promise.resolve([])),
 }));
 
+vi.mock("../hooks/useCustomerSearch", () => ({
+  useCustomerSearch: () => ({
+    directory: { status: "ready", records: [] },
+    search: vi.fn(() => Promise.resolve([])),
+  }),
+}));
+
 const mockUseMailItem = vi.mocked(useMailItem);
 const mockUseFeishuAuth = vi.mocked(useFeishuAuth);
 

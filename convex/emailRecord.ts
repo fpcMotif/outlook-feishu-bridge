@@ -1,14 +1,12 @@
 // One source of truth for the shape of a persisted Email Record — the row the
-// Forward pipeline writes after sending. The schema table, the storeEmailRecord
-// mutation, and the action→record mapping all derive from here, so a new field
+// Bitable Sync writes after creating the Feishu row. The schema table, the storeEmailRecord
+// mutation, and the sync action→record mapping all derive from here, so a new field
 // is added in one place instead of three. Pure values + types only (no
 // _generated/server import), so convex/schema.ts can import it without a cycle.
 
 import { v, type Infer } from "convex/values";
 
-// The attachment as handed to Feishu: one fileKey + display name + whether it is
-// an image or a generic file. Shared by the messaging path, the forward action,
-// and the persisted record.
+// Legacy delivery metadata retained in the schema for existing Email Records.
 export const attachmentKeyValidator = v.object({
   fileKey: v.string(),
   fileName: v.string(),
@@ -34,6 +32,17 @@ export const selectedCoworkerValidator = v.object({
 
 export type SelectedCoworker = Infer<typeof selectedCoworkerValidator>;
 
+// The Customer the salesperson confirmed (auto-matched or overridden via the
+// Customer Picker — ADR-0013). Stored on the Email Record so the audit trail
+// records the link without re-fetching Bitable. Optional — when null we
+// either could not auto-match or the user chose to sync unlinked.
+export const selectedCustomerValidator = v.object({
+  recordId: v.string(),
+  name: v.string(),
+});
+
+export type SelectedCustomer = Infer<typeof selectedCustomerValidator>;
+
 // Persisted fields of an Email Record (everything except the server-stamped
 // `createdAt`, which the table adds). Spread into defineTable and reused verbatim
 // as the storeEmailRecord args, so the table and the mutation cannot drift.
@@ -55,6 +64,7 @@ export const emailRecordFields = {
   sentToGroups: v.optional(v.array(v.string())),
   requestSelections: v.optional(v.array(requestSelectionValidator)),
   selectedCoworkers: v.optional(v.array(selectedCoworkerValidator)),
+  selectedCustomer: v.optional(selectedCustomerValidator),
   feishuMessageId: v.optional(v.string()),
   bitableRecordId: v.optional(v.string()),
   pdfFileKey: v.optional(v.string()),
@@ -70,10 +80,8 @@ export type EmailRecord = Infer<typeof emailRecordValidator>;
 // persisted (it rode to the action only to render the card + this preview).
 const BODY_PREVIEW_MAX = 500;
 
-// What the forward action already holds when it goes to persist. A structural
-// subset of the action args — extra transport fields (sessionId, pdfBytes, …) are
-// simply ignored.
-export interface ForwardRecordInput {
+// What Bitable Sync holds when it goes to persist.
+export interface EmailRecordInput {
   subject: string;
   from: string;
   to: string[];
@@ -84,30 +92,22 @@ export interface ForwardRecordInput {
   conversationId?: string;
   userEmail?: string;
   dateTimeCreated?: number;
-  targets: { bot: boolean; chat: boolean; bitable: boolean };
-  contacts?: string[];
-  groups?: string[];
   requestSelections?: RequestSelection[];
   selectedCoworkers?: SelectedCoworker[];
-  attachmentFileKeys?: AttachmentKey[];
-  feishuDocUrl?: string;
-  feishuDocToken?: string;
+  selectedCustomer?: SelectedCustomer;
 }
 
-// The Feishu handles produced during dispatch.
-export interface ForwardResultIds {
-  feishuMessageId?: string;
+// The Feishu handle produced during sync.
+export interface EmailRecordResultIds {
   bitableRecordId?: string;
 }
 
-// Map a completed forward (input + dispatch results + the uploaded PDF key) onto
-// the Email Record to persist. The only logic here is the body→bodyPreview
-// truncation and the targets→sentTo* / contacts→sentToContacts flattening — pure,
-// no DB, no I/O, so it is unit-tested directly.
+// Map a completed Bitable Sync onto the Email Record to persist. The only logic
+// here is body→bodyPreview truncation plus the retired delivery flags staying
+// false for schema compatibility — pure, no DB, no I/O, so it is unit-tested.
 export function toEmailRecord(
-  input: ForwardRecordInput,
-  ids: ForwardResultIds,
-  pdfFileKey?: string,
+  input: EmailRecordInput,
+  ids: EmailRecordResultIds,
 ): EmailRecord {
   return {
     subject: input.subject,
@@ -120,18 +120,19 @@ export function toEmailRecord(
     conversationId: input.conversationId,
     userEmail: input.userEmail,
     dateTimeCreated: input.dateTimeCreated,
-    sentToBot: input.targets.bot,
-    sentToChat: input.targets.chat,
-    sentToBitable: input.targets.bitable,
-    sentToContacts: input.contacts,
-    sentToGroups: input.groups,
+    sentToBot: false,
+    sentToChat: false,
+    sentToBitable: true,
+    sentToContacts: undefined,
+    sentToGroups: undefined,
     requestSelections: input.requestSelections,
     selectedCoworkers: input.selectedCoworkers,
-    feishuMessageId: ids.feishuMessageId,
+    selectedCustomer: input.selectedCustomer,
+    feishuMessageId: undefined,
     bitableRecordId: ids.bitableRecordId,
-    pdfFileKey,
-    attachmentFileKeys: input.attachmentFileKeys,
-    feishuDocUrl: input.feishuDocUrl,
-    feishuDocToken: input.feishuDocToken,
+    pdfFileKey: undefined,
+    attachmentFileKeys: undefined,
+    feishuDocUrl: undefined,
+    feishuDocToken: undefined,
   };
 }

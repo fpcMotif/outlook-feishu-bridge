@@ -65,10 +65,10 @@ function buildSteps(coworkerCount: number): Step[] {
 
 export function ReceivedScreen({
   coworkerCount,
-  onForwardAnother,
+  onSyncAnother,
 }: {
   coworkerCount: number;
-  onForwardAnother: () => void;
+  onSyncAnother: () => void;
 }) {
   const steps = buildSteps(coworkerCount);
 
@@ -88,7 +88,7 @@ export function ReceivedScreen({
       </div>
 
       <div className="mt-auto w-full max-w-[320px] pt-8">
-        <Button className="h-12 w-full rounded-2xl text-[15px]" onClick={onForwardAnother}>
+        <Button className="h-12 w-full rounded-2xl text-[15px]" onClick={onSyncAnother}>
           Route another email
         </Button>
       </div>

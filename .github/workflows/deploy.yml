@@ -29,12 +29,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version-file: .node-version
-          cache: npm
 
-      - run: npm ci
+      - uses: oven-sh/setup-bun@v2
+
+      - run: bun install
 
       - name: Build SPA (base=/)
-        run: npm run build -- --base=/
+        run: bun run build -- --base=/
         env:
           VITE_CONVEX_URL: ${{ vars.VITE_CONVEX_URL || 'https://steady-setter-706.convex.cloud' }}
           VITE_CONVEX_SITE_URL: ${{ vars.VITE_CONVEX_SITE_URL || 'https://steady-setter-706.convex.site' }}

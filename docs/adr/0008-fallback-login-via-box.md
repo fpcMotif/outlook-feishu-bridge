@@ -19,7 +19,7 @@ The box is a **manual "trouble logging in?" fallback** — Convex stays the defa
 
 ## Consequences
 
-- **Two token models.** The user-token-consuming Convex functions (`forwardToFeishu`, the group list, the contact search) accept an optional `userAccessToken`: present → use it (box path); absent → read from the DB (Convex path).
+- **Two token models.** The user-token-consuming Convex Coworker search accepts an optional `userAccessToken`: present → use it (box path); absent → read from the DB (Convex path).
 - **Token in `localStorage`.** An XSS exposure; acceptable for an internal add-in (the SPA already keeps a session id there). Reconsider if this app ever holds higher-value scopes.
 - **The box gains a process.** A long-running Bun service under **systemd** + an nginx proxy `location`; `FEISHU_APP_SECRET` now also lives on the box (systemd `EnvironmentFile`, never in the repo). The box was already load-bearing (it serves the SPA), so this is not a new single point of failure.
 - **Feishu console** must whitelist the box redirect URI; the scope set is unchanged.

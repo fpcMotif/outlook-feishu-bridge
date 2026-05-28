@@ -9,13 +9,17 @@ import { v } from "convex/values";
 import {
   requestSelectionValidator,
   selectedCoworkerValidator,
+  selectedCustomerValidator,
   toEmailRecord,
   type SelectedCoworker,
 } from "../emailRecord";
 
 // Shared intake the UI submits. `clientEmail` is the user-confirmed client email
-// used for the Bitable Client domain-match; `from` is the actual sender stored on
-// the Email Record. Email subject/body live only on the Convex Email Record.
+// used for the legacy backend domain-match against the Customer Table;
+// `selectedCustomer` is the SPA-side Customer Picker override (ADR-0013) — when
+// present it wins, otherwise the domain match runs as before. `from` is the
+// actual sender stored on the Email Record. Email subject/body live only on
+// the Convex Email Record.
 const intakeArgs = {
   subject: v.string(),
   from: v.string(),
@@ -28,6 +32,7 @@ const intakeArgs = {
   userEmail: v.optional(v.string()),
   dateTimeCreated: v.optional(v.number()),
   clientEmail: v.optional(v.string()),
+  selectedCustomer: v.optional(selectedCustomerValidator),
   requestSelections: v.optional(v.array(requestSelectionValidator)),
   selectedCoworkers: v.optional(v.array(selectedCoworkerValidator)),
 };
@@ -48,6 +53,7 @@ export const syncRequest = action({
     const selectedCoworkers = requireExactlyOneCoworker(args.selectedCoworkers);
     const { recordId } = await ctx.runAction(internal.feishu.bitable.createServiceRecord, {
       clientEmail: args.clientEmail ?? args.from,
+      clientRecordId: args.selectedCustomer?.recordId,
       dateOfOffer: args.dateTimeCreated,
       requestSelections: args.requestSelections,
       selectedCoworkers,
@@ -64,9 +70,9 @@ export const syncRequest = action({
         conversationId: args.conversationId,
         userEmail: args.userEmail,
         dateTimeCreated: args.dateTimeCreated,
-        targets: { bot: false, chat: false, bitable: true },
         requestSelections: args.requestSelections,
         selectedCoworkers,
+        selectedCustomer: args.selectedCustomer,
       },
       { bitableRecordId: recordId },
     );
@@ -85,6 +91,7 @@ export const correctRequest = action({
     const { recordId } = await ctx.runAction(internal.feishu.bitable.correctServiceRecord, {
       recordId: args.recordId,
       clientEmail: args.clientEmail ?? args.from,
+      clientRecordId: args.selectedCustomer?.recordId,
       dateOfOffer: args.dateTimeCreated,
       requestSelections: args.requestSelections,
       selectedCoworkers,

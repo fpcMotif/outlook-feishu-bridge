@@ -8,7 +8,7 @@ The add-in began as a way to **forward a copy** of an Outlook email into Feishu 
 
 - **Single output: the Bitable row.** Each synced email produces one row (Request Types, Request Notes, one Coworker, Date, and a Client link when the sender's domain matches) via a **tenant-identity** call (`/bitable/v1/apps/{app_token}/tables/{table_id}/records`, app permission `bitable:app`), keyed by `FEISHU_BITABLE_APP_TOKEN` + `FEISHU_BITABLE_TABLE_ID`.
 - **The Coworker is the assignee, not a recipient.** Exactly one selected Feishu user is written into the row as the assigned handler. The app sends **no** message — no IM, no card, no webhook. Any alerting is Bitable's own.
-- **Chat / bot / group / Doc / PDF / attachment paths retired.** The `forwardToFeishu` multi-target dispatch and the `bot.ts` / `chat.ts` / `docx.ts` / `pdf.ts` paths, the attachment + inline-image upload paths, and the `sentToBot` / `sentToChat` record fields become dead and are removed as the code is cleaned up.
+- **Chat / bot / group / Doc / PDF / attachment paths retired.** The `forwardToFeishu` multi-target dispatch and the `bot.ts` / `chat.ts` / `docx.ts` / `pdf.ts` paths, the attachment + inline-image upload paths, and the `sentToBot` / `sentToChat` record fields are not part of live Bitable Sync. The code paths were removed; the old Email Record fields remain only for schema compatibility with historical rows.
 - **User OAuth shrinks to coworker search.** The only user-token call left is Search Users (`/search/v1/user`, scope `contact:user:search`); `offline_access` stays for silent refresh. `im:chat:readonly` and `im:message` are dropped.
 
 ## Why
@@ -20,7 +20,7 @@ The add-in began as a way to **forward a copy** of an Outlook email into Feishu 
 ## Consequences
 
 - **ADR-0004, 0005, 0006 are superseded** — they govern machinery (binary-via-storage, text-only PDF, forward-latency parallelization) that no longer exists. **ADR-0003 is amended**: the scope set narrows to `contact:user:search` + `offline_access`; the Search Users decision itself still stands.
-- **The redesigned UI is wired to this backend.** `ForwardScreen` → `SyncScreen` calls `requestSync.syncRequest`; the progress animation is visual only and completion is controlled by the real action resolving. Deleting the retired multi-target code remains follow-up cleanup.
+- **The redesigned UI is wired to this backend.** `RequestIntakeScreen` → `SyncScreen` calls `requestSync.syncRequest`; the progress animation is visual only and completion is controlled by the real action resolving.
 - **Two new required env vars** (`FEISHU_BITABLE_APP_TOKEN`, `FEISHU_BITABLE_TABLE_ID`); without them the sync throws.
 - **Bitable schema coupling.** The row's column names must exist in the target table or the write fails — the table schema is now part of the contract.
 - **Existing users must re-authorize** once the requested scope set changes (Feishu grants only the scopes present at authorize time).

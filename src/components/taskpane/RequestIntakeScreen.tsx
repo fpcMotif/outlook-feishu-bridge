@@ -1,63 +1,94 @@
 /* eslint-disable max-lines-per-function */
 import { useCallback, useMemo, useReducer } from "react";
 
-import type { Contact } from "@/forward/targets";
+import type { Coworker } from "./coworkers";
+import { findCustomerByEmail, type CustomerRecord } from "./customers";
 import type { MailItemData } from "../../office/useMailItem";
+import { useCustomerSearch } from "../../hooks/useCustomerSearch";
 import { useRequestSync } from "../../hooks/useRequestSync";
 import { Button } from "../ui/button";
 import { CoworkerPicker } from "./CoworkerPicker";
 import { ConnectCard } from "./ConnectCard";
+import { CustomerPicker } from "./CustomerPicker";
 import { ReceivedScreen } from "./ReceivedScreen";
 import { RequestCards } from "./RequestCards";
 import { REQUESTS } from "./requests";
 import { SubmitDock } from "./SubmitDock";
 import { SyncScreen } from "./SyncScreen";
 
-type ForwardScreenName = "build" | "contacts" | "sync" | "received" | "error";
+type IntakeScreenName = "build" | "coworker" | "sync" | "received" | "error";
 
-interface ForwardState {
+interface IntakeState {
   notes: Record<string, string>;
   clientEmail: string;
   mailFrom: string;
-  screen: ForwardScreenName;
-  selectedCoworker: Contact | null;
+  screen: IntakeScreenName;
+  selectedCoworker: Coworker | null;
+  // The Customer picked or auto-matched in the Customer Picker (ADR-0013).
+  // `customerTouched` flips true once the salesperson interacts with the picker
+  // — after that we stop overwriting their choice when the directory loads.
+  selectedCustomer: CustomerRecord | null;
+  customerTouched: boolean;
   syncError: string | null;
 }
 
-type ForwardAction =
+type IntakeAction =
   | { type: "mailFromChanged"; mailFrom: string }
   | { type: "noteChanged"; id: string; value: string }
   | { type: "clientEmailChanged"; value: string }
-  | { type: "screenChanged"; screen: ForwardScreenName }
-  | { type: "coworkerSelected"; contact: Contact }
+  | { type: "screenChanged"; screen: IntakeScreenName }
+  | { type: "coworkerSelected"; coworker: Coworker }
+  | { type: "customerAutoMatched"; customer: CustomerRecord | null }
+  | { type: "customerOverridden"; customer: CustomerRecord | null }
   | { type: "syncStarted" }
   | { type: "syncSucceeded" }
   | { type: "syncFailed"; message: string }
   | { type: "startedOver" };
 
-function initialForwardState(mailFrom: string): ForwardState {
+function initialIntakeState(mailFrom: string): IntakeState {
   return {
     notes: {},
     clientEmail: mailFrom,
     mailFrom,
     screen: "build",
     selectedCoworker: null,
+    selectedCustomer: null,
+    customerTouched: false,
     syncError: null,
   };
 }
 
-function forwardReducer(state: ForwardState, action: ForwardAction): ForwardState {
+function intakeReducer(state: IntakeState, action: IntakeAction): IntakeState {
   switch (action.type) {
     case "mailFromChanged":
-      return { ...state, clientEmail: action.mailFrom, mailFrom: action.mailFrom };
+      return {
+        ...state,
+        clientEmail: action.mailFrom,
+        mailFrom: action.mailFrom,
+        selectedCustomer: null,
+        customerTouched: false,
+      };
     case "noteChanged":
       return { ...state, notes: { ...state.notes, [action.id]: action.value } };
     case "clientEmailChanged":
-      return { ...state, clientEmail: action.value };
+      // The salesperson is re-resolving the client → the previous auto-match
+      // is stale. Clear it; the next auto-match effect will re-fire.
+      return {
+        ...state,
+        clientEmail: action.value,
+        selectedCustomer: null,
+        customerTouched: false,
+      };
     case "screenChanged":
       return { ...state, screen: action.screen };
     case "coworkerSelected":
-      return { ...state, selectedCoworker: action.contact };
+      return { ...state, selectedCoworker: action.coworker };
+    case "customerAutoMatched":
+      // Only adopt the auto-match if the salesperson hasn't already picked.
+      if (state.customerTouched) return state;
+      return { ...state, selectedCustomer: action.customer };
+    case "customerOverridden":
+      return { ...state, selectedCustomer: action.customer, customerTouched: true };
     case "syncStarted":
       return { ...state, screen: "sync", syncError: null };
     case "syncSucceeded":
@@ -70,6 +101,8 @@ function forwardReducer(state: ForwardState, action: ForwardAction): ForwardStat
         notes: {},
         screen: "build",
         selectedCoworker: null,
+        selectedCustomer: null,
+        customerTouched: false,
         syncError: null,
       };
   }
@@ -122,7 +155,7 @@ function LoginScreen({
   );
 }
 
-export function ForwardScreen({
+export function RequestIntakeScreen({
   isLoggedIn,
   mailItem,
   sessionId,
@@ -138,10 +171,37 @@ export function ForwardScreen({
   onLoginFallback: () => void;
 }) {
   const { sync } = useRequestSync();
-  const [state, dispatch] = useReducer(forwardReducer, mailItem.from, initialForwardState);
+  const [state, dispatch] = useReducer(intakeReducer, mailItem.from, initialIntakeState);
 
   if (state.mailFrom !== mailItem.from) {
     dispatch({ type: "mailFromChanged", mailFrom: mailItem.from });
+  }
+
+  // Customer Directory preload (ADR-0013). Non-blocking: while loading the
+  // CustomerPicker shows "Resolving customer for …" and the rest of the
+  // screen stays interactive. One hook bundles the directory + the per-
+  // keystroke server fallback so a single vi.mock replaces both in tests.
+  const { directory: customerDirectory, search: searchCustomers } =
+    useCustomerSearch(isLoggedIn);
+
+  // Re-run the local auto-match whenever the directory finishes loading or
+  // the client email changes. The reducer guards against clobbering a user
+  // override (customerTouched).
+  const autoMatch = useMemo(
+    () =>
+      customerDirectory.status === "ready"
+        ? findCustomerByEmail(customerDirectory.records, state.clientEmail)
+        : null,
+    [customerDirectory.status, customerDirectory.records, state.clientEmail],
+  );
+  const autoMatchId = autoMatch?.recordId ?? null;
+  const currentMatchId = state.selectedCustomer?.recordId ?? null;
+  if (
+    !state.customerTouched &&
+    customerDirectory.status === "ready" &&
+    autoMatchId !== currentMatchId
+  ) {
+    dispatch({ type: "customerAutoMatched", customer: autoMatch });
   }
 
   const filledRequests = useMemo(
@@ -156,8 +216,8 @@ export function ForwardScreen({
   const selectedCount = state.selectedCoworker ? 1 : 0;
   const selectedOpenId = state.selectedCoworker?.openId;
 
-  const selectCoworker = (contact: Contact) => {
-    dispatch({ type: "coworkerSelected", contact });
+  const selectCoworker = (coworker: Coworker) => {
+    dispatch({ type: "coworkerSelected", coworker });
   };
 
   // First write: hand the intake to the Bitable sync. Email subject/body ride to
@@ -176,6 +236,9 @@ export function ForwardScreen({
       userEmail: mailItem.userEmail || undefined,
       dateTimeCreated: mailItem.dateTimeCreated?.getTime(),
       clientEmail: state.clientEmail,
+      selectedCustomer: state.selectedCustomer
+        ? { recordId: state.selectedCustomer.recordId, name: state.selectedCustomer.name }
+        : undefined,
       requestSelections: filledRequests.map((r) => ({ requestType: r.title, note: r.note })),
       selectedCoworkers: state.selectedCoworker ? [state.selectedCoworker] : [],
     })
@@ -183,12 +246,12 @@ export function ForwardScreen({
       .catch((e: unknown) => {
         dispatch({ type: "syncFailed", message: e instanceof Error ? e.message : "Sync failed" });
       });
-  }, [sync, mailItem, state.clientEmail, filledRequests, state.selectedCoworker]);
+  }, [sync, mailItem, state.clientEmail, state.selectedCustomer, filledRequests, state.selectedCoworker]);
 
   const handleSubmit = () => {
     if (state.screen === "build") {
       if (filledCount === 0) return;
-      dispatch({ type: "screenChanged", screen: "contacts" });
+      dispatch({ type: "screenChanged", screen: "coworker" });
       return;
     }
     if (selectedCount === 0) return;
@@ -200,7 +263,7 @@ export function ForwardScreen({
   };
 
   if (state.screen === "received") {
-    return <ReceivedScreen coworkerCount={selectedCount} onForwardAnother={startOver} />;
+    return <ReceivedScreen coworkerCount={selectedCount} onSyncAnother={startOver} />;
   }
 
   if (state.screen === "sync") {
@@ -222,7 +285,7 @@ export function ForwardScreen({
         </p>
         <div className="flex gap-2">
           <Button onClick={runSync}>Try again</Button>
-          <Button variant="secondary" onClick={() => dispatch({ type: "screenChanged", screen: "contacts" })}>
+          <Button variant="secondary" onClick={() => dispatch({ type: "screenChanged", screen: "coworker" })}>
             Back
           </Button>
         </div>
@@ -234,12 +297,24 @@ export function ForwardScreen({
     return <LoginScreen onLogin={onLogin} onLoginFallback={onLoginFallback} />;
   }
 
-  if (state.screen === "contacts") {
+  if (state.screen === "coworker") {
+    const emailDomainPart = state.clientEmail.includes("@")
+      ? state.clientEmail.split("@").pop() ?? state.clientEmail
+      : state.clientEmail;
     return (
       <>
         <CoworkerPicker
           clientEmail={state.clientEmail}
           onClientEmailChange={(value) => dispatch({ type: "clientEmailChanged", value })}
+          customerSlot={
+            <CustomerPicker
+              directory={customerDirectory}
+              searchCustomers={searchCustomers}
+              emailDomain={emailDomainPart}
+              selectedCustomer={state.selectedCustomer}
+              onChange={(customer) => dispatch({ type: "customerOverridden", customer })}
+            />
+          }
           sessionId={sessionId}
           userAccessToken={userAccessToken}
           selectedOpenId={selectedOpenId}

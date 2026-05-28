@@ -31,7 +31,7 @@ function phaseForProgress(progress: number) {
   return PHASES[0];
 }
 
-// Visual progress only — animates toward 98% and holds. The parent (ForwardScreen)
+// Visual progress only — animates toward 98% and holds. The parent (RequestIntakeScreen)
 // decides when the sync is actually done (the real action resolved) and flips the
 // screen; this hook never auto-completes.
 function useSyncProgress() {

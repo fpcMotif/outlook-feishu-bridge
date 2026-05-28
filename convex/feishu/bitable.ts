@@ -44,11 +44,14 @@ const coworkerValidator = v.object({
   avatarUrl: v.optional(v.string()),
 });
 
-// Shared write args. The client is the email sender; it is matched to the customer
-// table by email domain. The email subject/body are NOT written here — they live
-// only on the Convex Email Record (ADR-0010).
+// Shared write args. The client is the email sender; if `clientRecordId` is
+// passed (the salesperson's override picked from the Customer Picker, ADR-0013)
+// we use it directly. Otherwise we fall back to the legacy email-domain match
+// against the Customer Table. The email subject/body are NOT written here —
+// they live only on the Convex Email Record (ADR-0010).
 const serviceRowArgs = {
   clientEmail: v.optional(v.string()),
+  clientRecordId: v.optional(v.string()),
   dateOfOffer: v.optional(v.number()),
   requestSelections: v.optional(v.array(requestSelectionValidator)),
   selectedCoworkers: v.optional(v.array(coworkerValidator)),
@@ -56,6 +59,7 @@ const serviceRowArgs = {
 
 interface ServiceRowInput {
   clientEmail?: string;
+  clientRecordId?: string;
   dateOfOffer?: number;
   requestSelections?: { requestType: string; note: string }[];
   selectedCoworkers?: { openId: string; name: string; avatarUrl?: string }[];
@@ -128,12 +132,25 @@ function buildServiceFields(
   return fields;
 }
 
+// Resolve the Client DuplexLink target for a sync: prefer the override picked
+// in the Customer Picker (ADR-0013); fall back to the email-domain match
+// against the Customer Table (ADR-0012). Both paths are read-only on the
+// Customer Table; both may return null and that is OK (lenient by design).
+async function resolveClientRecordId(
+  ctx: ActionCtx,
+  appToken: string,
+  input: ServiceRowInput,
+): Promise<string | null> {
+  if (input.clientRecordId) return input.clientRecordId;
+  return await matchClientRecordId(ctx, appToken, input.clientEmail);
+}
+
 // CREATE a new Service row. Never touches an existing row.
 export const createServiceRecord = internalAction({
   args: serviceRowArgs,
   handler: async (ctx, args): Promise<{ recordId: string }> => {
     const { appToken, tableId } = requireBitableEnv();
-    const clientRecordId = await matchClientRecordId(ctx, appToken, args.clientEmail);
+    const clientRecordId = await resolveClientRecordId(ctx, appToken, args);
     const fields = buildServiceFields(args, clientRecordId);
     const data = await callFeishu<{ record?: { record_id: string } }>(ctx, {
       path: `/bitable/v1/apps/${appToken}/tables/${tableId}/records`,
@@ -153,7 +170,7 @@ export const correctServiceRecord = internalAction({
   args: { recordId: v.string(), ...serviceRowArgs },
   handler: async (ctx, args): Promise<{ recordId: string }> => {
     const { appToken, tableId } = requireBitableEnv();
-    const clientRecordId = await matchClientRecordId(ctx, appToken, args.clientEmail);
+    const clientRecordId = await resolveClientRecordId(ctx, appToken, args);
     const fields = buildServiceFields(args, clientRecordId);
     const data = await callFeishu<{ record?: { record_id: string } }>(ctx, {
       path: `/bitable/v1/apps/${appToken}/tables/${tableId}/records/${args.recordId}`,

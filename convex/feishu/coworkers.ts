@@ -5,7 +5,7 @@ import { callFeishu } from "./call";
 // Search Users response (open.feishu.cn GET /open-apis/search/v1/user): each
 // user carries open_id, name, an `avatar` object of sized URLs, and
 // department_ids. `user_id` is only returned with contact:user.employee_id:readonly,
-// which we don't request — forwarding addresses users by open_id. See ADR-0003.
+// which we don't request — Bitable Sync assigns Coworkers by open_id. See ADR-0003.
 interface FeishuUser {
   open_id: string;
   name: string;
@@ -18,7 +18,7 @@ interface FeishuUser {
   department_ids?: string[];
 }
 
-export const searchContacts = action({
+export const searchCoworkers = action({
   args: {
     sessionId: v.string(),
     query: v.string(),
@@ -34,7 +34,7 @@ export const searchContacts = action({
       auth: "user",
       sessionId: args.sessionId,
       token: args.userAccessToken,
-      label: "Contact search",
+      label: "Coworker search",
     });
 
     return (data.users ?? []).map((u) => ({

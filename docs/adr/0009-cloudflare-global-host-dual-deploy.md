@@ -16,7 +16,7 @@ Shared by both:
 - Same **Convex Backend** (`steady-setter-706`), same Feishu app. The primary **OAuth Callback** is a Convex HTTP route on `*.convex.site` — host-independent — so **no new Feishu redirect URI** is needed for the Global Host.
 - The Sentry tunnel is env-driven (`VITE_SENTRY_TUNNEL`): set to `/_sentry/` for the ECS build, left unset for the Global build (direct ingest; CSP `connect-src https://*.sentry.io` already covers the ingest host).
 - The **Outlook Manifest** carries two placeholders, `__ADDIN_DOMAIN__` + `__ADDIN_BASE__`; `scripts/manifest.sh <domain> [base]` emits a per-host manifest. CN users sideload the ECS manifest (`<host>` + `addin/`), global users the Pages one (`outlook-feishu-bridge.pages.dev` + empty base).
-- `scripts/deploy.sh cloudflare` (`npm run deploy:cf`) builds `--base=/` and runs `wrangler pages deploy dist`. A `wrangler logout && wrangler login` re-auth is required first (interactive OAuth); the project may need a one-time `wrangler pages project create`.
+- `scripts/deploy.sh cloudflare` (`bun run deploy:cf`) builds `--base=/` and runs `wrangler pages deploy dist`. A `wrangler logout && wrangler login` re-auth is required first (interactive OAuth); the project may need a one-time `wrangler pages project create`.
 
 ## Why
 

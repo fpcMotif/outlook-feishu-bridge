@@ -16,7 +16,7 @@ After the Bitable-intake pivot ([ADR-0010](0010-pivot-to-bitable-intake.md)) the
 ## Decision
 
 - **`bitable:app` on the _tenant_ identity.** The Bitable row write ([bitable.ts](../../convex/feishu/bitable.ts), `auth: "tenant"`) uses the tenant token, so the permission is granted to the app identity. We picked the **broad** `bitable:app` (查看、评论、编辑和管理多维表格) over the granular `base:record:create`: it is certain to cover `createRecord`, matches the console's named permission, and avoids a wrong-identifier batch-import failure during the test phase.
-- **`contact:user:search` on the _user_ identity.** Coworker search ([contacts.ts](../../convex/feishu/contacts.ts), `/search/v1/user`) is the only remaining user-token call; it is requested in the authorize URL ([useFeishuAuth.ts](../../src/hooks/useFeishuAuth.ts)).
+- **`contact:user:search` on the _user_ identity.** Coworker search ([coworkers.ts](../../convex/feishu/coworkers.ts), `/search/v1/user`) is the only remaining user-token call; it is requested in the authorize URL ([useFeishuAuth.ts](../../src/hooks/useFeishuAuth.ts)).
 - **`offline_access` is authorize-URL-only.** It is **not** a console permission and must **not** appear in the batch JSON — it is an OAuth scope sent in the authorize request so the OIDC token endpoint returns a refresh token ([ADR-0003](0003-feishu-user-scopes-and-search-v1.md)).
 - **`im:chat:readonly` and `im:message` dropped** with the chat retirement ([ADR-0010](0010-pivot-to-bitable-intake.md)).
 

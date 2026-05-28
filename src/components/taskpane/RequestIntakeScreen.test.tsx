@@ -12,7 +12,14 @@ vi.mock("../../hooks/useCoworkerSearch", () => ({
   useCoworkerSearch: () => vi.fn(() => Promise.resolve([])),
 }));
 
-import { ForwardScreen } from "./ForwardScreen";
+vi.mock("../../hooks/useCustomerSearch", () => ({
+  useCustomerSearch: () => ({
+    directory: { status: "ready", records: [] },
+    search: vi.fn(() => Promise.resolve([])),
+  }),
+}));
+
+import { RequestIntakeScreen } from "./RequestIntakeScreen";
 import type { MailItemData } from "../../office/useMailItem";
 
 const SAMPLE: MailItemData = {
@@ -29,12 +36,12 @@ const SAMPLE: MailItemData = {
   attachments: [],
 };
 
-function renderForwardScreen(
+function renderRequestIntakeScreen(
   isLoggedIn: boolean,
   clientEmail = "m.hoffmann@bayerpharma.de",
 ) {
   render(
-    <ForwardScreen
+    <RequestIntakeScreen
       isLoggedIn={isLoggedIn}
       mailItem={{ ...SAMPLE, from: clientEmail }}
       sessionId="test-session"
@@ -56,9 +63,9 @@ beforeEach(() => {
   localStorage.clear();
 });
 
-describe("ForwardScreen login gate", () => {
+describe("RequestIntakeScreen login gate", () => {
   it("keeps the Feishu login surface separate from the request builder", () => {
-    renderForwardScreen(false);
+    renderRequestIntakeScreen(false);
 
     expect(screen.getByText("Connect to Feishu")).toBeInTheDocument();
     expect(
@@ -70,7 +77,7 @@ describe("ForwardScreen login gate", () => {
   });
 
   it("shows the request builder without the login prompt after sign-in", () => {
-    renderForwardScreen(true);
+    renderRequestIntakeScreen(true);
 
     expect(screen.queryByText("Connect to Feishu")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Quotation/i })).toBeInTheDocument();
@@ -80,9 +87,9 @@ describe("ForwardScreen login gate", () => {
   });
 });
 
-describe("ForwardScreen request details", () => {
+describe("RequestIntakeScreen request details", () => {
   it("marks filled request cards as selected", () => {
-    renderForwardScreen(true);
+    renderRequestIntakeScreen(true);
 
     fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
     fireEvent.change(screen.getByRole("textbox"), {
@@ -94,7 +101,7 @@ describe("ForwardScreen request details", () => {
   });
 
   it("moves filled requests into Act II coworker selection before submit", () => {
-    renderForwardScreen(true);
+    renderRequestIntakeScreen(true);
     fillQuotationAndContinue();
 
     expect(screen.getByText("Client & coworker")).toBeInTheDocument();
@@ -109,7 +116,7 @@ describe("ForwardScreen request details", () => {
   });
 
   it("lets users confirm and update the retrieved client email", () => {
-    renderForwardScreen(true);
+    renderRequestIntakeScreen(true);
     fillQuotationAndContinue();
 
     fireEvent.change(screen.getByLabelText("Client email"), {
@@ -121,9 +128,9 @@ describe("ForwardScreen request details", () => {
 
 });
 
-describe("ForwardScreen coworker selection", () => {
+describe("RequestIntakeScreen coworker selection", () => {
   it("allows exactly one coworker and replaces the selection on the cards", () => {
-    renderForwardScreen(true);
+    renderRequestIntakeScreen(true);
     fillQuotationAndContinue();
 
     const jenny = screen.getByRole("button", { name: /Jenny Xu/i });
@@ -140,9 +147,9 @@ describe("ForwardScreen coworker selection", () => {
   });
 });
 
-describe("ForwardScreen sync flow", () => {
+describe("RequestIntakeScreen sync flow", () => {
   it("shows Act IV while syncing, then the success screen once sync resolves", async () => {
-    renderForwardScreen(true);
+    renderRequestIntakeScreen(true);
     fillQuotationAndContinue();
 
     fireEvent.click(screen.getByRole("button", { name: /Jenny Xu/i }));

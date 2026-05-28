@@ -1,3 +1,4 @@
+/* eslint-disable max-lines-per-function */
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -9,8 +10,26 @@ vi.mock("../../hooks/useRequestSync", () => ({
 vi.mock("../../hooks/useCoworkerSearch", () => ({
   useCoworkerSearch: () => vi.fn(() => Promise.resolve([])),
 }));
+const BAYER = {
+  recordId: "rec_bayer",
+  name: "Bayer Pharma",
+  domain: "bayerpharma.de",
+  owner: null,
+};
+const STOCKMEIER = {
+  recordId: "rec_stock",
+  name: "STOCKMEIER Chemie GmbH & Co. KG",
+  domain: "stockmeier.com",
+  owner: null,
+};
+vi.mock("../../hooks/useCustomerSearch", () => ({
+  useCustomerSearch: () => ({
+    directory: { status: "ready", records: [BAYER, STOCKMEIER] },
+    search: vi.fn(() => Promise.resolve([])),
+  }),
+}));
 
-import { ForwardScreen } from "./ForwardScreen";
+import { RequestIntakeScreen } from "./RequestIntakeScreen";
 import type { MailItemData } from "../../office/useMailItem";
 
 const SAMPLE: MailItemData = {
@@ -29,7 +48,7 @@ const SAMPLE: MailItemData = {
 
 function renderScreen() {
   render(
-    <ForwardScreen
+    <RequestIntakeScreen
       isLoggedIn={true}
       mailItem={SAMPLE}
       sessionId="test-session"
@@ -39,7 +58,7 @@ function renderScreen() {
   );
 }
 
-describe("ForwardScreen sync wiring", () => {
+describe("RequestIntakeScreen sync wiring", () => {
   beforeEach(() => {
     mockSync.mockClear();
     mockCorrect.mockClear();
@@ -65,6 +84,51 @@ describe("ForwardScreen sync wiring", () => {
         { requestType: "Quotation", note: "Need a quarterly L-Carnitine quote." },
       ],
       selectedCoworkers: [{ openId: "ou_jenny", name: "Jenny Xu" }],
+    });
+  });
+
+  // Customer-matching wiring (ADR-0013): when the directory contains a row
+  // whose 域名 equals the sender's domain, sync rides with selectedCustomer
+  // set so the backend writes the right Client DuplexLink instead of falling
+  // back to the legacy domain-search-per-write.
+  it("passes the auto-matched Customer through to sync when the directory has a domain hit", async () => {
+    renderScreen();
+    fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "Need a quarterly L-Carnitine quote." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Continue$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Jenny Xu/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
+
+    await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(1));
+    expect(mockSync.mock.calls[0][0]).toMatchObject({
+      selectedCustomer: { recordId: "rec_bayer", name: "Bayer Pharma" },
+    });
+  });
+
+  // Override wins over auto-match (ADR-0013): tapping Change → typing →
+  // picking a different Customer changes which selectedCustomer rides to sync.
+  it("uses the user's Customer override instead of the auto-match when one is picked", async () => {
+    renderScreen();
+    fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "Need a quarterly L-Carnitine quote." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Continue$/i }));
+
+    fireEvent.click(screen.getByRole("button", { name: /change/i }));
+    fireEvent.change(screen.getByRole("searchbox", { name: /search customers/i }), {
+      target: { value: "stock" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /STOCKMEIER Chemie/i }));
+
+    fireEvent.click(screen.getByRole("button", { name: /Jenny Xu/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
+
+    await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(1));
+    expect(mockSync.mock.calls[0][0]).toMatchObject({
+      selectedCustomer: { recordId: "rec_stock", name: STOCKMEIER.name },
     });
   });
 

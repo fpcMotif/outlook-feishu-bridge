@@ -3,7 +3,7 @@
 #
 # Frontend: vite build (base=/addin/) -> tar over SSH -> atomic release on the
 #           ECS box (timestamped dir + /var/www/addin symlink, keep last 3).
-# Backend:  npx convex deploy (asks confirmation; prod is not trivially reversible)
+# Backend:  bunx convex deploy (asks confirmation; prod is not trivially reversible)
 #
 # Replaces the GitHub Actions workflow (GH Actions billing is exhausted on this
 # account). Runs from a local terminal (Git Bash / WSL on Windows, bash on
@@ -55,7 +55,7 @@ deploy_frontend() {
   # MSYS_NO_PATHCONV stops Git Bash rewriting /addin/ into a Windows path.
   # VITE_SENTRY_TUNNEL routes Sentry through the box's same-origin nginx proxy
   # (ADR-0009); the `cloudflare` build omits it and ingests direct.
-  MSYS_NO_PATHCONV=1 VITE_SENTRY_TUNNEL=/_sentry/ npm run build -- --base=/addin/
+  MSYS_NO_PATHCONV=1 VITE_SENTRY_TUNNEL=/_sentry/ bun run build -- --base=/addin/
 
   # Atomic release: unpack into a timestamped dir, flip the /var/www/addin
   # symlink, prune all but the newest 3 releases. Rollback = repoint the
@@ -85,8 +85,8 @@ deploy_backend() {
     echo "Aborted."
     exit 1
   fi
-  echo "==> npx convex deploy"
-  CONVEX_DEPLOY_KEY="$CONVEX_DEPLOY_KEY" npx convex deploy
+  echo "==> bunx convex deploy"
+  CONVEX_DEPLOY_KEY="$CONVEX_DEPLOY_KEY" bunx convex deploy
   echo "OK backend deployed"
 }
 
@@ -148,22 +148,22 @@ deploy_auth() {
 # public/_headers allows. Reads the same VITE_* build vars from .env.deploy.
 deploy_cloudflare() {
   require_vars VITE_CONVEX_URL VITE_CONVEX_SITE_URL VITE_FEISHU_APP_ID
-  require_tool npx "npx ships with Node.js."
+  require_tool bunx "bunx ships with Bun."
 
   # wrangler needs an authenticated session. A CLOUDFLARE_API_TOKEN works
   # unattended; otherwise an interactive `wrangler login` must have run first.
-  if [[ -z "${CLOUDFLARE_API_TOKEN:-}" ]] && ! npx wrangler whoami >/dev/null 2>&1; then
+  if [[ -z "${CLOUDFLARE_API_TOKEN:-}" ]] && ! bunx wrangler whoami >/dev/null 2>&1; then
     echo "Not authenticated to Cloudflare. Re-auth first:" >&2
-    echo "  npx wrangler logout && npx wrangler login" >&2
+    echo "  bunx wrangler logout && bunx wrangler login" >&2
     echo "(or set CLOUDFLARE_API_TOKEN). See docs/DEPLOY.md." >&2
     exit 1
   fi
 
   echo "==> vite build (base=/, direct Sentry ingest)"
   # MSYS_NO_PATHCONV stops Git Bash rewriting the bare / base into a Windows path.
-  MSYS_NO_PATHCONV=1 npm run build -- --base=/
+  MSYS_NO_PATHCONV=1 bun run build -- --base=/
   echo "==> wrangler pages deploy dist (project: outlook-feishu-bridge)"
-  npx wrangler pages deploy dist
+  bunx wrangler pages deploy dist
   echo "OK Global Host -> https://outlook-feishu-bridge.pages.dev/"
 }
 
@@ -209,8 +209,8 @@ One-time setup NOT done by this script:
     deploy user's ~/.ssh/authorized_keys on the ECS box.
   - Convex: generate prod deploy key (Dashboard -> Settings -> Deploy Keys).
   - Cloudflare (for `cloudflare`): re-auth before deploying with
-    `npx wrangler logout && npx wrangler login` (interactive). The first deploy may
-    need `npx wrangler pages project create outlook-feishu-bridge`. The Global Host's
+    `bunx wrangler logout && bunx wrangler login` (interactive). The first deploy may
+    need `bunx wrangler pages project create outlook-feishu-bridge`. The Global Host's
     CSP + SPA fallback live in public/_headers + public/_redirects (CF equivalents
     of deploy/nginx/). No new Feishu redirect URI is needed (primary login lands on
     *.convex.site, host-independent).

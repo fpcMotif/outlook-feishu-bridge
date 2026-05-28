@@ -14,7 +14,7 @@
     "test": "vitest run",
     "test:e2e": "playwright test",
     "test:watch": "vitest",
-    "dev:all": "concurrently \"npx convex dev\" \"npm run dev\"",
+    "dev:all": "concurrently \"bunx convex dev\" \"bun run dev\"",
     "deploy:fe": "bash scripts/deploy.sh frontend",
     "deploy:be": "bash scripts/deploy.sh backend",
     "deploy:all": "bash scripts/deploy.sh all",

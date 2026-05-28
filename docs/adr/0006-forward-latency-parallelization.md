@@ -35,7 +35,7 @@ ordering is irrelevant and now races.
 
 Real proof must come from an actual Outlook forward — the on-screen DebugPanel
 `dlog()`/`dtime()` segment timings plus the `[forward.send]` / `[feishu]` /
-`[storage]` durations in `npx convex logs`. The app is instrumented for exactly
+`[storage]` durations in `bunx convex logs`. The app is instrumented for exactly
 that (button-click → done `T_total`, and each segment).
 
 Because this checkout has no Outlook/Feishu fixture, we also model the

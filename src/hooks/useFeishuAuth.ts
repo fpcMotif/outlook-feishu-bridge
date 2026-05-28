@@ -14,7 +14,7 @@ const FALLBACK_KEY = "feishu_fallback_token";
 // "app did not obtain the user's authorization" (see ADR-0003). Request only what
 // we use (least privilege). Post-pivot (ADR-0010) the lone user-token call is
 // Coworker search — the chat scopes (im:chat:readonly, im:message) are dropped.
-//   contact:user:search → contacts.ts GET /search/v1/user (search Coworkers; returns
+//   contact:user:search → coworkers.ts GET /search/v1/user (search Coworkers; returns
 //                          name/avatar/open_id - user_id would need employee_id:readonly)
 //   offline_access      → required for the OIDC token endpoint to return a refresh_token
 const FEISHU_USER_SCOPES = "contact:user:search offline_access";

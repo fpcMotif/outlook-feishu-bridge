@@ -1,6 +1,5 @@
 import * as Sentry from "@sentry/react";
-import { subscribeDebug, getDebugEntries, dlog } from "./debug";
-import type { ForwardOutcome } from "./forward/forwardEmail";
+import { subscribeDebug, getDebugEntries } from "./debug";
 
 // Error + performance monitoring. The DSN is a build-time public value
 // (VITE_SENTRY_DSN, set in .env.deploy); without it this is a no-op, so dev and
@@ -21,7 +20,7 @@ export function initSentry(): void {
     // Global Host build = direct ingest. See ADR-0007 (observability) + ADR-0009.
     ...(tunnel ? { tunnel } : {}),
     environment: import.meta.env.MODE,
-    // Capture every forward — this is a low-volume internal add-in.
+    // Capture every sync — this is a low-volume internal add-in.
     tracesSampleRate: 1,
     // Auto pageload/navigation + fetch/xhr timing spans (the load cycle, the
     // Convex calls). Trace headers are NOT propagated cross-origin by default,
@@ -36,7 +35,7 @@ export function initSentry(): void {
   });
 
   // Mirror the on-screen DebugPanel timeline into Sentry breadcrumbs, so any
-  // captured error carries the full load + forward timing (dload/dtime/dlog).
+  // captured error carries the full load + sync timing (dload/dtime/dlog).
   let lastId = -1;
   subscribeDebug(() => {
     const entries = getDebugEntries();
@@ -51,39 +50,9 @@ export function initSentry(): void {
   });
 }
 
-/** Report a forward's requested-vs-delivered outcome. Always logs a summary;
- *  raises a Sentry warning when something the user asked for was silently
- *  dropped (no exception thrown) — the "missing behavior" signal. */
-export function reportForwardOutcome(o: ForwardOutcome): void {
-  const inlineEligible = o.attachments.requested - o.attachments.oversize;
-  const gaps: string[] = [];
-  if (o.pdf.requested && !o.pdf.delivered) gaps.push("PDF missing");
-  if (o.doc.requested && !o.doc.delivered) gaps.push("Doc missing");
-  if (o.attachments.delivered < inlineEligible) {
-    gaps.push(`attachments ${o.attachments.delivered}/${inlineEligible} sent`);
-  }
-  if (o.attachments.oversize > 0) gaps.push(`${o.attachments.oversize} attachment(s) >30MB not inline`);
-
-  const summary =
-    `forward outcome — pdf ${Number(o.pdf.delivered)}/${Number(o.pdf.requested)}, ` +
-    `attachments ${o.attachments.delivered}/${o.attachments.requested} (${o.attachments.oversize} oversize), ` +
-    `doc ${Number(o.doc.delivered)}/${Number(o.doc.requested)}`;
-  dlog(`✔ ${summary}${gaps.length > 0 ? ` — GAPS: ${gaps.join("; ")}` : ""}`);
-
-  if (gaps.length > 0) {
-    Sentry.captureMessage(`Forward delivered with gaps: ${gaps.join("; ")}`, {
-      level: "warning",
-      extra: { outcome: o },
-    });
-  }
-}
-
-/** Report a forward failure — a thrown error OR the watchdog "stall" (a forward
- *  that never resolves). Caught exceptions aren't auto-captured by Sentry, so
- *  the click handler funnels them here, carrying the DebugPanel breadcrumbs. */
-export function reportForwardError(err: unknown): void {
+export function reportSyncError(err: unknown): void {
   Sentry.captureException(err instanceof Error ? err : new Error(String(err)), {
-    tags: { feature: "forward" },
+    tags: { feature: "bitable-sync" },
   });
 }
 

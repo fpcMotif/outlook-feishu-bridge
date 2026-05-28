@@ -22,9 +22,9 @@ The backend is the same Convex deployment for both, called directly (not proxied
 bash scripts/deploy.sh frontend
 ```
 
-- **Run `bash scripts/deploy.sh frontend`, not `npm run deploy:fe`, on Windows.**
-  `npm` may resolve `bash` to an MSYS2 `bash.exe` on `PATH` that can't exec npm
-  (exit 127). Invoking Git Bash directly avoids it.
+- **Run `bash scripts/deploy.sh frontend`, not `bun run deploy:fe`, on Windows.**
+  Direct `bash` keeps the deploy shell explicit and avoids package-runner shell
+  differences on Windows.
 - The script builds with `base=/addin/`, tars `dist/`, streams it over SSH, and
   does an **atomic release**: unpack into `/var/www/releases/<ts>/`, flip the
   `/var/www/addin` symlink, keep the last 3.
@@ -78,10 +78,10 @@ The backend (Convex deployment) needs four Feishu env vars — the app credentia
 plus the target Bitable identifiers ([ADR-0010](adr/0010-pivot-to-bitable-intake.md)):
 
 ```bash
-npx convex env set FEISHU_APP_ID <app-id>
-npx convex env set FEISHU_APP_SECRET <secret>
-npx convex env set FEISHU_BITABLE_APP_TOKEN <token>   # the base/<…> segment of the Bitable URL
-npx convex env set FEISHU_BITABLE_TABLE_ID <id>       # the ?table=<…> param
+bunx convex env set FEISHU_APP_ID <app-id>
+bunx convex env set FEISHU_APP_SECRET <secret>
+bunx convex env set FEISHU_BITABLE_APP_TOKEN <token>   # the base/<…> segment of the Bitable URL
+bunx convex env set FEISHU_BITABLE_TABLE_ID <id>       # the ?table=<…> param
 ```
 
 Permissions ([ADR-0011](adr/0011-feishu-permission-set.md)) — batch-import in 权限管理 →
@@ -111,13 +111,13 @@ optional). **Re-auth first** — the stored wrangler session is often stale or t
 to the wrong Cloudflare account:
 
 ```bash
-npx wrangler logout && npx wrangler login   # interactive (opens a browser)
+bunx wrangler logout && bunx wrangler login # interactive (opens a browser)
 bash scripts/deploy.sh cloudflare           # build base=/ + wrangler pages deploy
 ```
 
 - Builds with `base=/` (root) and runs `wrangler pages deploy dist` to the
   `outlook-feishu-bridge` Pages project (from `wrangler.toml` `name`). First time
-  only, the project may need `npx wrangler pages project create outlook-feishu-bridge`.
+  only, the project may need `bunx wrangler pages project create outlook-feishu-bridge`.
 - **No Sentry tunnel here** — the Global Host has no `/_sentry/` proxy, so the build
   omits `VITE_SENTRY_TUNNEL` and Sentry ingests direct to `*.sentry.io` (allowed by
   `public/_headers`). The ECS build keeps the tunnel.

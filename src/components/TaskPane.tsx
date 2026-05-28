@@ -5,7 +5,7 @@ import { Loader2, MailOpen } from "lucide-react";
 import { useFeishuAuth } from "../hooks/useFeishuAuth";
 import { useMailItem, type MailItemData } from "../office/useMailItem";
 import { Button } from "./ui/button";
-import { ForwardScreen } from "./taskpane/ForwardScreen";
+import { RequestIntakeScreen } from "./taskpane/RequestIntakeScreen";
 import { PaneHeader } from "./taskpane/PaneHeader";
 
 // Browser dev has no Office host or mailbox (useOffice falls back to host
@@ -82,7 +82,7 @@ export function TaskPane({ host }: { host: string | null }) {
       {isLoggedIn && user ? <PaneHeader user={user} onLogout={handleLogout} /> : null}
       <main className="flex min-h-0 flex-1 flex-col">
         {item ? (
-          <ForwardScreen
+          <RequestIntakeScreen
             isLoggedIn={isLoggedIn}
             mailItem={item}
             sessionId={feishuAuth.sessionId}

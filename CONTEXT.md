@@ -40,7 +40,7 @@ _Avoid_: conflating it with the primary Convex **OAuth Callback** — two regist
 `open.feishu.cn`. Both an outbound API target — the **Bitable** write, called from Convex actions in `convex/feishu/*.ts` — and the OAuth identity provider (issues the redirect to **OAuth Callback**). Outbound calls go directly from Convex.
 
 **Bitable Sync**:
-The click→Feishu path the **SPA** orchestrates: read the open Outlook email, let the user record one or more **Requests**, assign exactly one **Coworker**, optionally pick a **Customer** via the **Customer Picker** (defaulting to the auto-match), then Convex writes the **Bitable** row (tenant token) and stores the **Email Record**. One email → one row; nothing is messaged to anyone. If the user catches an error during the sync, that **just-created** row is updated in place (a `PUT` — [ADR-0012](docs/adr/0012-bitable-record-api.md)); the add-in never modifies any other or pre-existing Bitable row, and never modifies the **Customer Table** at all. An Outlook category tag is planned but deferred. (Replaces the retired multi-target "Forward pipeline" — [ADR-0010](docs/adr/0010-pivot-to-bitable-intake.md).)
+The click→Feishu path the **SPA** orchestrates: read the open Outlook email, let the user record one or more **Requests**, assign exactly one **Coworker**, then Convex writes the **Bitable** row (tenant token) and stores the **Email Record**. One email → one row; nothing is messaged to anyone. The backend links a **Customer** when the sender domain matches the read-only **Customer Table**; the user can edit the email used for that match. If the user catches an error during the sync, that **just-created** row is updated in place (a `PUT` — [ADR-0012](docs/adr/0012-bitable-record-api.md)); the add-in never modifies any other or pre-existing Bitable row, and never modifies the **Customer Table** at all. An Outlook category tag is planned but deferred. (Replaces the retired multi-target "Forward pipeline" — [ADR-0010](docs/adr/0010-pivot-to-bitable-intake.md).)
 _Avoid_: "forward" / "the forward pipeline" (we no longer forward an email copy — we extract a structured request), "send to chat".
 
 **Request**:
@@ -62,14 +62,6 @@ _Avoid_: "client" (overloaded with `clientEmail` + the legacy `Client` column na
 **Customer Table**:
 The sibling Feishu Bitable table `tbl4TE2GV472sKzp` in the same Base as the **Bitable** Service table — the directory of every **Customer** the company sells to. The add-in only **reads** it; per the HARD RULE it never modifies, creates, or deletes a Customer row.
 _Avoid_: "client table", "customer base" (overloaded — the *Bitable Base* is the parent container, not this table).
-
-**Customer Directory**:
-The session-cached snapshot of the **Customer Table** the SPA preloads at login so the **Customer Picker** can search it locally without hitting the network per keystroke. Tenant-token read; up to ~5000 rows today.
-_Avoid_: "customer cache", "customer list".
-
-**Customer Picker**:
-The taskpane UI on the contacts screen that shows the auto-matched Customer for the email's sender domain and lets the salesperson search the **Customer Directory** to pick or override that match. Writes the chosen `record_id` into the Service row's `Client` DuplexLink.
-_Avoid_: "client picker", "customer search".
 
 **Email Record**:
 The Convex-persisted copy of a synced request — a recoverable backup / workflow history of what was written to **Bitable** (email metadata, a body preview, the chosen **Requests** + the single **Coworker**, and the resulting `bitableRecordId`). The full email body is never stored — only a ≤500-char preview.
@@ -106,6 +98,6 @@ _Avoid_: "the Feishu token" — there are two, user vs tenant.
 - The SPA base path is **host-specific**: `/addin/` on the **ECS Host**, `/` on the **Global Host** ([ADR-0009](docs/adr/0009-cloudflare-global-host-dual-deploy.md)). A mismatch — an ECS manifest pointing at root, or a `/addin/` build deployed to the Global Host's root — 404s on assets.
 - `/search/v1/user` reads as legacy but is **current** — it's the official Search Users API (GET, keyword in the `query` URL param, scope `contact:user:search`); there is no `contact/v3` search ([ADR-0003](docs/adr/0003-feishu-user-scopes-and-search-v1.md)). It is still used — by **Coworker** search.
 - **Bitable Sync** scopes: a user token needs `contact:user:search` + `offline_access` only; the chat scopes `im:chat:readonly` / `im:message` were **dropped** with the pivot ([ADR-0010](docs/adr/0010-pivot-to-bitable-intake.md)). The **Bitable** write itself is tenant-token (app permission `bitable:app`), not a user scope. Changing the user scope set forces every user to log out and re-authorize.
-- **The UI is wired to Bitable Sync.** The redesigned taskpane ([ForwardScreen.tsx](src/components/taskpane/ForwardScreen.tsx) → [SyncScreen.tsx](src/components/taskpane/SyncScreen.tsx)) calls `requestSync.syncRequest`; "Synced to Feishu" means the Bitable write and Convex **Email Record** action resolved.
-- **"Forward" is retired language still in the code.** `forwardEmail` / `forwardToFeishu` / `ForwardScreen` / `sentToBot` / `sentToChat` are legacy names for **Bitable Sync** pending cleanup. Prefer **Bitable Sync** in prose.
-- **"Client" survives only as the literal Bitable column name.** The Service row in the live Bitable has a DuplexLink column literally named `Client`; renaming that is a Base-side schema change that has to be done in Feishu, not from the SPA, and the value string must match exactly or the write fails. Everywhere else the code, comments, prose, and identifiers say **Customer**. `clientEmail` on the intake is being renamed to `customerEmail` in the cleanup pass — same field, new name.
+- **The UI is wired to Bitable Sync.** The redesigned taskpane ([RequestIntakeScreen.tsx](src/components/taskpane/RequestIntakeScreen.tsx) → [SyncScreen.tsx](src/components/taskpane/SyncScreen.tsx)) calls `requestSync.syncRequest`; "Synced to Feishu" means the Bitable write and Convex **Email Record** action resolved.
+- **"Forward" is retired language.** The multi-target Forward pipeline has been removed from live code. Prefer **Bitable Sync** in prose.
+- **"Client" survives only as the literal Bitable column name and the temporary `clientEmail` argument.** The Service row in the live Bitable has a DuplexLink column literally named `Client`; renaming that is a Base-side schema change that has to be done in Feishu, not from the SPA, and the value string must match exactly or the write fails. Everywhere else, prose should say **Customer**.

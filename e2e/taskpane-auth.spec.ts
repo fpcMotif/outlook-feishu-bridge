@@ -29,7 +29,7 @@ test("browser preview keeps login separate and completes a request", async ({ pa
   });
 
   await page.goto("/");
-  await expect(page).toHaveTitle("Outlook Feishu Bridge");
+  await expect(page).toHaveTitle("feishu-sync");
   await expect(page.getByText("Connect your Feishu account")).toBeVisible({
     timeout: 12_000,
   });

@@ -103,7 +103,7 @@ export function useMailItem(autoRead = false) {
         throw new Error("No mail item selected (not inside Outlook, or no message open)");
       }
       if (isComposeItem(item)) {
-        throw new Error("Feishu Bridge syncs received emails — open a received message in the reading pane (not a compose/reply window), then try again.");
+        throw new Error("feishu-sync works with received emails - open a received message in the reading pane (not a compose/reply window), then try again.");
       }
       const body = await readMailBodyText();
       const data = extractMailData(item, body);

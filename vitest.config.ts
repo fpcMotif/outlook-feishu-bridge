@@ -16,7 +16,7 @@ export default defineConfig({
     setupFiles: ['./vitest.setup.ts'],
     globals: true,
     // Node 25 + Vitest's default fork pool is flaky on this Windows setup
-    // (workers can exit 127 with no test failure). Threads keep `npm test`
+    // (workers can exit 127 with no test failure). Threads keep `bun run test`
     // deterministic; one worker also avoids jsdom test-file interference.
     pool: 'threads',
     maxWorkers: 1,

@@ -14,6 +14,22 @@ const MAX = 300;
 let nextId = 0;
 const listeners = new Set<() => void>();
 
+// Pinned reference to the REAL console methods, captured at module load BEFORE
+// initDebug's wrapConsole runs. `dlog`/`dtime`/`dload` use these so the F12
+// DevTools console shows the same timeline the on-screen DebugPanel does —
+// even after wrapConsole reassigns the global console methods. (Calling the
+// wrapped console.log from inside dlog would double-emit into the buffer.)
+const realLog: (...args: unknown[]) => void = (console.log as (...args: unknown[]) => void).bind(console);
+const realWarn: (...args: unknown[]) => void = (console.warn as (...args: unknown[]) => void).bind(console);
+const realError: (...args: unknown[]) => void = (console.error as (...args: unknown[]) => void).bind(console);
+
+function mirrorToConsole(level: DebugEntry["level"], msg: string): void {
+  const prefix = "[dbg]";
+  if (level === "error") realError(prefix, msg);
+  else if (level === "warn") realWarn(prefix, msg);
+  else realLog(prefix, msg);
+}
+
 function emit(level: DebugEntry["level"], msg: string): void {
   entries.push({
     id: nextId++,
@@ -27,14 +43,17 @@ function emit(level: DebugEntry["level"], msg: string): void {
 
 export function dlog(msg: string): void {
   emit("log", msg);
+  mirrorToConsole("log", msg);
 }
 
 // Profiling helper for load and sync work. Pass a performance.now() start; logs
 // elapsed ms with a stopwatch prefix so the per-segment breakdown is readable
-// straight off the DebugPanel. Returns the elapsed ms.
+// straight off the DebugPanel + F12 console. Returns the elapsed ms.
 export function dtime(label: string, startMs: number): number {
   const elapsed = performance.now() - startMs;
-  emit("log", `⏱ ${label}: ${Math.round(elapsed)}ms`);
+  const line = `⏱ ${label}: ${Math.round(elapsed)}ms`;
+  emit("log", line);
+  mirrorToConsole("log", line);
   return elapsed;
 }
 
@@ -43,7 +62,9 @@ export function dtime(label: string, startMs: number): number {
 // navigates the pane to our URL then). Use this to profile boot → Office.js
 // init → mail readable, the phase BEFORE Bitable Sync.
 export function dload(label: string): void {
-  emit("log", `⏱ ${label}: ${Math.round(performance.now())}ms since pane load`);
+  const line = `⏱ ${label}: ${Math.round(performance.now())}ms since pane load`;
+  emit("log", line);
+  mirrorToConsole("log", line);
 }
 
 export function getDebugEntries(): DebugEntry[] {

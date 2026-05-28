@@ -117,6 +117,23 @@ export const createServiceRecord = internalAction({
     const { appToken, tableId } = requireBitableEnv();
     const clientRecordId = await resolveClientRecordId(ctx, appToken, args);
     const fields = buildServiceFields(args, clientRecordId);
+    // Diagnostic: dump the exact intake args + resolved fields payload so a
+    // post-mortem on Feishu's generic 1255001 can see what we actually sent.
+    console.log(
+      `[bitable] createServiceRecord intake=${JSON.stringify({
+        subject: args.subject,
+        clientEmail: args.clientEmail,
+        clientRecordId: args.clientRecordId,
+        resolvedClientRecordId: clientRecordId,
+        dateOfOffer: args.dateOfOffer,
+        emailConversationId: args.emailConversationId,
+        emailConversationIdLen: args.emailConversationId?.length ?? 0,
+        initiator: args.initiator,
+        coworkers: args.selectedCoworkers,
+        requestSelections: args.requestSelections,
+      })}`,
+    );
+    console.log(`[bitable] createServiceRecord fields=${JSON.stringify(fields)}`);
     const data = await callFeishu<{ record?: { record_id: string } }>(ctx, {
       path: `/bitable/v1/apps/${appToken}/tables/${tableId}/records`,
       method: "POST",

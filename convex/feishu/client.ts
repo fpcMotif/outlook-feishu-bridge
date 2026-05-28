@@ -65,12 +65,31 @@ export async function feishuFetch<T = unknown>(
     body,
   });
 
-  const parsed = (await response.json()) as FeishuEnvelope;
+  const rawText = await response.text();
+  let parsed: FeishuEnvelope;
+  try {
+    parsed = JSON.parse(rawText) as FeishuEnvelope;
+  } catch {
+    console.error(
+      `[feishu] ${opts.label ?? "call"} non-JSON response (status=${response.status}): ${rawText.slice(0, 500)}`,
+    );
+    throw new FeishuError(-1, `non-JSON response (status=${response.status})`, opts.label ?? "Feishu API");
+  }
   console.log(`[feishu] ${opts.label ?? "call"} ${Date.now() - t0}ms`);
   const ok =
     parsed.code === 0 ||
     (opts.acceptStatusCode === true && parsed.StatusCode === 0);
   if (!ok) {
+    // Dump everything Feishu sent back — the bare {code, msg} envelope hides
+    // the support log id and any nested `data.error` detail that triage needs.
+    const logId =
+      response.headers.get("X-Tt-Logid") ??
+      response.headers.get("x-tt-logid") ??
+      response.headers.get("X-Request-Id") ??
+      "(none)";
+    console.error(
+      `[feishu] ${opts.label ?? "call"} FAILED code=${parsed.code} msg=${parsed.msg} logId=${logId} body=${rawText.slice(0, 1000)}`,
+    );
     throw new FeishuError(parsed.code, parsed.msg, opts.label ?? "Feishu API");
   }
   return parsed as T;

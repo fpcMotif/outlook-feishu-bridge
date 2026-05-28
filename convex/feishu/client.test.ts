@@ -2,10 +2,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { feishuFetch, FeishuError } from "./client";
 
-function mockFetch(payload: unknown) {
+function mockFetch(payload: unknown, init: { status?: number; headers?: Record<string, string> } = {}) {
+  const rawText = JSON.stringify(payload);
   const fn = vi.fn(
     async (_input: RequestInfo | URL, _init?: RequestInit) =>
-      ({ json: async () => payload }) as Response,
+      ({
+        status: init.status ?? 200,
+        headers: new Headers(init.headers ?? {}),
+        text: async () => rawText,
+        json: async () => payload,
+      }) as Response,
   );
   globalThis.fetch = fn as unknown as typeof fetch;
   return fn;

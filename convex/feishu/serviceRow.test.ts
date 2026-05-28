@@ -39,4 +39,34 @@ describe("buildServiceFields", () => {
     const fields = buildServiceFields(BASE, null);
     expect("Sales" in fields).toBe(false);
   });
+
+});
+
+// ADR-0017: the Mail Item's Outlook conversationId rides into the
+// `Email Conversation ID` Text column as the join key from the Bitable row
+// back to the salesperson's mailbox view of the original client thread.
+describe("buildServiceFields — Email Conversation ID column", () => {
+  it("writes the Mail Item conversationId to the `Email Conversation ID` Text column", () => {
+    const fields = buildServiceFields(
+      { ...BASE, emailConversationId: "AAQkAGI0…convId…" },
+      null,
+    );
+    expect(fields["Email Conversation ID"]).toBe("AAQkAGI0…convId…");
+  });
+
+  // The column is optional on the wire — the SPA may not have Office.js handy
+  // (dev-preview / browser) or the Mail Item may have no conversationId.
+  it("omits `Email Conversation ID` when no conversationId is provided", () => {
+    const fields = buildServiceFields(BASE, null);
+    expect("Email Conversation ID" in fields).toBe(false);
+  });
+
+  // Whitespace-only conversationId is treated as absent — defensive against
+  // upstream returning "" or " " from the Office.js callback.
+  it("omits `Email Conversation ID` when conversationId is empty or whitespace", () => {
+    const blank = buildServiceFields({ ...BASE, emailConversationId: "" }, null);
+    const spaces = buildServiceFields({ ...BASE, emailConversationId: "   " }, null);
+    expect("Email Conversation ID" in blank).toBe(false);
+    expect("Email Conversation ID" in spaces).toBe(false);
+  });
 });

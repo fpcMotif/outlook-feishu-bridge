@@ -50,6 +50,9 @@ const serviceRowArgs = {
   requestSelections: v.optional(v.array(requestSelectionValidator)),
   selectedCoworkers: v.optional(v.array(coworkerValidator)),
   initiator: v.optional(initiatorValidator),
+  // ADR-0017: Outlook `item.conversationId` lands in the Service row's
+  // `Email Conversation ID` column as the Bitable→Outlook join key.
+  emailConversationId: v.optional(v.string()),
 };
 
 function requireBitableEnv() {

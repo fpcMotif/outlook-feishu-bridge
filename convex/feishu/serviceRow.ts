@@ -33,6 +33,11 @@ export interface ServiceRowInput {
   requestSelections?: { requestType: string; note: string }[];
   selectedCoworkers?: { openId: string; name: string; avatarUrl?: string }[];
   initiator?: { openId: string; name?: string };
+  // Outlook `item.conversationId` — the salesperson-mailbox-local thread id for
+  // the original client email. Lands in the Service row's `Email Conversation ID`
+  // Text column as the join key Bitable→Outlook (ADR-0017). Distinct from the
+  // Self-Forward copy's conversationId, which is not written.
+  emailConversationId?: string;
 }
 
 /**
@@ -67,6 +72,11 @@ export function buildServiceFields(
   // ADR-0014 additions:
   if (input.subject && input.subject.trim()) fields["Email Subject"] = input.subject;
   if (input.initiator?.openId) fields["Sales"] = [{ id: input.initiator.openId }];
+
+  // ADR-0017: write the Outlook conversationId as the Bitable→Outlook join key.
+  if (input.emailConversationId && input.emailConversationId.trim()) {
+    fields["Email Conversation ID"] = input.emailConversationId;
+  }
 
   return fields;
 }

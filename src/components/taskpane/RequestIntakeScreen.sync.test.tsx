@@ -7,6 +7,13 @@ const mockCorrect = vi.fn((_payload: unknown) => Promise.resolve({ recordId: "re
 vi.mock("../../hooks/useRequestSync", () => ({
   useRequestSync: () => ({ sync: mockSync, correct: mockCorrect }),
 }));
+const mockSendSelfForward = vi.fn(
+  (_payload: unknown): Promise<{ ok: true } | { ok: false; step: string; code: string; message: string }> =>
+    Promise.resolve({ ok: true }),
+);
+vi.mock("../../hooks/useSelfForward", () => ({
+  useSelfForward: () => ({ sendNote: mockSendSelfForward }),
+}));
 vi.mock("../../hooks/useCoworkerSearch", () => ({
   useCoworkerSearch: () => vi.fn(() => Promise.resolve([])),
 }));
@@ -65,6 +72,8 @@ describe("RequestIntakeScreen sync wiring", () => {
   beforeEach(() => {
     mockSync.mockClear();
     mockCorrect.mockClear();
+    mockSendSelfForward.mockClear();
+    mockSendSelfForward.mockImplementation(() => Promise.resolve({ ok: true }));
     localStorage.clear();
   });
 
@@ -135,6 +144,23 @@ describe("RequestIntakeScreen sync wiring", () => {
     });
   });
 
+  // ADR-0017: the Mail Item's Outlook conversationId rides on every sync call
+  // so the backend can write it into the Service row's `Email Conversation ID`
+  // column as the Bitable→Outlook join key.
+  it("passes the Mail Item conversationId on sync", async () => {
+    renderScreen();
+    fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "Need a quarterly L-Carnitine quote." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Continue$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Jenny Xu/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
+
+    await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(1));
+    expect(mockSync.mock.calls[0][0]).toMatchObject({ conversationId: "conv-1" });
+  });
+
   // ADR-0014: the signed-in Feishu user (the Initiator) rides on every sync
   // call so the backend can write the `Sales` User column. Distinct from the
   // assignee Coworker — the salesperson who clicked Sync vs the one who'll
@@ -153,6 +179,56 @@ describe("RequestIntakeScreen sync wiring", () => {
     expect(mockSync.mock.calls[0][0]).toMatchObject({
       initiator: { openId: "ou_jenny_initiator", name: "Jenny Xu" },
     });
+  });
+
+  // ADR-0017: the Self-Forward "Note to myself" fires in parallel with the
+  // Bitable sync. Both calls are issued from the same submit click.
+  it("fires the Self-Forward `sendNote` alongside `sync` on submit", async () => {
+    renderScreen();
+    fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "Need a quarterly L-Carnitine quote." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Continue$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Jenny Xu/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
+
+    await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockSendSelfForward).toHaveBeenCalledTimes(1));
+    expect(mockSendSelfForward.mock.calls[0][0]).toMatchObject({
+      originalSubject: "Inquiry - bulk L-Carnitine",
+      originalMessageId: "item-1",
+      selfEmail: "jenny.xu@fenchem.com",
+    });
+  });
+
+  // ADR-0017 soft-fail: if Self-Forward fails but Bitable succeeded, the user
+  // still lands on the success ("received") screen — the row is authoritative
+  // — and a `Note-to-myself failed — retry` chip surfaces.
+  it("shows the success screen with a retry chip when Self-Forward fails but sync succeeds", async () => {
+    mockSendSelfForward.mockImplementationOnce(() =>
+      Promise.resolve({
+        ok: false,
+        step: "send",
+        code: "ErrorAccessDenied",
+        message: "Mail.Send not consented",
+      }),
+    );
+    renderScreen();
+    fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "Need a quarterly L-Carnitine quote." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Continue$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Jenny Xu/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
+
+    expect(
+      await screen.findByRole("heading", { name: /Synced to Feishu/i }),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: /Retry note-to-myself/i }),
+    ).toBeInTheDocument();
   });
 
   it("shows an error and not the success screen when sync rejects", async () => {

@@ -117,4 +117,18 @@
       </bt:LongStrings>
     </Resources>
   </VersionOverrides>
+  <!--
+    ADR-0017 — Office.js SSO + Convex OBO. Substitute __M365_CLIENT_ID__ with the
+    Application (client) ID of the Azure AD app registration before sideloading.
+    Doc: https://learn.microsoft.com/office/dev/add-ins/develop/sso-in-office-add-ins#configure-the-add-ins-manifest
+  -->
+  <WebApplicationInfo>
+    <Id>__M365_CLIENT_ID__</Id>
+    <Resource>api://localhost:3000/__M365_CLIENT_ID__</Resource>
+    <Scopes>
+      <Scope>Mail.Send</Scope>
+      <Scope>profile</Scope>
+      <Scope>openid</Scope>
+    </Scopes>
+  </WebApplicationInfo>
 </OfficeApp>

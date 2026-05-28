@@ -61,6 +61,7 @@ export const syncRequest = action({
       requestSelections: args.requestSelections,
       selectedCoworkers,
       initiator: args.initiator,
+      emailConversationId: args.conversationId,
     });
     const record = toEmailRecord(
       {
@@ -102,6 +103,7 @@ export const correctRequest = action({
       requestSelections: args.requestSelections,
       selectedCoworkers,
       initiator: args.initiator,
+      emailConversationId: args.conversationId,
     });
     return { recordId };
   },

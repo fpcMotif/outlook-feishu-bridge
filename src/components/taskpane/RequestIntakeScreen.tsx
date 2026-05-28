@@ -1,11 +1,13 @@
 /* eslint-disable max-lines-per-function, max-lines */
 import { useCallback, useMemo, useReducer } from "react";
+import { Loader2 } from "lucide-react";
 
 import type { Coworker } from "./coworkers";
 import { findCustomerByEmail, type CustomerRecord } from "./customers";
 import type { MailItemData } from "../../office/useMailItem";
 import { useCustomerSearch } from "../../hooks/useCustomerSearch";
 import { useRequestSync } from "../../hooks/useRequestSync";
+import { useSelfForward, type SelfForwardResult } from "../../hooks/useSelfForward";
 import { Button } from "../ui/button";
 import { CoworkerPicker } from "./CoworkerPicker";
 import { ConnectCard } from "./ConnectCard";
@@ -17,6 +19,11 @@ import { SubmitDock } from "./SubmitDock";
 import { SyncScreen } from "./SyncScreen";
 
 type IntakeScreenName = "build" | "coworker" | "sync" | "received" | "error";
+
+// Status of the parallel Self-Forward (ADR-0017). `pending` while the chain
+// runs; `ok` once the Note-to-myself sends; `failed` on any non-2xx so the
+// ReceivedScreen renders the retry chip. `null` before the first attempt.
+type SelfForwardStatus = "pending" | "ok" | "failed" | null;
 
 interface IntakeState {
   notes: Record<string, string>;
@@ -30,6 +37,8 @@ interface IntakeState {
   selectedCustomer: CustomerRecord | null;
   customerTouched: boolean;
   syncError: string | null;
+  selfForwardStatus: SelfForwardStatus;
+  selfForwardError: { code: string; message: string } | null;
 }
 
 type IntakeAction =
@@ -43,6 +52,9 @@ type IntakeAction =
   | { type: "syncStarted" }
   | { type: "syncSucceeded" }
   | { type: "syncFailed"; message: string }
+  | { type: "selfForwardStarted" }
+  | { type: "selfForwardSucceeded" }
+  | { type: "selfForwardFailed"; code: string; message: string }
   | { type: "startedOver" };
 
 function initialIntakeState(mailFrom: string): IntakeState {
@@ -55,6 +67,8 @@ function initialIntakeState(mailFrom: string): IntakeState {
     selectedCustomer: null,
     customerTouched: false,
     syncError: null,
+    selfForwardStatus: null,
+    selfForwardError: null,
   };
 }
 
@@ -90,11 +104,27 @@ function intakeReducer(state: IntakeState, action: IntakeAction): IntakeState {
     case "customerOverridden":
       return { ...state, selectedCustomer: action.customer, customerTouched: true };
     case "syncStarted":
-      return { ...state, screen: "sync", syncError: null };
+      return {
+        ...state,
+        screen: "sync",
+        syncError: null,
+        selfForwardStatus: "pending",
+        selfForwardError: null,
+      };
     case "syncSucceeded":
       return { ...state, screen: "received" };
     case "syncFailed":
       return { ...state, screen: "error", syncError: action.message };
+    case "selfForwardStarted":
+      return { ...state, selfForwardStatus: "pending", selfForwardError: null };
+    case "selfForwardSucceeded":
+      return { ...state, selfForwardStatus: "ok", selfForwardError: null };
+    case "selfForwardFailed":
+      return {
+        ...state,
+        selfForwardStatus: "failed",
+        selfForwardError: { code: action.code, message: action.message },
+      };
     case "startedOver":
       return {
         ...state,
@@ -104,6 +134,8 @@ function intakeReducer(state: IntakeState, action: IntakeAction): IntakeState {
         selectedCustomer: null,
         customerTouched: false,
         syncError: null,
+        selfForwardStatus: null,
+        selfForwardError: null,
       };
   }
 }
@@ -155,8 +187,17 @@ function LoginScreen({
   );
 }
 
+function AuthResolvingScreen() {
+  return (
+    <div className="flex min-h-0 flex-1 items-center justify-center">
+      <Loader2 className="text-muted-foreground size-6 animate-spin" aria-label="Checking Feishu session" />
+    </div>
+  );
+}
+
 export function RequestIntakeScreen({
   isLoggedIn,
+  isAuthLoading = false,
   mailItem,
   sessionId,
   user,
@@ -165,6 +206,10 @@ export function RequestIntakeScreen({
   onLoginFallback,
 }: {
   isLoggedIn: boolean;
+  // True only while the Convex session query is still in flight AND we don't
+  // already have a logged-in signal (real Feishu session or dev preview user).
+  // Used to suppress the LoginScreen flash on returning users with cached creds.
+  isAuthLoading?: boolean;
   mailItem: MailItemData;
   sessionId: string;
   // The signed-in Feishu user (the Initiator, ADR-0014). Optional because the
@@ -175,6 +220,7 @@ export function RequestIntakeScreen({
   onLoginFallback: () => void;
 }) {
   const { sync } = useRequestSync();
+  const { sendNote: sendSelfForwardNote } = useSelfForward();
   const [state, dispatch] = useReducer(intakeReducer, mailItem.from, initialIntakeState);
 
   if (state.mailFrom !== mailItem.from) {
@@ -227,11 +273,34 @@ export function RequestIntakeScreen({
     dispatch({ type: "coworkerSelected", coworker });
   };
 
-  // First write: hand the intake to the Bitable sync. Email subject/body ride to
-  // the Convex Email Record only; the Bitable row gets the structured request.
+  // Sync = (a) the Bitable write that creates the Service row + the Convex
+  // Email Record, AND (b) the Self-Forward "Note to myself" copy into the
+  // Initiator's own mailbox (ADR-0017). Both fire on submit; Bitable is
+  // authoritative, the Self-Forward soft-fails into a retry chip.
+  const fireSelfForward = useCallback(async () => {
+    if (!mailItem.itemId) {
+      dispatch({
+        type: "selfForwardFailed",
+        code: "no_item_id",
+        message: "Mail Item id is unavailable (dev preview / browser host).",
+      });
+      return;
+    }
+    const result: SelfForwardResult = await sendSelfForwardNote({
+      originalMessageId: mailItem.itemId,
+      originalSubject: mailItem.subject,
+      selfEmail: mailItem.userEmail,
+    });
+    if (result.ok) {
+      dispatch({ type: "selfForwardSucceeded" });
+    } else {
+      dispatch({ type: "selfForwardFailed", code: result.code, message: result.message });
+    }
+  }, [sendSelfForwardNote, mailItem.itemId, mailItem.subject, mailItem.userEmail]);
+
   const runSync = useCallback(() => {
     dispatch({ type: "syncStarted" });
-    sync({
+    const bitable = sync({
       subject: mailItem.subject,
       from: mailItem.from,
       to: mailItem.to,
@@ -254,7 +323,11 @@ export function RequestIntakeScreen({
       .catch((e: unknown) => {
         dispatch({ type: "syncFailed", message: e instanceof Error ? e.message : "Sync failed" });
       });
-  }, [sync, mailItem, state.clientEmail, state.selectedCustomer, user, filledRequests, state.selectedCoworker]);
+    // Parallel — Self-Forward never blocks the Bitable result; if it fails we
+    // surface the retry chip on the ReceivedScreen.
+    void fireSelfForward();
+    return bitable;
+  }, [sync, mailItem, state.clientEmail, state.selectedCustomer, user, filledRequests, state.selectedCoworker, fireSelfForward]);
 
   const handleSubmit = () => {
     if (state.screen === "build") {
@@ -271,7 +344,14 @@ export function RequestIntakeScreen({
   };
 
   if (state.screen === "received") {
-    return <ReceivedScreen coworkerCount={selectedCount} onSyncAnother={startOver} />;
+    return (
+      <ReceivedScreen
+        coworkerCount={selectedCount}
+        onSyncAnother={startOver}
+        selfForwardStatus={state.selfForwardStatus}
+        onRetrySelfForward={fireSelfForward}
+      />
+    );
   }
 
   if (state.screen === "sync") {
@@ -302,6 +382,7 @@ export function RequestIntakeScreen({
   }
 
   if (!isLoggedIn) {
+    if (isAuthLoading) return <AuthResolvingScreen />;
     return <LoginScreen onLogin={onLogin} onLoginFallback={onLoginFallback} />;
   }
 

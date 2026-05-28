@@ -85,6 +85,10 @@ export function TaskPane({ host }: { host: string | null }) {
     ? { openId: "ou_dev", userName: "Jenny Xu", email: "jenny.xu@fenchem.com", org: "Branch Sales" }
     : null;
   const isLoggedIn = feishuAuth.isLoggedIn || devUser !== null;
+  // While the Convex session query is in flight, isLoggedIn is briefly false
+  // even for a returning user with a valid cached session. RequestIntakeScreen
+  // uses this to render a quiet placeholder instead of flashing the LoginScreen.
+  const isAuthLoading = feishuAuth.isLoading && devUser === null;
   const user = feishuAuth.user ?? devUser;
   const handleLogin = devPreview ? () => setDevLoggedIn(true) : feishuAuth.login;
   const handleLoginFallback = devPreview ? () => setDevLoggedIn(true) : feishuAuth.loginFallback;
@@ -104,6 +108,7 @@ export function TaskPane({ host }: { host: string | null }) {
         {item ? (
           <RequestIntakeScreen
             isLoggedIn={isLoggedIn}
+            isAuthLoading={isAuthLoading}
             mailItem={item}
             sessionId={feishuAuth.sessionId}
             user={user ?? undefined}

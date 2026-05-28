@@ -9,6 +9,10 @@ vi.mock("../../hooks/useRequestSync", () => ({
   }),
 }));
 
+vi.mock("../../hooks/useSelfForward", () => ({
+  useSelfForward: () => ({ sendNote: vi.fn(() => Promise.resolve({ ok: true })) }),
+}));
+
 vi.mock("../../hooks/useCoworkerSearch", () => ({
   useCoworkerSearch: () => vi.fn(() => Promise.resolve([])),
 }));

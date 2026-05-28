@@ -1,4 +1,3 @@
-#!/usr/bin/env bun
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -66,9 +65,15 @@ export function resolveManifestTarget(args) {
 }
 
 export function renderManifest(template, target) {
+  // ADR-0017: __M365_CLIENT_ID__ is the AAD Application (client) ID. Until the
+  // user registers the app, the placeholder stays in the generated manifest —
+  // Office.js SSO will fail with 13003 (no AAD app), which the Self-Forward
+  // chain soft-fails to a retry chip. The rest of the add-in keeps working.
+  const m365ClientId = process.env.M365_CLIENT_ID ?? "__M365_CLIENT_ID__";
   return template
     .replaceAll("__ADDIN_DOMAIN__", target.domain)
-    .replaceAll("__ADDIN_BASE__", target.base);
+    .replaceAll("__ADDIN_BASE__", target.base)
+    .replaceAll("__M365_CLIENT_ID__", m365ClientId);
 }
 
 async function main(argv) {

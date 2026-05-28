@@ -11,6 +11,7 @@ import type {
   CustomerDirectoryState,
   CustomerRecord,
 } from "../components/taskpane/customers";
+import { dtime } from "../debug";
 import { useCustomerDirectory } from "./useCustomerDirectory";
 
 export interface CustomerSearch {
@@ -25,7 +26,9 @@ export function useCustomerSearch(isLoggedIn: boolean): CustomerSearch {
     async (query: string): Promise<CustomerRecord[]> => {
       const q = query.trim();
       if (!q) return [];
+      const started = performance.now();
       const { records } = await action({ query: q });
+      dtime(`customer search (server) "${q.slice(0, 40)}" → ${records.length}`, started);
       return records;
     },
     [action],

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import App from './App'
 
 // Mock useOffice hook
@@ -12,6 +12,13 @@ vi.mock('./components/TaskPane', () => ({
   TaskPane: ({ host }: { host: string | null }) => (
     <div data-testid="task-pane">TaskPane host={host}</div>
   ),
+}))
+
+// The DebugPanel must never render itself by default. The App-level test
+// imports the real one (it's just a presentational component) and asserts
+// visibility via its sticky header "DBG dbg-2".
+vi.mock('./components/DebugPanel', () => ({
+  DebugPanel: () => <div data-testid="debug-panel">debug panel</div>,
 }))
 
 import { useOffice } from './office/useOffice'
@@ -83,5 +90,26 @@ describe('App ready state', () => {
     })
     render(<App />)
     expect(screen.getByText('TaskPane host=browser')).toBeInTheDocument()
+  })
+})
+
+describe('App debug-panel hotkey gate', () => {
+  // Standing rule (user-stated): the DebugPanel is HIDDEN by default in every
+  // environment. The only way to surface it is the Ctrl+Alt+D hotkey.
+  it('does not render the DebugPanel by default', () => {
+    mockUseOffice.mockReturnValue({ isReady: true, host: 'Outlook', error: null })
+    render(<App />)
+    expect(screen.queryByTestId('debug-panel')).not.toBeInTheDocument()
+  })
+
+  it('toggles the DebugPanel on/off when Ctrl+Alt+D is pressed', () => {
+    mockUseOffice.mockReturnValue({ isReady: true, host: 'Outlook', error: null })
+    render(<App />)
+
+    fireEvent.keyDown(window, { key: 'd', ctrlKey: true, altKey: true })
+    expect(screen.getByTestId('debug-panel')).toBeInTheDocument()
+
+    fireEvent.keyDown(window, { key: 'd', ctrlKey: true, altKey: true })
+    expect(screen.queryByTestId('debug-panel')).not.toBeInTheDocument()
   })
 })

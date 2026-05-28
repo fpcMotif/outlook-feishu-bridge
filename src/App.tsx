@@ -1,21 +1,32 @@
+import { useEffect, useState } from "react";
+
 import { useOffice } from "./office/useOffice";
 import { TaskPane } from "./components/TaskPane";
 import { DebugPanel } from "./components/DebugPanel";
 
-function showDebugPanel() {
-  if (!import.meta.env.DEV) return false;
-  const params = new URLSearchParams(window.location.search);
-  if (params.has("debug")) return true;
-  try {
-    return localStorage.getItem("feishu_debug") === "1";
-  } catch {
-    return false;
-  }
+// Debug panel is HIDDEN by default in every environment (dev, prod, ECS, CF).
+// The only way to surface it is the Ctrl+Alt+D hotkey — pressing again hides
+// it. URL flags and localStorage flags are intentionally NOT supported; the
+// panel must never be visible to a user who didn't deliberately summon it.
+function useDebugPanelToggle(): boolean {
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.ctrlKey && e.altKey && (e.key === "d" || e.key === "D")) {
+        e.preventDefault();
+        setVisible((v) => !v);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  return visible;
 }
 
 export default function App() {
   const office = useOffice();
   const { isReady, host, error } = office;
+  const showDebug = useDebugPanelToggle();
 
   let content;
   if (error) {
@@ -37,7 +48,7 @@ export default function App() {
   return (
     <>
       {content}
-      {showDebugPanel() ? <DebugPanel office={office} /> : null}
+      {showDebug ? <DebugPanel office={office} /> : null}
     </>
   );
 }

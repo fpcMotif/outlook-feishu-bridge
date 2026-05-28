@@ -4,10 +4,11 @@
 // the chosen Customer and exposes a search panel for overrides.
 
 /* eslint-disable max-lines-per-function */
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Search, X } from "lucide-react";
 
 import type { CustomerDirectoryState, CustomerRecord } from "./customers";
+import { dlog, dtime } from "../../debug";
 
 export interface CustomerPickerProps {
   directory: CustomerDirectoryState;
@@ -101,20 +102,39 @@ function SearchPanel({
   const [serverMatches, setServerMatches] = useState<CustomerRecord[]>([]);
   const [showMine, setShowMine] = useState(false);
   const q = query.trim().toLowerCase();
+  const openedAt = useRef<number>(performance.now());
+  useEffect(() => {
+    dlog(
+      `customer picker: search opened (directory ${directory.status}, ${directory.records.length} rows)`,
+    );
+    return () => {
+      dtime("customer picker: search closed", openedAt.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // Apply "Show mine" first (cheap predicate), then the substring query.
-  const ownedByMe = (c: CustomerRecord) =>
-    !showMine || (currentUserOpenId !== undefined && c.owner?.openId === currentUserOpenId);
-  const matchesText = (c: CustomerRecord) =>
-    !q ||
-    c.name.toLowerCase().includes(q) ||
-    (c.fullName?.toLowerCase().includes(q) ?? false) ||
-    (c.accountNo?.toLowerCase().includes(q) ?? false) ||
-    (c.domain?.toLowerCase().includes(q) ?? false) ||
-    (c.owner?.name?.toLowerCase().includes(q) ?? false);
-
-  const localMatches: CustomerRecord[] =
-    q || showMine ? directory.records.filter((c) => ownedByMe(c) && matchesText(c)) : [];
+  // Apply "Show mine" first (cheap predicate), then the substring query. Wrap
+  // in useMemo + dtime so each keystroke's local-filter cost is visible in the
+  // DebugPanel — the central claim of "instant" is auditable, not anecdotal.
+  const localMatches = useMemo<CustomerRecord[]>(() => {
+    if (!q && !showMine) return [];
+    const started = performance.now();
+    const ownedByMe = (c: CustomerRecord) =>
+      !showMine || (currentUserOpenId !== undefined && c.owner?.openId === currentUserOpenId);
+    const matchesText = (c: CustomerRecord) =>
+      !q ||
+      c.name.toLowerCase().includes(q) ||
+      (c.fullName?.toLowerCase().includes(q) ?? false) ||
+      (c.accountNo?.toLowerCase().includes(q) ?? false) ||
+      (c.domain?.toLowerCase().includes(q) ?? false) ||
+      (c.owner?.name?.toLowerCase().includes(q) ?? false);
+    const out = directory.records.filter((c) => ownedByMe(c) && matchesText(c));
+    dtime(
+      `customer picker: local filter "${q.slice(0, 40)}"${showMine ? " +mine" : ""} → ${out.length}/${directory.records.length}`,
+      started,
+    );
+    return out;
+  }, [q, showMine, currentUserOpenId, directory.records]);
 
   useEffect(() => {
     if (!q || (directory.status === "ready" && localMatches.length > 0)) {
@@ -182,7 +202,10 @@ function SearchPanel({
           <li key={c.recordId}>
             <button
               type="button"
-              onClick={() => onSelect(c)}
+              onClick={() => {
+                dtime(`customer picker: picked "${c.name}"`, openedAt.current);
+                onSelect(c);
+              }}
               className="bg-card hover:bg-accent flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-xs shadow-[var(--shadow-border)]"
             >
               <span className="min-w-0 flex-1">

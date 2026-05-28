@@ -12,6 +12,7 @@ import type {
   CustomerDirectoryState,
   CustomerRecord,
 } from "../components/taskpane/customers";
+import { dlog, dtime } from "../debug";
 
 // Singleton — survives component remounts within a session. Re-set to "idle"
 // on logout via {@link resetCustomerDirectory}.
@@ -47,11 +48,18 @@ export function useCustomerDirectory(isLoggedIn: boolean): CustomerDirectoryStat
     if (cache.status === "ready" || cache.status === "loading") return;
     if (inflight) return;
     publish({ status: "loading", records: [] });
+    dlog("customer directory: preload starting");
+    const started = performance.now();
     inflight = list({})
       .then((res: { records: CustomerRecord[] }) => {
+        const elapsed = dtime(`customer directory: preload ready (${res.records.length} rows)`, started);
+        // Sub-1500ms is the budget at the current ~250-row scale; flag a warn
+        // line if we exceed it so it stands out in the DebugPanel timeline.
+        if (elapsed > 1500) dlog(`customer directory: preload SLOW (${Math.round(elapsed)}ms > 1500ms budget)`);
         publish({ status: "ready", records: res.records });
       })
-      .catch(() => {
+      .catch((e: unknown) => {
+        dtime(`customer directory: preload FAILED — ${e instanceof Error ? e.message : String(e)}`, started);
         publish({ status: "error", records: [] });
       })
       .finally(() => {

@@ -7,7 +7,7 @@
   <Version>1.0.0.0</Version>
   <ProviderName>fpcMotif</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
-  <DisplayName DefaultValue="Feishu Bridge (Dev)"/>
+  <DisplayName DefaultValue="feishu-sync (Dev)"/>
   <Description DefaultValue="Forward Outlook emails to Feishu via bot webhook, group chat, or Bitable."/>
   <IconUrl DefaultValue="https://localhost:3000/assets/icon-32.png"/>
   <HighResolutionIconUrl DefaultValue="https://localhost:3000/assets/icon-64.png"/>
@@ -108,8 +108,8 @@
         <bt:Url id="Taskpane.Url" DefaultValue="https://localhost:3000/"/>
       </bt:Urls>
       <bt:ShortStrings>
-        <bt:String id="CommandsGroup.Label" DefaultValue="Feishu Bridge"/>
-        <bt:String id="TaskpaneButton.Label" DefaultValue="Feishu Bridge"/>
+        <bt:String id="CommandsGroup.Label" DefaultValue="feishu-sync"/>
+        <bt:String id="TaskpaneButton.Label" DefaultValue="feishu-sync"/>
         <bt:String id="TaskpaneButton.SupertipTitle" DefaultValue="Forward to Feishu"/>
       </bt:ShortStrings>
       <bt:LongStrings>

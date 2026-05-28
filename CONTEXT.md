@@ -1,4 +1,4 @@
-# Outlook → Feishu Bridge
+# feishu-sync
 
 An Outlook add-in for **sales-request intake**: it turns a client's inbound email into one structured row in a **Feishu Bitable** — categorized as **Requests** (Quotation / Sample / R&D Support) with notes and assigned to a Feishu **Coworker** — and keeps a recoverable **Email Record** in Convex. The Vite **SPA** runs in the Outlook taskpane; backend logic and data live in Convex. Forwarding an email *copy* into Feishu chat or via bot webhook — and the email-PDF / attachment / Feishu-Doc machinery — is **retired** ([ADR-0010](docs/adr/0010-pivot-to-bitable-intake.md)).
 

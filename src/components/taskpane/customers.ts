@@ -21,6 +21,10 @@ export interface CustomerDirectoryState {
   records: CustomerRecord[];
 }
 
+export interface CustomerSearchOptions {
+  mineFor?: string;
+}
+
 export function findCustomerByEmail<R extends { domain?: string }>(
   directory: readonly R[],
   email: string,

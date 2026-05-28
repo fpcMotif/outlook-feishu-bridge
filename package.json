@@ -14,6 +14,8 @@
     "test": "vitest run",
     "test:e2e": "playwright test",
     "test:watch": "vitest",
+    "manifest:global": "bun scripts/manifest.mjs --global",
+    "manifest:ecs": "bun scripts/manifest.mjs --ecs",
     "dev:all": "concurrently \"bunx convex dev\" \"bun run dev\"",
     "deploy:fe": "bash scripts/deploy.sh frontend",
     "deploy:be": "bash scripts/deploy.sh backend",

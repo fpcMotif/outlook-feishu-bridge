@@ -13,7 +13,7 @@
 
 import { v } from "convex/values";
 
-import { action } from "../_generated/server";
+import { action, type ActionCtx } from "../_generated/server";
 import { callFeishu } from "./call";
 
 // Same Base as the Service table (FEISHU_BITABLE_APP_TOKEN). The customer
@@ -134,6 +134,33 @@ function requireAppToken(): string {
   return appToken;
 }
 
+async function fetchCustomerPage(
+  ctx: ActionCtx,
+  appToken: string,
+  pageToken: string | undefined,
+  records: CustomerRecord[],
+  pageCount: number,
+): Promise<CustomerRecord[]> {
+  if (records.length >= MAX_RECORDS || pageCount >= 20) return records;
+  const query: Record<string, string> = { page_size: String(PAGE_SIZE) };
+  if (pageToken) query.page_token = pageToken;
+  const data: SearchResponse = await callFeishu<SearchResponse>(ctx, {
+    path: `/bitable/v1/apps/${appToken}/tables/${CUSTOMER_TABLE_ID}/records/search`,
+    method: "POST",
+    auth: "tenant",
+    json: {},
+    query,
+    label: "Bitable list customers",
+  });
+  const nextRecords = records
+    .concat((data.items ?? []).map((item) => mapFeishuItemToCustomer(item)))
+    .slice(0, MAX_RECORDS);
+  if (!data.has_more || !data.page_token || nextRecords.length >= MAX_RECORDS) {
+    return nextRecords;
+  }
+  return fetchCustomerPage(ctx, appToken, data.page_token, nextRecords, pageCount + 1);
+}
+
 /**
  * On-login preload: page through every Customer row and return the slim
  * {@link CustomerRecord} projection. Tenant-token; read-only — the HARD RULE
@@ -146,34 +173,7 @@ export const listCustomers = action({
   args: {},
   handler: async (ctx): Promise<{ records: CustomerRecord[]; generatedAt: number }> => {
     const appToken = requireAppToken();
-    const records: CustomerRecord[] = [];
-    let pageToken: string | undefined;
-    let safety = 0;
-
-    while (records.length < MAX_RECORDS) {
-      const query: Record<string, string> = { page_size: String(PAGE_SIZE) };
-      if (pageToken) query.page_token = pageToken;
-      const data: SearchResponse = await callFeishu<SearchResponse>(ctx, {
-        path: `/bitable/v1/apps/${appToken}/tables/${CUSTOMER_TABLE_ID}/records/search`,
-        method: "POST",
-        auth: "tenant",
-        json: {},
-        query,
-        label: "Bitable list customers",
-      });
-      for (const item of data.items ?? []) {
-        records.push(mapFeishuItemToCustomer(item));
-        if (records.length >= MAX_RECORDS) break;
-      }
-      if (!data.has_more || !data.page_token) break;
-      pageToken = data.page_token;
-      safety += 1;
-      // Hard guard: at PAGE_SIZE=500 and MAX_RECORDS=6000 we should need at
-      // most 12 pages; anything beyond means the API kept returning has_more
-      // without making progress.
-      if (safety > 20) break;
-    }
-
+    const records = await fetchCustomerPage(ctx, appToken, undefined, [], 0);
     return { records, generatedAt: Date.now() };
   },
 });

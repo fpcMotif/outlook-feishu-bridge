@@ -24,6 +24,13 @@ import {
 import { internal } from "../_generated/api";
 import { callFeishu } from "./call";
 import { mapFeishuItemToCustomer, type CustomerRecord } from "./customers";
+import {
+  dedupeRowsByRecordId,
+  mirrorDocToCustomer,
+  projectionToRow,
+} from "./customerMirrorRows";
+
+export { buildSearchBlob } from "./customerMirrorRows";
 
 const CUSTOMER_TABLE_ID = "tbl4TE2GV472sKzp";
 const PAGE_SIZE = 500;
@@ -34,49 +41,6 @@ function requireAppToken(): string {
   const appToken = process.env.FEISHU_BITABLE_APP_TOKEN;
   if (!appToken) throw new Error("FEISHU_BITABLE_APP_TOKEN must be set");
   return appToken;
-}
-
-// Build the single searchable text column. Convex's search index ranks tokens
-// across one column; concatenating the searchable fields into a blob gives the
-// salesperson "type anything that identifies the Customer" behaviour for free.
-// Exported for unit tests — it IS the contract the search index reads.
-export function buildSearchBlob(c: CustomerRecord): string {
-  return [
-    c.name,
-    c.fullName ?? "",
-    c.accountNo ?? "",
-    c.domain ?? "",
-    c.countryRegion ?? "",
-    c.owner?.name ?? "",
-  ]
-    .filter(Boolean)
-    .join(" ");
-}
-
-interface CustomerUpsertRow {
-  recordId: string;
-  name: string;
-  domain?: string;
-  fullName?: string;
-  accountNo?: string;
-  countryRegion?: string;
-  ownerOpenId?: string;
-  ownerName?: string;
-  searchBlob: string;
-}
-
-function projectionToRow(c: CustomerRecord): CustomerUpsertRow {
-  return {
-    recordId: c.recordId,
-    name: c.name,
-    domain: c.domain,
-    fullName: c.fullName,
-    accountNo: c.accountNo,
-    countryRegion: c.countryRegion,
-    ownerOpenId: c.owner?.openId,
-    ownerName: c.owner?.name,
-    searchBlob: buildSearchBlob(c),
-  };
 }
 
 // Upsert a page of Customers into the mirror table, keyed by Bitable recordId.
@@ -100,22 +64,29 @@ export const applyPage = internalMutation({
     mirroredAt: v.number(),
   },
   handler: async (ctx, args) => {
-    let inserted = 0;
-    let updated = 0;
-    for (const row of args.rows) {
-      const existing = await ctx.db
-        .query("customers")
-        .withIndex("by_recordId", (q) => q.eq("recordId", row.recordId))
-        .unique();
-      const fields = { ...row, mirroredAt: args.mirroredAt };
-      if (existing) {
-        await ctx.db.patch(existing._id, fields);
-        updated += 1;
-      } else {
+    const rows = dedupeRowsByRecordId(args.rows);
+    const existingRows = await Promise.all(
+      rows.map(async (row) => ({
+        row,
+        existing: await ctx.db
+          .query("customers")
+          .withIndex("by_recordId", (q) => q.eq("recordId", row.recordId))
+          .unique(),
+      })),
+    );
+    const writes = await Promise.all(
+      existingRows.map(async ({ row, existing }) => {
+        const fields = { ...row, mirroredAt: args.mirroredAt };
+        if (existing) {
+          await ctx.db.patch(existing._id, fields);
+          return "updated" as const;
+        }
         await ctx.db.insert("customers", fields);
-        inserted += 1;
-      }
-    }
+        return "inserted" as const;
+      }),
+    );
+    const inserted = writes.filter((result) => result === "inserted").length;
+    const updated = writes.length - inserted;
     return { inserted, updated };
   },
 });
@@ -215,7 +186,7 @@ export const kick = action({
 // (200-500 ms cross-border), but the latency hit is exactly when the user
 // asked for it (cache miss) and it self-heals for next time.
 export const searchAndCacheMiss = action({
-  args: { q: v.string() },
+  args: { q: v.string(), mineFor: v.optional(v.string()) },
   handler: async (ctx, args): Promise<{ records: CustomerRecord[]; backfilled: number }> => {
     const q = args.q.trim();
     if (!q) return { records: [], backfilled: 0 };
@@ -237,19 +208,23 @@ export const searchAndCacheMiss = action({
       query: { page_size: String(PAGE_SIZE) },
       label: "Customers mirror — live search on cache miss",
     });
-    const records: CustomerRecord[] = (data.items ?? []).map((item) =>
+    const backfilledRecords: CustomerRecord[] = (data.items ?? []).map((item) =>
       mapFeishuItemToCustomer(item),
     );
-    if (records.length > 0) {
+    if (backfilledRecords.length > 0) {
       await ctx.runMutation(internal.feishu.customersMirror.applyPage, {
-        rows: records.map((c) => projectionToRow(c)),
+        rows: backfilledRecords.map((customer) => projectionToRow(customer)),
         mirroredAt: Date.now(),
       });
     }
+    const records =
+      args.mineFor === undefined
+        ? backfilledRecords
+        : backfilledRecords.filter((record) => record.owner?.openId === args.mineFor);
     console.log(
-      `[customers-mirror] searchAndCacheMiss q="${q.slice(0, 40)}" → ${records.length} backfilled (${Date.now() - started}ms)`,
+      `[customers-mirror] searchAndCacheMiss q="${q.slice(0, 40)}" -> ${records.length}/${backfilledRecords.length} backfilled (${Date.now() - started}ms)`,
     );
-    return { records, backfilled: records.length };
+    return { records, backfilled: backfilledRecords.length };
   },
 });
 
@@ -267,27 +242,18 @@ export const search = query({
     const q = args.q.trim();
     const limit = Math.min(Math.max(args.limit ?? 20, 1), 50);
     const state = await ctx.db.query("customersMirrorState").first();
-    if (!q && !args.mineFor) {
+    if (!q) {
       return { records: [], mirroredAt: state?.lastFullSyncAt ?? null };
     }
     const hits = await ctx.db
       .query("customers")
       .withSearchIndex("by_text", (b) => {
-        let s = b.search("searchBlob", q || " ");
+        let s = b.search("searchBlob", q);
         if (args.mineFor) s = s.eq("ownerOpenId", args.mineFor);
         return s;
       })
       .take(limit);
-    const records: CustomerRecord[] = hits.map((h) => ({
-      recordId: h.recordId,
-      name: h.name,
-      domain: h.domain,
-      fullName: h.fullName,
-      accountNo: h.accountNo,
-      countryRegion: h.countryRegion,
-      owner:
-        h.ownerOpenId === undefined ? null : { openId: h.ownerOpenId, name: h.ownerName ?? "" },
-    }));
+    const records: CustomerRecord[] = hits.map((hit) => mirrorDocToCustomer(hit));
     return { records, mirroredAt: state?.lastFullSyncAt ?? null };
   },
 });

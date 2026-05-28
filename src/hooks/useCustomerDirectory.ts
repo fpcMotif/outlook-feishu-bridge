@@ -4,7 +4,7 @@
 // non-blocking: callers receive `{ status: "loading", records: [] }` while the
 // fetch is in flight, and the CustomerPicker degrades to a "Resolving…" state.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { useAction } from "convex/react";
 
 import { api } from "../../convex/_generated/api";
@@ -18,11 +18,22 @@ import { dlog, dtime } from "../debug";
 // on logout via {@link resetCustomerDirectory}.
 let cache: CustomerDirectoryState = { status: "idle", records: [] };
 let inflight: Promise<void> | null = null;
-const listeners = new Set<(state: CustomerDirectoryState) => void>();
+const listeners = new Set<() => void>();
 
 function publish(next: CustomerDirectoryState) {
   cache = next;
-  for (const fn of listeners) fn(next);
+  for (const fn of listeners) fn();
+}
+
+function subscribe(listener: () => void) {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+function getSnapshot(): CustomerDirectoryState {
+  return cache;
 }
 
 export function resetCustomerDirectory() {
@@ -40,21 +51,12 @@ export interface UseCustomerDirectory {
 /* eslint-disable max-lines-per-function */
 export function useCustomerDirectory(isLoggedIn: boolean): UseCustomerDirectory {
   const list = useAction(api.feishu.customers.listCustomers);
-  const [state, setState] = useState<CustomerDirectoryState>(cache);
+  const state = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
   // Bumping this nonce forces the effect below to re-run and re-fetch.
   // Used by `refresh()` so a "user opened the search panel" event can trigger
   // an explicit re-read of the Customer Table (ADR-0016: refresh on user
   // trigger, not only on the weekly cron).
   const [refreshNonce, setRefreshNonce] = useState(0);
-
-  useEffect(() => {
-    const sub = (next: CustomerDirectoryState) => setState(next);
-    listeners.add(sub);
-    setState(cache);
-    return () => {
-      listeners.delete(sub);
-    };
-  }, []);
 
   useEffect(() => {
     if (!isLoggedIn) return;

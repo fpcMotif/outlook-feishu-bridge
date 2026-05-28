@@ -5,7 +5,7 @@
 // auto-match via findCustomerByEmail; this component only displays + interacts.
 
 /* eslint-disable max-lines-per-function, require-unicode-regexp */
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { CustomerPicker } from "./CustomerPicker";
@@ -83,6 +83,24 @@ describe("CustomerPicker no-match states", () => {
 });
 
 describe("CustomerPicker override search", () => {
+  it("triggers a freshness refresh when the search panel opens", () => {
+    const triggerRefresh = vi.fn();
+    render(
+      <CustomerPicker
+        directory={{ status: "ready", records: [BAYER] }}
+        searchCustomers={vi.fn()}
+        triggerRefresh={triggerRefresh}
+        emailDomain="bayerpharma.de"
+        selectedCustomer={BAYER}
+        onChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /change/i }));
+
+    expect(triggerRefresh).toHaveBeenCalledTimes(1);
+  });
+
   // Override flow: the salesperson can override the auto-match by tapping
   // Change, typing into a search box, and picking from the results. The local
   // search runs against the in-memory Customer Directory (ADR-0013).
@@ -109,6 +127,60 @@ describe("CustomerPicker override search", () => {
 
   // Override commit: tapping a result fires onChange with the chosen Customer
   // and dismisses the search panel back to the chip view.
+});
+
+describe("CustomerPicker server fallback", () => {
+  const NOVO = {
+    recordId: "rec_novo",
+    name: "Novo Nordisk",
+    domain: "novonordisk.com",
+    owner: { openId: "ou_florian", name: "Florian Meurer" },
+  };
+
+  it("uses server search when the local Customer Directory has no match", async () => {
+    const searchCustomers = vi.fn(() => Promise.resolve([NOVO]));
+    render(
+      <CustomerPicker
+        directory={{ status: "ready", records: [BAYER] }}
+        searchCustomers={searchCustomers}
+        emailDomain="unknown.io"
+        selectedCustomer={null}
+        onChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /^Search$/i }));
+    fireEvent.change(screen.getByRole("searchbox", { name: /search customers/i }), {
+      target: { value: "novo" },
+    });
+
+    expect(await screen.findByRole("button", { name: /Novo Nordisk/i })).toBeInTheDocument();
+    expect(searchCustomers).toHaveBeenCalledWith("novo", undefined);
+  });
+
+  it("passes the Initiator owner filter to server search when Show mine is enabled", async () => {
+    const searchCustomers = vi.fn(() => Promise.resolve([NOVO]));
+    render(
+      <CustomerPicker
+        directory={{ status: "ready", records: [] }}
+        searchCustomers={searchCustomers}
+        emailDomain="unknown.io"
+        selectedCustomer={null}
+        currentUserOpenId="ou_florian"
+        onChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /^Search$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /show mine/i }));
+    fireEvent.change(screen.getByRole("searchbox", { name: /search customers/i }), {
+      target: { value: "novo" },
+    });
+
+    await waitFor(() =>
+      expect(searchCustomers).toHaveBeenCalledWith("novo", { mineFor: "ou_florian" }),
+    );
+  });
 });
 
 describe("CustomerPicker override commit", () => {

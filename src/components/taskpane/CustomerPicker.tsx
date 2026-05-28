@@ -1,26 +1,37 @@
 // The Customer Picker card on the contacts screen (ADR-0013). The parent owns
 // `selectedCustomer` and computes the initial auto-match via
-// findCustomerByEmail; this component is fully controlled — it only displays
-// the chosen Customer and exposes a search panel for overrides.
+// findCustomerByEmail; this module displays the chosen Customer and owns the
+// search-panel interaction for manual overrides.
 
 /* eslint-disable max-lines-per-function */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Plus, Search, X } from "lucide-react";
 
-import type { CustomerDirectoryState, CustomerRecord } from "./customers";
+import type {
+  CustomerDirectoryState,
+  CustomerRecord,
+  CustomerSearchOptions,
+} from "./customers";
+import {
+  filterLocalCustomers,
+  logLocalFilter,
+  normalizedQuery,
+  ownerFilter,
+} from "./customerSearchHelpers";
 import { dlog, dtime } from "../../debug";
 
 export interface CustomerPickerProps {
   directory: CustomerDirectoryState;
-  searchCustomers: (query: string) => Promise<CustomerRecord[]>;
-  /** Optional fire-and-forget refresh: when present, the SearchPanel calls it
-   *  on mount so opening the picker triggers a fresh sync (ADR-0016). */
+  searchCustomers: (
+    query: string,
+    options?: CustomerSearchOptions,
+  ) => Promise<CustomerRecord[]>;
+  /** Optional fire-and-forget refresh: opening the picker triggers freshness. */
   triggerRefresh?: () => void;
   emailDomain: string;
   selectedCustomer: CustomerRecord | null;
   // The signed-in Feishu user's open_id (the Initiator, ADR-0014). When
-  // provided, the search panel offers a "Show mine" quick toggle that filters
-  // the directory to customers whose Owner column equals this open_id.
+  // provided, the search panel offers a "Show mine" quick toggle.
   currentUserOpenId?: string;
   onChange: (customer: CustomerRecord | null) => void;
 }
@@ -34,19 +45,33 @@ export function CustomerPicker({
   searchCustomers,
   triggerRefresh,
 }: CustomerPickerProps) {
-  const [searching, setSearching] = useState(false);
+  const [searchSession, setSearchSession] = useState<{ openedAt: number } | null>(null);
 
-  if (searching) {
+  const openSearch = () => {
+    const openedAt = performance.now();
+    dlog(
+      `customer picker: search opened (directory ${directory.status}, ${directory.records.length} rows)`,
+    );
+    triggerRefresh?.();
+    setSearchSession({ openedAt });
+  };
+
+  const closeSearch = () => {
+    if (searchSession) dtime("customer picker: search closed", searchSession.openedAt);
+    setSearchSession(null);
+  };
+
+  if (searchSession) {
     return (
       <SearchPanel
         directory={directory}
         searchCustomers={searchCustomers}
-        triggerRefresh={triggerRefresh}
+        openedAt={searchSession.openedAt}
         currentUserOpenId={currentUserOpenId}
-        onCancel={() => setSearching(false)}
-        onSelect={(c) => {
-          onChange(c);
-          setSearching(false);
+        onCancel={closeSearch}
+        onSelect={(customer) => {
+          onChange(customer);
+          setSearchSession(null);
         }}
       />
     );
@@ -66,7 +91,7 @@ export function CustomerPicker({
             </span>
             <button
               type="button"
-              onClick={() => setSearching(true)}
+              onClick={openSearch}
               className="text-primary inline-flex min-h-8 items-center rounded-md px-2 text-[11px] font-semibold"
             >
               Change
@@ -74,96 +99,81 @@ export function CustomerPicker({
           </>
         ) : directory.status === "loading" || directory.status === "idle" ? (
           <span className="text-muted-foreground min-w-0 flex-1 truncate text-xs">
-            Resolving customer for {emailDomain}…
+            Resolving customer for {emailDomain}...
           </span>
         ) : (
-          <NoMatch emailDomain={emailDomain} onSearch={() => setSearching(true)} />
+          <NoMatch emailDomain={emailDomain} onSearch={openSearch} />
         )}
       </div>
     </section>
   );
 }
 
-// Search panel — typing filters the in-memory Customer Directory by a simple
-// substring match across name + fullName + accountNo + domain + owner.name.
-// A "Show mine" toggle additionally narrows to customers whose Owner column
-// equals the signed-in user's open_id. Substring + per-keystroke filtering is
-// enough at the current ~250-row scale; if rank quality becomes an issue at
-// ~5000 we swap in Fuse.js (ADR-0013 future work).
+// Search panel: typing filters the in-memory Customer Directory by a substring
+// match across name, fullName, accountNo, domain, and owner.name. If the local
+// directory cannot answer, it asks the server search adapter.
 function SearchPanel({
   directory,
   searchCustomers,
-  triggerRefresh,
+  openedAt,
   currentUserOpenId,
   onCancel,
   onSelect,
 }: {
   directory: CustomerDirectoryState;
-  searchCustomers: (query: string) => Promise<CustomerRecord[]>;
-  triggerRefresh?: () => void;
+  searchCustomers: (
+    query: string,
+    options?: CustomerSearchOptions,
+  ) => Promise<CustomerRecord[]>;
+  openedAt: number;
   currentUserOpenId?: string;
   onCancel: () => void;
-  onSelect: (c: CustomerRecord) => void;
+  onSelect: (customer: CustomerRecord) => void;
 }) {
   const [query, setQuery] = useState("");
   const [serverMatches, setServerMatches] = useState<CustomerRecord[]>([]);
   const [showMine, setShowMine] = useState(false);
-  const q = query.trim().toLowerCase();
-  const openedAt = useRef<number>(performance.now());
-  useEffect(() => {
-    dlog(
-      `customer picker: search opened (directory ${directory.status}, ${directory.records.length} rows)`,
-    );
-    // ADR-0016: refresh on user trigger. The weekly cron handles background
-    // freshness; opening the panel is the explicit "I care about freshness
-    // right now" signal, so kick a sync. Fire-and-forget.
-    if (triggerRefresh) triggerRefresh();
-    return () => {
-      dtime("customer picker: search closed", openedAt.current);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const latestSearch = useRef(0);
+  const q = normalizedQuery(query);
 
-  // Apply "Show mine" first (cheap predicate), then the substring query. Wrap
-  // in useMemo + dtime so each keystroke's local-filter cost is visible in the
-  // DebugPanel — the central claim of "instant" is auditable, not anecdotal.
   const localMatches = useMemo<CustomerRecord[]>(() => {
-    if (!q && !showMine) return [];
-    const started = performance.now();
-    const ownedByMe = (c: CustomerRecord) =>
-      !showMine || (currentUserOpenId !== undefined && c.owner?.openId === currentUserOpenId);
-    const matchesText = (c: CustomerRecord) =>
-      !q ||
-      c.name.toLowerCase().includes(q) ||
-      (c.fullName?.toLowerCase().includes(q) ?? false) ||
-      (c.accountNo?.toLowerCase().includes(q) ?? false) ||
-      (c.domain?.toLowerCase().includes(q) ?? false) ||
-      (c.owner?.name?.toLowerCase().includes(q) ?? false);
-    const out = directory.records.filter((c) => ownedByMe(c) && matchesText(c));
-    dtime(
-      `customer picker: local filter "${q.slice(0, 40)}"${showMine ? " +mine" : ""} → ${out.length}/${directory.records.length}`,
-      started,
-    );
-    return out;
+    return filterLocalCustomers(directory.records, q, showMine, currentUserOpenId);
   }, [q, showMine, currentUserOpenId, directory.records]);
 
-  useEffect(() => {
-    if (!q || (directory.status === "ready" && localMatches.length > 0)) {
+  const runServerSearch = (nextQuery: string, nextShowMine: boolean) => {
+    const nextQ = normalizedQuery(nextQuery);
+    const nextLocalMatches = logLocalFilter(
+      directory.records,
+      nextQ,
+      nextShowMine,
+      currentUserOpenId,
+    );
+    if (!nextQ || (directory.status === "ready" && nextLocalMatches.length > 0)) {
+      latestSearch.current += 1;
       setServerMatches([]);
       return;
     }
-    let cancelled = false;
-    searchCustomers(q)
+    const searchId = latestSearch.current + 1;
+    latestSearch.current = searchId;
+    void searchCustomers(nextQ, ownerFilter(nextShowMine, currentUserOpenId))
       .then((rows) => {
-        if (!cancelled) setServerMatches(rows);
+        if (latestSearch.current === searchId) setServerMatches(rows);
       })
       .catch(() => {
-        if (!cancelled) setServerMatches([]);
+        if (latestSearch.current === searchId) setServerMatches([]);
       });
-    return () => {
-      cancelled = true;
-    };
-  }, [directory.status, localMatches.length, q, searchCustomers]);
+  };
+
+  const handleQueryChange = (nextQuery: string) => {
+    setQuery(nextQuery);
+    runServerSearch(nextQuery, showMine);
+  };
+
+  const handleShowMine = () => {
+    const nextShowMine = !showMine;
+    setShowMine(nextShowMine);
+    runServerSearch(query, nextShowMine);
+  };
 
   const matches = localMatches.length > 0 ? localMatches : serverMatches;
 
@@ -178,7 +188,7 @@ function SearchPanel({
             <button
               type="button"
               aria-pressed={showMine}
-              onClick={() => setShowMine((v) => !v)}
+              onClick={handleShowMine}
               className="data-[on=true]:bg-accent data-[on=true]:text-accent-foreground text-muted-foreground inline-flex min-h-8 items-center rounded-md px-2 text-[11px] font-semibold"
               data-on={showMine}
             >
@@ -200,32 +210,35 @@ function SearchPanel({
         <Search className="text-primary size-4 shrink-0" />
         <input
           type="search"
-          role="searchbox"
           aria-label="Search customers"
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search by name, domain, account no…"
+          onChange={(event) => handleQueryChange(event.target.value)}
+          placeholder="Search by name, domain, account no..."
           className="placeholder:text-muted-foreground h-10 w-full bg-transparent text-sm outline-none"
         />
       </div>
       <ul className="mt-2 space-y-1">
-        {matches.slice(0, 8).map((c) => (
-          <li key={c.recordId}>
+        {matches.slice(0, 8).map((customer) => (
+          <li key={customer.recordId}>
             <button
               type="button"
               onClick={() => {
-                dtime(`customer picker: picked "${c.name}"`, openedAt.current);
-                onSelect(c);
+                dtime(`customer picker: picked "${customer.name}"`, openedAt);
+                onSelect(customer);
               }}
               className="bg-card hover:bg-accent flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-xs shadow-[var(--shadow-border)]"
             >
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-semibold">{c.name}</span>
-                {c.domain || c.countryRegion || c.owner ? (
+                <span className="block truncate text-sm font-semibold">{customer.name}</span>
+                {customer.domain || customer.countryRegion || customer.owner ? (
                   <span className="text-muted-foreground block truncate text-[11px]">
-                    {[c.domain, c.countryRegion, c.owner ? `owned by ${c.owner.name}` : null]
+                    {[
+                      customer.domain,
+                      customer.countryRegion,
+                      customer.owner ? `owned by ${customer.owner.name}` : null,
+                    ]
                       .filter(Boolean)
-                      .join(" · ")}
+                      .join(" / ")}
                   </span>
                 ) : null}
               </span>
@@ -238,7 +251,7 @@ function SearchPanel({
 }
 
 // Lenient no-match (ADR-0013): tell the salesperson the auto-match found
-// nothing and reserve a placeholder for the future create-new affordance — but
+// nothing and reserve a placeholder for the future create-new affordance, but
 // do not block the sync. A Search button lets them override manually.
 function NoMatch({ emailDomain, onSearch }: { emailDomain: string; onSearch: () => void }) {
   return (

@@ -54,6 +54,12 @@ sideloading. `scripts/manifest.sh <domain> [base]` does both. There are two
 manifests, one per host (ADR-0009):
 
 ```bash
+# Global Host (everyone outside Mainland China) — served at root
+bun run manifest:global > manifest-sideload.xml
+# ECS Host (Mainland China) — served under /addin/
+bun run manifest:ecs > manifest-sideload-cn.xml
+
+# The Bash helper is equivalent when you already have Bash:
 # ECS Host (CN) — served under /addin/
 bash scripts/manifest.sh <host> addin/ > manifest-sideload.xml
 # Global Host (Cloudflare Pages) — served at root (empty base)
@@ -66,6 +72,15 @@ Global one.
 
 > Sideloading the raw manifest (tokens not replaced) makes Outlook try to resolve
 > the literal host `__addin_domain__` → *"server IP address could not be found."*
+
+If DevTools shows the taskpane frame at `chrome-error://chromewebdata/` and an
+unsafe-load message for `https://wmdev.zeuja.com/addin/?et=`, Outlook failed to
+navigate to the ECS Host before the SPA JavaScript ran. For non-Mainland-China
+users, regenerate and sideload the Global Host manifest with
+`bun run manifest:global > manifest-sideload.xml`; do not debug React, Office.js,
+or Bitable first. The nearby Microsoft CDN, PeopleGraph photo 404s, and
+`ERR_NETWORK_CHANGED` Graph requests are Outlook/web-network noise unless the
+taskpane URL itself loads successfully.
 
 ## 4. Feishu OAuth
 

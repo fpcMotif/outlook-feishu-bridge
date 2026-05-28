@@ -55,25 +55,22 @@ function EmptyState({
   );
 }
 
+// ADR-0016: the user-visible boot phase ends at the first paint where Office.js
+// has settled and Feishu auth is no longer loading. This logs once per pane.
+function BootReadyMilestone({ host, isLoggedIn }: { host: string; isLoggedIn: boolean }) {
+  const marked = useRef(false);
+  useEffect(() => {
+    if (marked.current) return;
+    marked.current = true;
+    dload(`Feishu SPA ready (host=${host}, loggedIn=${isLoggedIn})`);
+  }, [host, isLoggedIn]);
+  return null;
+}
+
 export function TaskPane({ host }: { host: string | null }) {
   const { mailItem, loading, error, readCurrentItem } = useMailItem(Boolean(host && host !== "browser"));
   const feishuAuth = useFeishuAuth();
   const [devLoggedIn, setDevLoggedIn] = useState(false);
-
-  // ADR-0016: the user-visible boot phase ends here — "Feishu SPA ready" is
-  // the first paint where Office.js has settled AND the Feishu auth check
-  // resolved (logged-in or logged-out, but no longer "loading"). This is the
-  // "I clicked the icon → I can interact" interval. Logged once per pane.
-  const bootMarked = useRef(false);
-  useEffect(() => {
-    if (bootMarked.current) return;
-    const officeSettled = host !== null;
-    const authSettled = !feishuAuth.isLoading;
-    if (officeSettled && authSettled) {
-      bootMarked.current = true;
-      dload(`Feishu SPA ready (host=${host}, loggedIn=${feishuAuth.isLoggedIn})`);
-    }
-  }, [host, feishuAuth.isLoading, feishuAuth.isLoggedIn]);
 
   // Real Outlook sets host "Outlook"; anything else in dev (host null or
   // "browser") means no mailbox, so preview a sample item and simulate submit.
@@ -95,6 +92,9 @@ export function TaskPane({ host }: { host: string | null }) {
 
   return (
     <div className="bg-background flex h-screen w-full flex-col overflow-hidden">
+      {host !== null && !feishuAuth.isLoading ? (
+        <BootReadyMilestone host={host} isLoggedIn={feishuAuth.isLoggedIn} />
+      ) : null}
       {isLoggedIn && user ? <PaneHeader user={user} onLogout={handleLogout} /> : null}
       <main className="flex min-h-0 flex-1 flex-col">
         {item ? (

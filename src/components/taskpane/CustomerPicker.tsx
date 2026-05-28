@@ -13,6 +13,9 @@ import { dlog, dtime } from "../../debug";
 export interface CustomerPickerProps {
   directory: CustomerDirectoryState;
   searchCustomers: (query: string) => Promise<CustomerRecord[]>;
+  /** Optional fire-and-forget refresh: when present, the SearchPanel calls it
+   *  on mount so opening the picker triggers a fresh sync (ADR-0016). */
+  triggerRefresh?: () => void;
   emailDomain: string;
   selectedCustomer: CustomerRecord | null;
   // The signed-in Feishu user's open_id (the Initiator, ADR-0014). When
@@ -29,6 +32,7 @@ export function CustomerPicker({
   currentUserOpenId,
   onChange,
   searchCustomers,
+  triggerRefresh,
 }: CustomerPickerProps) {
   const [searching, setSearching] = useState(false);
 
@@ -37,6 +41,7 @@ export function CustomerPicker({
       <SearchPanel
         directory={directory}
         searchCustomers={searchCustomers}
+        triggerRefresh={triggerRefresh}
         currentUserOpenId={currentUserOpenId}
         onCancel={() => setSearching(false)}
         onSelect={(c) => {
@@ -88,12 +93,14 @@ export function CustomerPicker({
 function SearchPanel({
   directory,
   searchCustomers,
+  triggerRefresh,
   currentUserOpenId,
   onCancel,
   onSelect,
 }: {
   directory: CustomerDirectoryState;
   searchCustomers: (query: string) => Promise<CustomerRecord[]>;
+  triggerRefresh?: () => void;
   currentUserOpenId?: string;
   onCancel: () => void;
   onSelect: (c: CustomerRecord) => void;
@@ -107,6 +114,10 @@ function SearchPanel({
     dlog(
       `customer picker: search opened (directory ${directory.status}, ${directory.records.length} rows)`,
     );
+    // ADR-0016: refresh on user trigger. The weekly cron handles background
+    // freshness; opening the panel is the explicit "I care about freshness
+    // right now" signal, so kick a sync. Fire-and-forget.
+    if (triggerRefresh) triggerRefresh();
     return () => {
       dtime("customer picker: search closed", openedAt.current);
     };

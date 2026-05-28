@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as crons from "../crons.js";
 import type * as emailRecord from "../emailRecord.js";
 import type * as emails from "../emails.js";
 import type * as feishu_auth from "../feishu/auth.js";
@@ -16,6 +17,7 @@ import type * as feishu_call from "../feishu/call.js";
 import type * as feishu_client from "../feishu/client.js";
 import type * as feishu_coworkers from "../feishu/coworkers.js";
 import type * as feishu_customers from "../feishu/customers.js";
+import type * as feishu_customersMirror from "../feishu/customersMirror.js";
 import type * as feishu_requestSync from "../feishu/requestSync.js";
 import type * as feishu_serviceRow from "../feishu/serviceRow.js";
 import type * as feishu_userAuth from "../feishu/userAuth.js";
@@ -30,6 +32,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  crons: typeof crons;
   emailRecord: typeof emailRecord;
   emails: typeof emails;
   "feishu/auth": typeof feishu_auth;
@@ -38,6 +41,7 @@ declare const fullApi: ApiFromModules<{
   "feishu/client": typeof feishu_client;
   "feishu/coworkers": typeof feishu_coworkers;
   "feishu/customers": typeof feishu_customers;
+  "feishu/customersMirror": typeof feishu_customersMirror;
   "feishu/requestSync": typeof feishu_requestSync;
   "feishu/serviceRow": typeof feishu_serviceRow;
   "feishu/userAuth": typeof feishu_userAuth;

@@ -4,7 +4,7 @@
 // controlled: the parent owns `selectedCustomer` and computes the initial
 // auto-match via findCustomerByEmail; this component only displays + interacts.
 
-/* eslint-disable max-lines-per-function */
+/* eslint-disable max-lines-per-function, require-unicode-regexp */
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 

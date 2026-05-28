@@ -4,7 +4,7 @@
 // non-blocking: callers receive `{ status: "loading", records: [] }` while the
 // fetch is in flight, and the CustomerPicker degrades to a "Resolving…" state.
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useAction } from "convex/react";
 
 import { api } from "../../convex/_generated/api";
@@ -30,9 +30,22 @@ export function resetCustomerDirectory() {
   publish({ status: "idle", records: [] });
 }
 
-export function useCustomerDirectory(isLoggedIn: boolean): CustomerDirectoryState {
+export interface UseCustomerDirectory {
+  state: CustomerDirectoryState;
+  /** Force-refresh the directory from Bitable. Fire-and-forget; safe to call
+   *  multiple times — concurrent calls dedupe via `inflight`. */
+  refresh: () => void;
+}
+
+/* eslint-disable max-lines-per-function */
+export function useCustomerDirectory(isLoggedIn: boolean): UseCustomerDirectory {
   const list = useAction(api.feishu.customers.listCustomers);
   const [state, setState] = useState<CustomerDirectoryState>(cache);
+  // Bumping this nonce forces the effect below to re-run and re-fetch.
+  // Used by `refresh()` so a "user opened the search panel" event can trigger
+  // an explicit re-read of the Customer Table (ADR-0016: refresh on user
+  // trigger, not only on the weekly cron).
+  const [refreshNonce, setRefreshNonce] = useState(0);
 
   useEffect(() => {
     const sub = (next: CustomerDirectoryState) => setState(next);
@@ -45,27 +58,39 @@ export function useCustomerDirectory(isLoggedIn: boolean): CustomerDirectoryStat
 
   useEffect(() => {
     if (!isLoggedIn) return;
-    if (cache.status === "ready" || cache.status === "loading") return;
+    if (cache.status === "loading") return;
     if (inflight) return;
-    publish({ status: "loading", records: [] });
-    dlog("customer directory: preload starting");
+    // First pass: skip if the cache is already ready. Subsequent refresh()
+    // bumps move the nonce so this effect re-runs and falls through to fetch.
+    if (cache.status === "ready" && refreshNonce === 0) return;
+    publish({ status: "loading", records: cache.records });
+    dlog(
+      `customer directory: preload ${refreshNonce === 0 ? "starting" : "refreshing"} (nonce=${refreshNonce})`,
+    );
     const started = performance.now();
     inflight = list({})
       .then((res: { records: CustomerRecord[] }) => {
-        const elapsed = dtime(`customer directory: preload ready (${res.records.length} rows)`, started);
-        // Sub-1500ms is the budget at the current ~250-row scale; flag a warn
-        // line if we exceed it so it stands out in the DebugPanel timeline.
+        const elapsed = dtime(
+          `customer directory: preload ready (${res.records.length} rows)`,
+          started,
+        );
         if (elapsed > 1500) dlog(`customer directory: preload SLOW (${Math.round(elapsed)}ms > 1500ms budget)`);
         publish({ status: "ready", records: res.records });
       })
       .catch((e: unknown) => {
         dtime(`customer directory: preload FAILED — ${e instanceof Error ? e.message : String(e)}`, started);
-        publish({ status: "error", records: [] });
+        publish({ status: "error", records: cache.records });
       })
       .finally(() => {
         inflight = null;
       });
-  }, [isLoggedIn, list]);
+  }, [isLoggedIn, list, refreshNonce]);
 
-  return state;
+  const refresh = useCallback(() => {
+    // Already refreshing → leave the in-flight call alone; it'll publish soon.
+    if (inflight) return;
+    setRefreshNonce((n) => n + 1);
+  }, []);
+
+  return { state, refresh };
 }

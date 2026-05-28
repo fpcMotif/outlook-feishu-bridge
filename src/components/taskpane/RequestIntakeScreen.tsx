@@ -1,4 +1,4 @@
-/* eslint-disable max-lines-per-function */
+/* eslint-disable max-lines-per-function, max-lines */
 import { useCallback, useMemo, useReducer } from "react";
 
 import type { Coworker } from "./coworkers";
@@ -185,8 +185,11 @@ export function RequestIntakeScreen({
   // CustomerPicker shows "Resolving customer for …" and the rest of the
   // screen stays interactive. One hook bundles the directory + the per-
   // keystroke server fallback so a single vi.mock replaces both in tests.
-  const { directory: customerDirectory, search: searchCustomers } =
-    useCustomerSearch(isLoggedIn);
+  const {
+    directory: customerDirectory,
+    search: searchCustomers,
+    triggerRefresh: triggerCustomerRefresh,
+  } = useCustomerSearch(isLoggedIn);
 
   // Re-run the local auto-match whenever the directory finishes loading or
   // the client email changes. The reducer guards against clobbering a user
@@ -315,6 +318,7 @@ export function RequestIntakeScreen({
             <CustomerPicker
               directory={customerDirectory}
               searchCustomers={searchCustomers}
+              triggerRefresh={triggerCustomerRefresh}
               emailDomain={emailDomainPart}
               selectedCustomer={state.selectedCustomer}
               currentUserOpenId={user?.openId}

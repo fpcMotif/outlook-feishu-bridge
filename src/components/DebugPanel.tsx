@@ -49,13 +49,10 @@ function officeFacts(): string {
 }
 
 function convexConn(): string {
-  const client = (
-    window as unknown as {
-      __convex?: {
-        connectionState?: () => { isWebSocketConnected?: boolean; hasInflightRequests?: boolean };
-      };
-    }
-  ).__convex;
+  // The Convex React client attaches itself to window as `__convex` (the
+  // leading underscores are Convex's contract, not ours).
+  // eslint-disable-next-line no-underscore-dangle
+  const client = (window as unknown as { __convex?: { connectionState?: () => { isWebSocketConnected?: boolean; hasInflightRequests?: boolean } } }).__convex;
   try {
     const cs = client?.connectionState?.();
     return cs ? `ws=${String(cs.isWebSocketConnected)} inflight=${String(cs.hasInflightRequests)}` : "n/a";

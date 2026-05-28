@@ -1,3 +1,4 @@
+/* eslint-disable require-unicode-regexp */
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 

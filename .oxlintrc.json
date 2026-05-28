@@ -1,0 +1,10 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oxc-project/oxc/main/npm/oxlint/configuration_schema.json",
+  "rules": {
+    "require-unicode-regexp": "off",
+    "no-underscore-dangle": [
+      "error",
+      { "allow": ["_id", "_creationTime", "__convex"] }
+    ]
+  }
+}

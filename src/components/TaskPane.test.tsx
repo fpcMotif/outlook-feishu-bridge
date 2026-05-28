@@ -61,13 +61,13 @@ function unlockRequestBuilder() {
   fireEvent.click(screen.getByRole("button", { name: /Continue with Feishu/i }));
 }
 
-describe("TaskPane browser preview auth flow", () => {
-  beforeEach(() => {
-    localStorage.clear();
-    window.history.replaceState({}, "", "/");
-    mockLoggedOutPreview();
-  });
+beforeEach(() => {
+  localStorage.clear();
+  window.history.replaceState({}, "", "/");
+  mockLoggedOutPreview();
+});
 
+describe("TaskPane browser preview auth flow", () => {
   it("starts on a standalone login page and unlocks the request builder after dev login", () => {
     renderPreview();
 
@@ -82,6 +82,33 @@ describe("TaskPane browser preview auth flow", () => {
     expect(screen.getByRole("button", { name: /Quotation/i })).toBeInTheDocument();
   });
 
+  it("does not duplicate the host app title after login", () => {
+    renderPreview();
+
+    unlockRequestBuilder();
+
+    expect(screen.queryByText("Feishu Bridge")).not.toBeInTheDocument();
+    expect(screen.queryByText("Sync requests in one tap")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Feishu profile/i })).toBeInTheDocument();
+  });
+
+  it("opens an anchored account menu and signs out", () => {
+    renderPreview();
+
+    unlockRequestBuilder();
+    fireEvent.click(screen.getByRole("button", { name: /Feishu profile/i }));
+
+    const accountMenu = screen.getByRole("dialog", { name: /Feishu account/i });
+    expect(accountMenu.tagName).toBe("DIV");
+    expect(screen.getAllByText("JX")).toHaveLength(1);
+    expect(accountMenu).toHaveTextContent("Connected");
+    fireEvent.click(screen.getByRole("button", { name: /Sign out of Feishu/i }));
+
+    expect(screen.getByText("Connect to Feishu")).toBeInTheDocument();
+  });
+});
+
+describe("TaskPane browser preview request flow", () => {
   it("supports the full browser-preview request path after login", async () => {
     renderPreview();
 

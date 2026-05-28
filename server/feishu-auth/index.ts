@@ -102,7 +102,9 @@ function escapeHtml(s: string): string {
 // channel for a same-domain Office dialog. Always posts, so the SPA's
 // DialogMessageReceived handler fires on both success and failure.
 function dialogPage(humanMessage: string, parentMessage: object): Response {
-  const json = JSON.stringify(parentMessage);
+  // Serialize to JSON, then stringify again to create a valid JS string literal,
+  // and escape `<` to prevent breaking out of the <script> block (XSS).
+  const json = JSON.stringify(JSON.stringify(parentMessage)).replace(/</g, '\\u003c');
   return new Response(
     `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Feishu Login</title>
 <script src="${OFFICE_JS}"></script>
@@ -110,7 +112,7 @@ function dialogPage(humanMessage: string, parentMessage: object): Response {
 </head><body><div class="card"><p>${escapeHtml(humanMessage)}</p></div>
 <script>
   Office.onReady(function () {
-    try { Office.context.ui.messageParent(${JSON.stringify(json)}); } catch (e) {}
+    try { Office.context.ui.messageParent(${json}); } catch (e) {}
   });
 </script></body></html>`,
     { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } },

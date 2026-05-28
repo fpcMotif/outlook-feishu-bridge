@@ -13,6 +13,10 @@ vi.mock("../hooks/useFeishuAuth", () => ({
   useFeishuAuth: vi.fn(),
 }));
 
+vi.mock("convex/react", () => ({
+  useAction: vi.fn(() => vi.fn(() => Promise.resolve([]))),
+}));
+
 const mockUseMailItem = vi.mocked(useMailItem);
 const mockUseFeishuAuth = vi.mocked(useFeishuAuth);
 
@@ -43,11 +47,27 @@ function unlockRequestBuilder() {
   fireEvent.click(screen.getByRole("button", { name: /Continue with Feishu/i }));
 }
 
+async function searchJennyWithFakeTimers() {
+  fireEvent.change(screen.getByPlaceholderText("Search Feishu coworkers..."), {
+    target: { value: "Jenny" },
+  });
+  await act(async () => {
+    vi.advanceTimersByTime(300);
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  return screen.getByRole("button", { name: /Jenny Xu/i });
+}
+
+function resetPreviewTestState() {
+  vi.useRealTimers();
+  window.history.replaceState({}, "", "/");
+  mockLoggedOutPreview();
+}
+
 describe("TaskPane browser preview auth flow", () => {
   beforeEach(() => {
-    vi.useRealTimers();
-    window.history.replaceState({}, "", "/");
-    mockLoggedOutPreview();
+    resetPreviewTestState();
   });
 
   it("starts on a standalone login page and unlocks the request builder after dev login", () => {
@@ -63,8 +83,14 @@ describe("TaskPane browser preview auth flow", () => {
     expect(screen.queryByText("Connect to Feishu")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Quotation/i })).toBeInTheDocument();
   });
+});
 
-  it("supports the full browser-preview request path after login", () => {
+describe("TaskPane browser preview request path", () => {
+  beforeEach(() => {
+    resetPreviewTestState();
+  });
+
+  it("supports the full browser-preview request path after login", async () => {
     vi.useFakeTimers();
     renderPreview();
 
@@ -75,7 +101,7 @@ describe("TaskPane browser preview auth flow", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: /^Continue$/i }));
     expect(screen.getByDisplayValue("m.hoffmann@bayerpharma.de")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Jenny Xu/i }));
+    fireEvent.click(await searchJennyWithFakeTimers());
     fireEvent.click(screen.getByRole("button", { name: /Submit to 1 coworker/i }));
 
     expect(
@@ -83,8 +109,13 @@ describe("TaskPane browser preview auth flow", () => {
     ).toBeInTheDocument();
     expect(screen.getByRole("progressbar", { name: /Sync progress/i })).toBeInTheDocument();
 
-    act(() => {
-      vi.advanceTimersByTime(3700);
+    await act(async () => {
+      vi.advanceTimersByTime(3600);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(250);
+      await Promise.resolve();
     });
 
     expect(

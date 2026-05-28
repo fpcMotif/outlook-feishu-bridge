@@ -22,6 +22,7 @@ export const searchContacts = action({
   args: {
     sessionId: v.string(),
     query: v.string(),
+    userAccessToken: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     // Search Users is a GET with the keyword in the `query` URL param (scope
@@ -32,6 +33,7 @@ export const searchContacts = action({
       query: { query: args.query, page_size: "20" },
       auth: "user",
       sessionId: args.sessionId,
+      token: args.userAccessToken,
       label: "Contact search",
     });
 

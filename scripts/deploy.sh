@@ -108,7 +108,7 @@ deploy_auth() {
     exit 1
   fi
   local redirect_uri="$FEISHU_FALLBACK_REDIRECT_URI"
-  local scope="${FEISHU_FALLBACK_SCOPE:-im:chat:readonly contact:user:search im:message offline_access}"
+  local scope="${FEISHU_FALLBACK_SCOPE:-contact:user:search offline_access}"
   local port="${FEISHU_AUTH_PORT:-8788}"
 
   echo "==> ship server/feishu-auth to $DEPLOY_USER@$DEPLOY_HOST:/opt/feishu-auth"

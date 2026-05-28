@@ -7,6 +7,17 @@ import { ReceivedScreen } from "./ReceivedScreen";
 import { REQUESTS, RequestCards } from "./RequestCards";
 import { SubmitDock } from "./SubmitDock";
 import { SyncScreen } from "./SyncScreen";
+import type { Contact, RequestSelection } from "@/forward/targets";
+import type { SearchCoworkers } from "./CoworkerPicker";
+
+const noopSearchCoworkers: SearchCoworkers = () => Promise.resolve([]);
+const noopSyncServiceRecord = () => Promise.resolve();
+
+export interface ServiceRecordSyncInput {
+  clientEmail: string;
+  requestSelections: RequestSelection[];
+  selectedCoworkers: Contact[];
+}
 
 function Hero() {
   return (
@@ -58,18 +69,22 @@ function LoginScreen({
 export function ForwardScreen({
   isLoggedIn,
   clientEmail,
+  searchCoworkers = noopSearchCoworkers,
+  onSyncServiceRecord = noopSyncServiceRecord,
   onLogin,
   onLoginFallback,
 }: {
   isLoggedIn: boolean;
   clientEmail: string;
+  searchCoworkers?: SearchCoworkers;
+  onSyncServiceRecord?: (input: ServiceRecordSyncInput) => Promise<void>;
   onLogin: () => void;
   onLoginFallback: () => void;
 }) {
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [confirmedClientEmail, setConfirmedClientEmail] = useState(clientEmail);
   const [screen, setScreen] = useState<"build" | "contacts" | "sync" | "received">("build");
-  const [selectedContacts, setSelectedContacts] = useState<string[]>([]);
+  const [selectedContacts, setSelectedContacts] = useState<Contact[]>([]);
 
   useEffect(() => {
     setConfirmedClientEmail(clientEmail);
@@ -81,12 +96,13 @@ export function ForwardScreen({
   });
   const filledCount = filledRequests.length;
   const selectedCount = selectedContacts.length;
+  const selectedOpenIds = selectedContacts.map((c) => c.openId);
 
-  const toggleContact = (openId: string) => {
+  const toggleContact = (contact: Contact) => {
     setSelectedContacts((current) =>
-      current.includes(openId)
-        ? current.filter((id) => id !== openId)
-        : [...current, openId],
+      current.some((c) => c.openId === contact.openId)
+        ? current.filter((c) => c.openId !== contact.openId)
+        : [contact],
     );
   };
 
@@ -101,6 +117,18 @@ export function ForwardScreen({
   };
 
   const finishSync = useCallback(() => setScreen("received"), []);
+  const syncServiceRecord = useCallback(
+    () =>
+      onSyncServiceRecord({
+        clientEmail: confirmedClientEmail,
+        requestSelections: filledRequests.map((r) => ({
+          requestType: r.title,
+          note: r.note,
+        })),
+        selectedCoworkers: selectedContacts,
+      }),
+    [confirmedClientEmail, filledRequests, onSyncServiceRecord, selectedContacts],
+  );
 
   if (screen === "received") {
     return <ReceivedScreen channelCount={selectedCount} onForwardAnother={() => setScreen("build")} />;
@@ -112,6 +140,7 @@ export function ForwardScreen({
         requests={filledRequests}
         clientEmail={confirmedClientEmail}
         channelCount={selectedCount}
+        onSync={syncServiceRecord}
         onComplete={finishSync}
       />
     );
@@ -127,7 +156,8 @@ export function ForwardScreen({
         <CoworkerPicker
           clientEmail={confirmedClientEmail}
           onClientEmailChange={setConfirmedClientEmail}
-          selectedOpenIds={selectedContacts}
+          selectedOpenIds={selectedOpenIds}
+          searchCoworkers={searchCoworkers}
           onToggle={toggleContact}
           onBack={() => setScreen("build")}
         />

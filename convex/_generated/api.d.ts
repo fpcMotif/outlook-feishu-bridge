@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as emailRecord from "../emailRecord.js";
 import type * as emails from "../emails.js";
 import type * as feishu_auth from "../feishu/auth.js";
 import type * as feishu_bitable from "../feishu/bitable.js";
@@ -37,6 +38,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  emailRecord: typeof emailRecord;
   emails: typeof emails;
   "feishu/auth": typeof feishu_auth;
   "feishu/bitable": typeof feishu_bitable;

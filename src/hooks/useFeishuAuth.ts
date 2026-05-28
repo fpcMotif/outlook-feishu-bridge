@@ -13,13 +13,10 @@ const FALLBACK_KEY = "feishu_fallback_token";
 // token with default scopes only, so chat/contact calls fail with 99991679
 // "app did not obtain the user's authorization" (see ADR-0003). All are enabled
 // on the app (cli_a945ac390ff9dcc0). Request only what we use (least privilege).
-//   im:chat:readonly    → groups.ts   GET  /im/v1/chats    (list the user's groups)
-//   contact:user:search → contacts.ts GET  /search/v1/user (search users; returns
+//   contact:user:search → contacts.ts GET /search/v1/user (search users; returns
 //                          name/avatar/open_id - user_id would need employee_id:readonly)
-//   im:message          → im.ts       POST /im/v1/messages (forward as the user)
 //   offline_access      → required for the OIDC token endpoint to return a refresh_token
-const FEISHU_USER_SCOPES =
-  "im:chat:readonly contact:user:search im:message offline_access";
+const FEISHU_USER_SCOPES = "contact:user:search offline_access";
 
 interface FallbackToken {
   accessToken: string;

@@ -103,6 +103,7 @@ function CoworkerSearchSection({
       >
         <Search className="text-primary size-4 shrink-0" />
         <input
+          aria-label="Search Feishu coworkers"
           value={query}
           onChange={(e) => onQueryChange(e.target.value)}
           onFocus={() => onFocusChange(true)}

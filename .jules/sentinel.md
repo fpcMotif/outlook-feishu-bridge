@@ -1,0 +1,4 @@
+## 2025-02-09 - Fix Reflected XSS in Feishu Fallback OAuth Dialog
+**Vulnerability:** Reflected XSS in `server/feishu-auth/index.ts`. The OAuth fallback server renders a `<script>` block containing a JSON payload stringified dynamically. An attacker could inject malicious scripts by setting `state="</script><script>alert(1)</script>"` during the OAuth flow. When the server reflects this in `dialogPage` without properly escaping `<` within the JSON, it breaks out of the `<script>` tag.
+**Learning:** JSON.stringify does NOT escape `<` characters. When embedding JSON directly into HTML `<script>` tags, you must manually escape characters that could break out of the tag, such as replacing `<` with `\u003c`.
+**Prevention:** Always use safe serialization methods that escape `<` characters when injecting JSON inside HTML `<script>` tags. E.g., `JSON.stringify(JSON.stringify(parentMessage)).replace(/</g, "\\u003c")`.

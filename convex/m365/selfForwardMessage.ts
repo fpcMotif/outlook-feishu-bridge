@@ -1,44 +1,51 @@
-// Pure builders for the Self-Forward "Note to myself" message — the PATCH body
-// sent against a Microsoft Graph `createForward` draft (ADR-0017). No I/O here;
-// every shape this file emits is unit-tested in selfForwardMessage.test.ts and
-// the Graph endpoints that consume them are cited in selfForward.ts.
+// Pure request-body builder for Graph's native `message: forward` action.
 //
-// Official refs (the ONLY source of truth, per ADR-0015):
-//   createForward: https://learn.microsoft.com/graph/api/message-createforward
-//   message-update: https://learn.microsoft.com/graph/api/message-update
-//   emailAddress / recipient shape:
-//     https://learn.microsoft.com/graph/api/resources/emailaddress
-//     https://learn.microsoft.com/graph/api/resources/recipient
+// Official refs (the source of truth per ADR-0015):
+//   message-forward: https://learn.microsoft.com/graph/api/message-forward
+//   recipient:       https://learn.microsoft.com/graph/api/resources/recipient
 
-const SUBJECT_PREFIX = "Note to myself — ";
-const NO_SUBJECT_FALLBACK = "(no subject)";
-
-/**
- * The literal subject we PATCH onto the createForward draft. Em dash (—)
- * separates the prefix from the original to match CONTEXT.md's `Self-Forward`
- * term and ADR-0017's worked example.
- */
-export function buildSelfForwardSubject(originalSubject: string | undefined): string {
-  const trimmed = (originalSubject ?? "").trim();
-  return SUBJECT_PREFIX + (trimmed || NO_SUBJECT_FALLBACK);
+export interface SelfForwardRequestSelection {
+  requestType: string;
+  note: string;
 }
 
-export interface SelfForwardPatchInput {
-  originalSubject: string | undefined;
+export interface SelfForwardMessageForwardInput {
   selfEmail: string;
+  /** Customer picked in the Customer Picker, if any. */
+  customerName?: string;
+  /** Sender of the original Mail Item, surfaced for context in the comment. */
+  clientEmail?: string;
+  /** Request types + notes that just landed in the Bitable Service row. */
+  requestSelections?: SelfForwardRequestSelection[];
 }
 
-/**
- * The exact `message-update` PATCH body Graph expects on the createForward
- * draft: a new `subject` plus a single `toRecipients[0]` set to the signed-in
- * salesperson's own mailbox. The Self-Forward is delivered to that one address
- * — never to anyone else.
- */
-export function buildSelfForwardPatchBody(
-  input: SelfForwardPatchInput,
-): { subject: string; toRecipients: { emailAddress: { address: string } }[] } {
+export function buildSelfForwardComment(
+  input: SelfForwardMessageForwardInput,
+): string {
+  const lines: string[] = ["Synced to Feishu Bitable"];
+  const customerName = input.customerName?.trim();
+  if (customerName) lines.push(`Client: ${customerName}`);
+  const clientEmail = input.clientEmail?.trim();
+  if (clientEmail) lines.push(`Client email: ${clientEmail}`);
+  if (input.requestSelections && input.requestSelections.length > 0) {
+    lines.push(
+      `Request types: ${input.requestSelections.map((r) => r.requestType).join(", ")}`,
+    );
+    for (const r of input.requestSelections) {
+      const note = r.note.trim();
+      if (note) lines.push(`${r.requestType} note: ${note}`);
+    }
+  }
+  lines.push("------------------");
+  return lines.join("\n");
+}
+
+export function buildSelfForwardForwardBody(input: SelfForwardMessageForwardInput): {
+  comment: string;
+  toRecipients: { emailAddress: { address: string } }[];
+} {
   return {
-    subject: buildSelfForwardSubject(input.originalSubject),
+    comment: buildSelfForwardComment(input),
     toRecipients: [{ emailAddress: { address: input.selfEmail } }],
   };
 }

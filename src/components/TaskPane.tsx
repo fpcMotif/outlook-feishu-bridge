@@ -22,7 +22,11 @@ const DEV_SAMPLE: MailItemData = {
   internetMessageId: "<dev-sample@fenchem.com>",
   itemId: "dev-sample",
   conversationId: "dev-sample",
-  userEmail: "jenny.xu@fenchem.com",
+  // The Self-Forward target is always the signed-in user's own mailbox; in
+  // dev preview that is fanpc@fenchem.com (the test user). jenny.xu is just
+  // a fictional "to" recipient on the sample inbound email; never a sendable
+  // address from this add-in.
+  userEmail: "fanpc@fenchem.com",
   attachments: [
     { id: "a1", name: "RFQ-2026-Q1.pdf", contentType: "application/pdf", size: 184320, isInline: false },
   ],

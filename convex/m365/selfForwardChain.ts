@@ -1,17 +1,17 @@
-// The Self-Forward chain — the four Graph calls that deliver "Note to myself"
-// into the Initiator's own mailbox per Bitable Sync (ADR-0017).
+// The Self-Forward chain: app-only Graph token, then native Outlook forward.
 //
-// All endpoints are taken from the official Microsoft docs (the ONLY source of
-// truth for M365 / Graph code, per ADR-0015):
-//   OBO exchange:     https://learn.microsoft.com/entra/identity-platform/v2-oauth2-on-behalf-of-flow
-//   createForward:    https://learn.microsoft.com/graph/api/message-createforward
-//   message-update:   https://learn.microsoft.com/graph/api/message-update
-//   message-send:     https://learn.microsoft.com/graph/api/message-send
+// We intentionally call `message: forward` instead of composing a synthetic
+// `sendMail` body. Outlook/Exchange owns the forwarded header and original
+// message rendering, which avoids mangling the original email body.
 //
-// `fetch` is injected so the chain is unit-testable without the Convex runtime;
-// the action wrapper in selfForward.ts supplies the global fetch.
+// Official refs (the source of truth per ADR-0015):
+//   client_credentials: https://learn.microsoft.com/entra/identity-platform/v2-oauth2-client-creds-grant-flow
+//   message-forward:    https://learn.microsoft.com/graph/api/message-forward
 
-import { buildSelfForwardPatchBody } from "./selfForwardMessage";
+import {
+  buildSelfForwardForwardBody,
+  type SelfForwardRequestSelection,
+} from "./selfForwardMessage";
 
 export type Fetcher = (
   url: string | URL,
@@ -19,7 +19,7 @@ export type Fetcher = (
 ) => Promise<Response>;
 
 const GRAPH_BASE = "https://graph.microsoft.com/v1.0";
-const MAIL_SEND_SCOPE = "https://graph.microsoft.com/Mail.Send";
+const GRAPH_APP_ONLY_SCOPE = "https://graph.microsoft.com/.default";
 
 export interface SelfForwardEnv {
   tenantId: string;
@@ -28,34 +28,36 @@ export interface SelfForwardEnv {
 }
 
 export interface SelfForwardInput {
-  /** Office.js SSO bootstrap token — the `access_as_user` JWT for our AAD app. */
-  bootstrap: string;
-  /** Outlook REST v2 message id — converted via `Office.context.mailbox.convertToRestId`. */
+  /** REST/Graph message id converted from Office.js itemId with convertToRestId. */
   originalMessageId: string;
-  /** The Mail Item's subject. May be empty — the builder substitutes `(no subject)`. */
-  originalSubject: string | undefined;
-  /** `Office.context.mailbox.userProfile.emailAddress` — the only recipient. */
+  /** Outlook user's mailbox; it is both the sending mailbox and only recipient. */
   selfEmail: string;
+  /** Customer picked in the Customer Picker — surfaced in the forward preamble. */
+  customerName?: string;
+  /** Original sender's email; surfaced in the forward preamble. */
+  clientEmail?: string;
+  /** Request types + notes that just landed in the Bitable Service row. */
+  requestSelections?: SelfForwardRequestSelection[];
 }
 
-export type SelfForwardStep = "obo" | "createForward" | "patch" | "send";
+export type SelfForwardStep = "token" | "forward";
 
 export type SelfForwardResult =
-  | { ok: true }
+  | { ok: true; requestId?: string }
   | { ok: false; step: SelfForwardStep; code: string; message: string };
 
-interface GraphErrorEnvelope {
-  error?: { code?: string; message?: string };
-  // AAD OBO uses the OAuth2-standard `error` / `error_description` envelope.
+interface AadErrorEnvelope {
+  error?: string | { code?: string; message?: string };
   error_description?: string;
+  error_codes?: number[];
 }
 
 async function readError(
   res: Response,
 ): Promise<{ code: string; message: string }> {
-  let body: GraphErrorEnvelope | string = "";
+  let body: AadErrorEnvelope | string = "";
   try {
-    body = (await res.json()) as GraphErrorEnvelope;
+    body = (await res.json()) as AadErrorEnvelope;
   } catch {
     try {
       body = await res.text();
@@ -66,8 +68,6 @@ async function readError(
   if (typeof body === "string") {
     return { code: `HTTP_${res.status}`, message: body || res.statusText };
   }
-  // AAD shape:    { error: "invalid_grant", error_description: "..." }
-  // Graph shape:  { error: { code: "ErrorAccessDenied", message: "..." } }
   if (typeof body.error === "string") {
     return {
       code: body.error,
@@ -85,15 +85,18 @@ type StepFail = { ok: false; step: SelfForwardStep; code: string; message: strin
 
 async function fail(step: SelfForwardStep, res: Response): Promise<StepFail> {
   const e = await readError(res);
+  const logId =
+    res.headers.get("request-id") ??
+    res.headers.get("x-ms-request-id") ??
+    res.headers.get("client-request-id") ??
+    "(none)";
+  console.error(
+    `[m365] step=${step} FAILED status=${res.status} code=${e.code} msg=${e.message} ms-request-id=${logId}`,
+  );
   return { ok: false, step, code: e.code, message: e.message };
 }
 
-// Step 1 — On-Behalf-Of token exchange. The bootstrap token represents the
-// signed-in user against our own AAD app; we exchange it for a delegated Graph
-// access token scoped to Mail.Send. Doc:
-//   https://learn.microsoft.com/entra/identity-platform/v2-oauth2-on-behalf-of-flow#middle-tier-access-token-request
-async function exchangeOBO(
-  input: SelfForwardInput,
+async function acquireAppToken(
   env: SelfForwardEnv,
   fetcher: Fetcher,
 ): Promise<string | StepFail> {
@@ -103,83 +106,55 @@ async function exchangeOBO(
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
-        grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+        grant_type: "client_credentials",
         client_id: env.clientId,
         client_secret: env.clientSecret,
-        assertion: input.bootstrap,
-        requested_token_use: "on_behalf_of",
-        scope: MAIL_SEND_SCOPE,
+        scope: GRAPH_APP_ONLY_SCOPE,
       }).toString(),
     },
   );
-  if (!res.ok) return fail("obo", res);
+  if (!res.ok) return fail("token", res);
   const json = (await res.json()) as { access_token?: string };
   return (
     json.access_token ?? {
       ok: false,
-      step: "obo",
+      step: "token",
       code: "no_access_token",
-      message: "OBO succeeded but returned no access_token",
+      message: "client_credentials succeeded but returned no access_token",
     }
   );
 }
 
-// Step 2 — createForward. Returns a draft Message under /me/messages with the
-// server-rendered forward body (original From/Sent/To/Subject header + body).
-// Doc: https://learn.microsoft.com/graph/api/message-createforward
-async function createForwardDraft(
-  messageId: string,
-  authHeader: Record<string, string>,
-  fetcher: Fetcher,
-): Promise<string | StepFail> {
-  const res = await fetcher(
-    `${GRAPH_BASE}/me/messages/${encodeURIComponent(messageId)}/createForward`,
-    { method: "POST", headers: authHeader },
-  );
-  if (!res.ok) return fail("createForward", res);
-  const draft = (await res.json()) as { id?: string };
-  return (
-    draft.id ?? {
-      ok: false,
-      step: "createForward",
-      code: "no_draft_id",
-      message: "createForward returned no draft id",
-    }
-  );
-}
-
-// Step 3 — PATCH the draft with the literal subject + the single self-recipient.
-// Doc: https://learn.microsoft.com/graph/api/message-update
-async function patchDraft(
-  draftId: string,
+async function forwardOriginalMessage(
+  token: string,
   input: SelfForwardInput,
-  authHeader: Record<string, string>,
   fetcher: Fetcher,
-): Promise<true | StepFail> {
-  const body = buildSelfForwardPatchBody({
-    originalSubject: input.originalSubject,
+): Promise<{ ok: true; requestId?: string } | StepFail> {
+  const body = buildSelfForwardForwardBody({
     selfEmail: input.selfEmail,
+    customerName: input.customerName,
+    clientEmail: input.clientEmail,
+    requestSelections: input.requestSelections,
   });
-  const res = await fetcher(`${GRAPH_BASE}/me/messages/${draftId}`, {
-    method: "PATCH",
-    headers: { ...authHeader, "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  return res.ok ? true : fail("patch", res);
-}
-
-// Step 4 — send the draft. Returns 202 Accepted with no body.
-// Doc: https://learn.microsoft.com/graph/api/message-send
-async function sendDraft(
-  draftId: string,
-  authHeader: Record<string, string>,
-  fetcher: Fetcher,
-): Promise<true | StepFail> {
-  const res = await fetcher(`${GRAPH_BASE}/me/messages/${draftId}/send`, {
-    method: "POST",
-    headers: authHeader,
-  });
-  return res.ok ? true : fail("send", res);
+  const res = await fetcher(
+    `${GRAPH_BASE}/users/${encodeURIComponent(input.selfEmail)}/messages/${encodeURIComponent(input.originalMessageId)}/forward`,
+    {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(body),
+    },
+  );
+  if (res.status === 202) {
+    const requestId =
+      res.headers.get("request-id") ??
+      res.headers.get("x-ms-request-id") ??
+      undefined;
+    return { ok: true, requestId };
+  }
+  return fail("forward", res);
 }
 
 export async function runSelfForwardChain(
@@ -187,18 +162,19 @@ export async function runSelfForwardChain(
   env: SelfForwardEnv,
   fetcher: Fetcher,
 ): Promise<SelfForwardResult> {
-  const obo = await exchangeOBO(input, env, fetcher);
-  if (typeof obo !== "string") return obo;
-  const authHeader = { authorization: `Bearer ${obo}` };
+  console.log(
+    `[m365] chain step=token start tenant=${env.tenantId} clientId=${env.clientId.slice(0, 8)}...`,
+  );
+  const token = await acquireAppToken(env, fetcher);
+  if (typeof token !== "string") return token;
+  console.log(`[m365] chain step=token OK tokenLen=${token.length}`);
 
-  const draftId = await createForwardDraft(input.originalMessageId, authHeader, fetcher);
-  if (typeof draftId !== "string") return draftId;
+  console.log(
+    `[m365] chain step=forward start self=${input.selfEmail} messageIdLen=${input.originalMessageId.length}`,
+  );
+  const result = await forwardOriginalMessage(token, input, fetcher);
+  if ("step" in result) return result;
+  console.log(`[m365] chain step=forward OK requestId=${result.requestId ?? "(none)"}`);
 
-  const patched = await patchDraft(draftId, input, authHeader, fetcher);
-  if (patched !== true) return patched;
-
-  const sent = await sendDraft(draftId, authHeader, fetcher);
-  if (sent !== true) return sent;
-
-  return { ok: true };
+  return result;
 }

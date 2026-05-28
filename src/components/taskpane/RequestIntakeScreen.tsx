@@ -265,6 +265,11 @@ export function RequestIntakeScreen({
       }),
     [state.notes],
   );
+  const requestSelections = useMemo(
+    () => filledRequests.map((r) => ({ requestType: r.title, note: r.note })),
+    [filledRequests],
+  );
+  const selectedCustomerName = state.selectedCustomer?.name;
   const filledCount = filledRequests.length;
   const selectedCount = state.selectedCoworker ? 1 : 0;
   const selectedOpenId = state.selectedCoworker?.openId;
@@ -286,17 +291,34 @@ export function RequestIntakeScreen({
       });
       return;
     }
+    if (!mailItem.userEmail) {
+      dispatch({
+        type: "selfForwardFailed",
+        code: "no_self_email",
+        message: "Outlook user email is unavailable (dev preview / browser host).",
+      });
+      return;
+    }
     const result: SelfForwardResult = await sendSelfForwardNote({
       originalMessageId: mailItem.itemId,
-      originalSubject: mailItem.subject,
       selfEmail: mailItem.userEmail,
+      customerName: selectedCustomerName,
+      clientEmail: state.clientEmail,
+      requestSelections,
     });
     if (result.ok) {
       dispatch({ type: "selfForwardSucceeded" });
     } else {
       dispatch({ type: "selfForwardFailed", code: result.code, message: result.message });
     }
-  }, [sendSelfForwardNote, mailItem.itemId, mailItem.subject, mailItem.userEmail]);
+  }, [
+    sendSelfForwardNote,
+    mailItem.itemId,
+    mailItem.userEmail,
+    selectedCustomerName,
+    state.clientEmail,
+    requestSelections,
+  ]);
 
   const runSync = useCallback(() => {
     dispatch({ type: "syncStarted" });
@@ -316,7 +338,7 @@ export function RequestIntakeScreen({
         ? { recordId: state.selectedCustomer.recordId, name: state.selectedCustomer.name }
         : undefined,
       initiator: user?.openId ? { openId: user.openId, name: user.userName } : undefined,
-      requestSelections: filledRequests.map((r) => ({ requestType: r.title, note: r.note })),
+      requestSelections,
       selectedCoworkers: state.selectedCoworker ? [state.selectedCoworker] : [],
     })
       .then(() => dispatch({ type: "syncSucceeded" }))
@@ -327,7 +349,16 @@ export function RequestIntakeScreen({
     // surface the retry chip on the ReceivedScreen.
     void fireSelfForward();
     return bitable;
-  }, [sync, mailItem, state.clientEmail, state.selectedCustomer, user, filledRequests, state.selectedCoworker, fireSelfForward]);
+  }, [
+    sync,
+    mailItem,
+    state.clientEmail,
+    state.selectedCustomer,
+    user,
+    requestSelections,
+    state.selectedCoworker,
+    fireSelfForward,
+  ]);
 
   const handleSubmit = () => {
     if (state.screen === "build") {

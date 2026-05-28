@@ -1,26 +1,20 @@
 /* eslint-disable max-lines-per-function */
-// Tests for the Self-Forward chain — the 4-step Graph flow that delivers the
-// `Note to myself` copy into the Initiator's own mailbox (ADR-0017):
-//   1) OBO exchange   POST https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token
-//   2) createForward   POST https://graph.microsoft.com/v1.0/me/messages/{id}/createForward
-//   3) PATCH draft     PATCH https://graph.microsoft.com/v1.0/me/messages/{draftId}
-//   4) send draft      POST  https://graph.microsoft.com/v1.0/me/messages/{draftId}/send
-// Fetch is injected so the chain is testable without the Convex action runtime.
+// Tests for the app-only native Self-Forward chain:
+//   1) client_credentials token
+//   2) POST /users/{selfEmail}/messages/{originalMessageId}/forward
 
 import { describe, expect, it, vi } from "vitest";
 
 import { runSelfForwardChain, type Fetcher } from "./selfForwardChain";
 
 const ENV = {
-  tenantId: "common",
-  clientId: "00000000-0000-0000-0000-000000000aaa",
+  tenantId: "93b47f6a-5661-4677-a047-ab4fee1cad47",
+  clientId: "2ccb5d91-1bd7-4b62-9c3b-71d115c8af0a",
   clientSecret: "secret-value",
 };
 const INPUT = {
-  bootstrap: "bootstrap-bearer",
-  originalMessageId: "AAMkAGI0RestId",
-  originalSubject: "Inquiry - bulk L-Carnitine",
-  selfEmail: "jenny.xu@fenchem.com",
+  originalMessageId: "AAMkADAwATM0MDAAMS1hYzNiLWY1MjAtMDACLTAwCgBGAAAA",
+  selfEmail: "fanpc@fenchem.com",
 };
 
 function jsonResponse(body: unknown, init: Partial<ResponseInit> = {}): Response {
@@ -31,127 +25,122 @@ function jsonResponse(body: unknown, init: Partial<ResponseInit> = {}): Response
   });
 }
 
-describe("runSelfForwardChain — happy path", () => {
-  it("issues the four documented Graph calls in order and returns ok", async () => {
+describe("runSelfForwardChain app-only native forward happy path", () => {
+  it("gets an app token and asks Graph to forward the current Mail Item to self", async () => {
+    const forwardUrl =
+      "https://graph.microsoft.com/v1.0/users/fanpc%40fenchem.com/messages/AAMkADAwATM0MDAAMS1hYzNiLWY1MjAtMDACLTAwCgBGAAAA/forward";
     const fetcher = vi.fn<Fetcher>((url, init) => {
       const u = url.toString();
       if (u.startsWith("https://login.microsoftonline.com/")) {
         return Promise.resolve(
           jsonResponse({
-            access_token: "graph-access-token",
+            access_token: "graph-app-token",
             token_type: "Bearer",
             expires_in: 3599,
           }),
         );
       }
-      if (u.endsWith("/me/messages/AAMkAGI0RestId/createForward")) {
-        return Promise.resolve(jsonResponse({ id: "DRAFT-1", conversationId: "conv-fwd-1" }));
-      }
-      if (u === "https://graph.microsoft.com/v1.0/me/messages/DRAFT-1" && init?.method === "PATCH") {
-        return Promise.resolve(new Response(null, { status: 200 }));
-      }
-      if (u.endsWith("/me/messages/DRAFT-1/send")) {
-        return Promise.resolve(new Response(null, { status: 202 }));
+      if (u === forwardUrl) {
+        return Promise.resolve(
+          new Response(null, {
+            status: 202,
+            headers: { "request-id": "req-123" },
+          }),
+        );
       }
       throw new Error(`unexpected ${init?.method ?? "GET"} ${u}`);
     });
 
     const result = await runSelfForwardChain(INPUT, ENV, fetcher);
 
-    expect(result).toEqual({ ok: true });
-    expect(fetcher).toHaveBeenCalledTimes(4);
+    expect(result).toEqual({ ok: true, requestId: "req-123" });
+    expect(fetcher).toHaveBeenCalledTimes(2);
 
-    // Step 1 — OBO. Official body shape:
-    //   https://learn.microsoft.com/entra/identity-platform/v2-oauth2-on-behalf-of-flow#middle-tier-access-token-request
-    const [oboUrl, oboInit] = fetcher.mock.calls[0];
-    expect(oboUrl.toString()).toBe(
-      "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+    const [tokenUrl, tokenInit] = fetcher.mock.calls[0];
+    expect(tokenUrl.toString()).toBe(
+      "https://login.microsoftonline.com/93b47f6a-5661-4677-a047-ab4fee1cad47/oauth2/v2.0/token",
     );
-    expect(oboInit?.method).toBe("POST");
-    const oboBody = new URLSearchParams(String(oboInit?.body));
-    expect(oboBody.get("grant_type")).toBe(
-      "urn:ietf:params:oauth:grant-type:jwt-bearer",
-    );
-    expect(oboBody.get("client_id")).toBe(ENV.clientId);
-    expect(oboBody.get("client_secret")).toBe(ENV.clientSecret);
-    expect(oboBody.get("assertion")).toBe("bootstrap-bearer");
-    expect(oboBody.get("requested_token_use")).toBe("on_behalf_of");
-    expect(oboBody.get("scope")).toBe("https://graph.microsoft.com/Mail.Send");
+    expect(tokenInit?.method).toBe("POST");
+    const tokenBody = new URLSearchParams(String(tokenInit?.body));
+    expect(tokenBody.get("grant_type")).toBe("client_credentials");
+    expect(tokenBody.get("client_id")).toBe(ENV.clientId);
+    expect(tokenBody.get("client_secret")).toBe(ENV.clientSecret);
+    expect(tokenBody.get("scope")).toBe("https://graph.microsoft.com/.default");
 
-    // Step 2 — createForward. Doc: https://learn.microsoft.com/graph/api/message-createforward
-    // No body required — Graph creates the draft with default forward content.
-    const [cfUrl, cfInit] = fetcher.mock.calls[1];
-    expect(cfUrl.toString()).toBe(
-      "https://graph.microsoft.com/v1.0/me/messages/AAMkAGI0RestId/createForward",
+    const [mailUrl, mailInit] = fetcher.mock.calls[1];
+    expect(mailUrl.toString()).toBe(forwardUrl);
+    expect(mailInit?.method).toBe("POST");
+    const mailHeaders = (mailInit?.headers ?? {}) as Record<string, string>;
+    expect(mailHeaders.authorization).toBe("Bearer graph-app-token");
+    const sent = JSON.parse(String(mailInit?.body));
+    expect(sent.toRecipients).toEqual([
+      { emailAddress: { address: "fanpc@fenchem.com" } },
+    ]);
+    // No customer / requests passed; deeper preamble shape is unit-tested in
+    // selfForwardMessage.test.ts.
+    expect(sent.comment).toBe(
+      ["Synced to Feishu Bitable", "------------------"].join("\n"),
     );
-    expect(cfInit?.method).toBe("POST");
-    const cfHeaders = (cfInit?.headers ?? {}) as Record<string, string>;
-    expect(cfHeaders["authorization"]).toBe("Bearer graph-access-token");
+  });
 
-    // Step 3 — PATCH the draft with the documented `message-update` shape.
-    // Doc: https://learn.microsoft.com/graph/api/message-update
-    const [patchUrl, patchInit] = fetcher.mock.calls[2];
-    expect(patchUrl.toString()).toBe(
-      "https://graph.microsoft.com/v1.0/me/messages/DRAFT-1",
-    );
-    expect(patchInit?.method).toBe("PATCH");
-    expect(JSON.parse(String(patchInit?.body))).toEqual({
-      subject: "Note to myself — Inquiry - bulk L-Carnitine",
-      toRecipients: [{ emailAddress: { address: "jenny.xu@fenchem.com" } }],
+  it("URL-encodes Graph ids that still contain path delimiters", async () => {
+    const fetcher = vi.fn<Fetcher>((url) => {
+      const u = url.toString();
+      if (u.startsWith("https://login.microsoftonline.com/")) {
+        return Promise.resolve(jsonResponse({ access_token: "g" }));
+      }
+      expect(u).toContain("/messages/a%2Fb%3Dc/forward");
+      return Promise.resolve(new Response(null, { status: 202 }));
     });
 
-    // Step 4 — send. Doc: https://learn.microsoft.com/graph/api/message-send
-    const [sendUrl, sendInit] = fetcher.mock.calls[3];
-    expect(sendUrl.toString()).toBe(
-      "https://graph.microsoft.com/v1.0/me/messages/DRAFT-1/send",
+    const result = await runSelfForwardChain(
+      { ...INPUT, originalMessageId: "a/b=c" },
+      ENV,
+      fetcher,
     );
-    expect(sendInit?.method).toBe("POST");
+
+    expect(result).toEqual({ ok: true, requestId: undefined });
   });
 });
 
-describe("runSelfForwardChain — failure modes", () => {
-  // ADR-0017 soft-fail: every non-2xx surfaces as `ok: false` carrying the step
-  // and AAD/Graph error code. The Bitable row is unchanged; the UI shows the
-  // retry chip.
-  it("returns ok:false with step=obo when the OBO exchange fails", async () => {
+describe("runSelfForwardChain app-only failure modes", () => {
+  it("returns ok:false with step=token when the tenant/app secret is wrong", async () => {
     const fetcher = vi.fn<Fetcher>(() =>
       Promise.resolve(
         jsonResponse(
-          { error: "invalid_grant", error_description: "AADSTS50058: …" },
-          { status: 400 },
+          { error: "invalid_client", error_description: "AADSTS7000215: Invalid secret" },
+          { status: 401 },
         ),
       ),
     );
     const result = await runSelfForwardChain(INPUT, ENV, fetcher);
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.step).toBe("obo");
-      expect(result.code).toBe("invalid_grant");
+      expect(result.step).toBe("token");
+      expect(result.code).toBe("invalid_client");
     }
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
-  it("returns ok:false with step=createForward when Graph rejects the draft create", async () => {
+  it("returns ok:false with step=forward when Graph rejects the native forward", async () => {
     let n = 0;
     const fetcher = vi.fn<Fetcher>(() => {
       n += 1;
       if (n === 1) {
-        return Promise.resolve(
-          jsonResponse({ access_token: "g", token_type: "Bearer", expires_in: 3599 }),
-        );
+        return Promise.resolve(jsonResponse({ access_token: "g" }));
       }
       return Promise.resolve(
         jsonResponse(
-          { error: { code: "ErrorAccessDenied", message: "Mail.Send not consented" } },
-          { status: 403 },
+          { error: { code: "ErrorItemNotFound", message: "Message id not found" } },
+          { status: 404 },
         ),
       );
     });
     const result = await runSelfForwardChain(INPUT, ENV, fetcher);
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.step).toBe("createForward");
-      expect(result.code).toBe("ErrorAccessDenied");
+      expect(result.step).toBe("forward");
+      expect(result.code).toBe("ErrorItemNotFound");
     }
     expect(fetcher).toHaveBeenCalledTimes(2);
   });

@@ -196,9 +196,13 @@ describe("RequestIntakeScreen sync wiring", () => {
     await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(mockSendSelfForward).toHaveBeenCalledTimes(1));
     expect(mockSendSelfForward.mock.calls[0][0]).toMatchObject({
-      originalSubject: "Inquiry - bulk L-Carnitine",
       originalMessageId: "item-1",
       selfEmail: "jenny.xu@fenchem.com",
+      customerName: "Bayer Pharma",
+      clientEmail: "m.hoffmann@bayerpharma.de",
+      requestSelections: [
+        { requestType: "Quotation", note: "Need a quarterly L-Carnitine quote." },
+      ],
     });
   });
 
@@ -211,7 +215,7 @@ describe("RequestIntakeScreen sync wiring", () => {
         ok: false,
         step: "send",
         code: "ErrorAccessDenied",
-        message: "Mail.Send not consented",
+        message: "Graph scopes not consented",
       }),
     );
     renderScreen();

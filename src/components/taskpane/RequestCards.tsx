@@ -39,12 +39,14 @@ export function RequestCards({
             </AccordionTrigger>
             <AccordionContent className="px-[18px] pb-4">
               <Textarea
+                aria-label={`Details for ${r.title} request`}
+                aria-describedby={`char-count-${r.id}`}
                 value={value}
                 onChange={(e) => onChange(r.id, e.target.value)}
                 placeholder={r.placeholder}
                 rows={4}
               />
-              <div className="text-muted-foreground mt-2 text-right text-[11px] tabular-nums">
+              <div id={`char-count-${r.id}`} className="text-muted-foreground mt-2 text-right text-[11px] tabular-nums">
                 {value.length} chars
               </div>
             </AccordionContent>

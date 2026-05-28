@@ -8,7 +8,7 @@ One codebase, two hosts (ADR-0009):
 - **ECS Host** (Aliyun, CN audience) — SPA at `https://<host>/addin/` (§1), plus the
   fallback login server (ADR-0008) and the Sentry `/_sentry/` tunnel.
 - **Global Host** (Cloudflare Pages, non-CN audience) — SPA at
-  `https://outlook-feishu-addin.pages.dev/` (§5), primary Convex login only.
+  `https://outlook-feishu-bridge.pages.dev/` (§5), primary Convex login only.
 
 The backend is the same Convex deployment for both, called directly (not proxied).
 
@@ -57,7 +57,7 @@ manifests, one per host (ADR-0009):
 # ECS Host (CN) — served under /addin/
 bash scripts/manifest.sh <host> addin/ > manifest-sideload.xml
 # Global Host (Cloudflare Pages) — served at root (empty base)
-bash scripts/manifest.sh outlook-feishu-addin.pages.dev "" > manifest-sideload.xml
+bash scripts/manifest.sh outlook-feishu-bridge.pages.dev "" > manifest-sideload.xml
 ```
 
 Then Outlook → **Get Add-ins → My add-ins → Custom Addins → Add from file** →
@@ -74,12 +74,25 @@ That **exact** URL must be whitelisted in the Feishu app (Developer Console →
 安全设置 / Security Settings → Redirect URL), or login fails with
 `20029 Invalid redirect URL`.
 
-The backend (Convex deployment) needs `FEISHU_APP_ID` + `FEISHU_APP_SECRET`:
+The backend (Convex deployment) needs four Feishu env vars — the app credentials
+plus the target Bitable identifiers ([ADR-0010](adr/0010-pivot-to-bitable-intake.md)):
 
 ```bash
 npx convex env set FEISHU_APP_ID <app-id>
 npx convex env set FEISHU_APP_SECRET <secret>
+npx convex env set FEISHU_BITABLE_APP_TOKEN <token>   # the base/<…> segment of the Bitable URL
+npx convex env set FEISHU_BITABLE_TABLE_ID <id>       # the ?table=<…> param
 ```
+
+Permissions ([ADR-0011](adr/0011-feishu-permission-set.md)) — batch-import in 权限管理 →
+开通权限 (JSON), then **release a new app version** and have users **re-authorize**:
+
+```json
+{ "scopes": { "tenant": ["bitable:app"], "user": ["contact:user:search"] } }
+```
+
+`offline_access` is sent in the authorize URL (not a console permission). The app must
+also be a **collaborator with edit rights** on the target Base.
 
 The **app secret is backend-only** — never put it in a `VITE_*` var (those ship
 to every browser in plain text). Only the public `VITE_FEISHU_APP_ID` is baked
@@ -103,8 +116,8 @@ bash scripts/deploy.sh cloudflare           # build base=/ + wrangler pages depl
 ```
 
 - Builds with `base=/` (root) and runs `wrangler pages deploy dist` to the
-  `outlook-feishu-addin` Pages project (from `wrangler.toml` `name`). First time
-  only, the project may need `npx wrangler pages project create outlook-feishu-addin`.
+  `outlook-feishu-bridge` Pages project (from `wrangler.toml` `name`). First time
+  only, the project may need `npx wrangler pages project create outlook-feishu-bridge`.
 - **No Sentry tunnel here** — the Global Host has no `/_sentry/` proxy, so the build
   omits `VITE_SENTRY_TUNNEL` and Sentry ingests direct to `*.sentry.io` (allowed by
   `public/_headers`). The ECS build keeps the tunnel.

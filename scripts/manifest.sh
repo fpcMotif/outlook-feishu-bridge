@@ -11,7 +11,7 @@
 #   # ECS Host (CN audience), served under /addin/
 #   bash scripts/manifest.sh wmdev.zeuja.com addin/ > manifest-ecs.xml
 #   # Global Host (Cloudflare Pages), served at root
-#   bash scripts/manifest.sh outlook-feishu-addin.pages.dev "" > manifest-global.xml
+#   bash scripts/manifest.sh outlook-feishu-bridge.pages.dev "" > manifest-global.xml
 
 set -euo pipefail
 

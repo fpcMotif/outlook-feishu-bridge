@@ -31,8 +31,7 @@ function ConnectVisual() {
   return (
     <div className="bg-card-soft flex items-center justify-center gap-4 rounded-[20px] py-6 shadow-[var(--shadow-border)]">
       <span
-        role="img"
-        aria-label="Outlook"
+        aria-hidden="true"
         className="bg-card flex size-14 items-center justify-center rounded-xl shadow-[var(--shadow-border)]"
       >
         <OutlookLogo />
@@ -43,8 +42,7 @@ function ConnectVisual() {
         <span className="bg-border size-1 rounded-full" />
       </span>
       <span
-        role="img"
-        aria-label="Feishu"
+        aria-hidden="true"
         className="bg-primary text-primary-foreground flex size-14 items-center justify-center rounded-xl shadow-[var(--shadow-border)]"
       >
         <FeishuGlyph className="size-7" />
@@ -69,7 +67,7 @@ export function ConnectCard({
       <div className="mt-5 text-center">
         <h2 className="font-serif text-[26px] leading-tight">Connect to Feishu</h2>
         <p className="text-muted-foreground mx-auto mt-2 max-w-[36ch] text-sm leading-relaxed">
-          Sign in to forward this Outlook email straight to the right team in Feishu.
+          Sign in to turn this Outlook email into a structured Feishu Bitable row.
         </p>
       </div>
       <div className="mt-5 flex flex-col gap-2">

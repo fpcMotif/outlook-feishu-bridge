@@ -1,6 +1,6 @@
 # Feishu user-data calls use user_access_token + explicit OAuth scopes; Search Users stays on /search/v1/user
 
-> **Status: accepted.**
+> **Status: accepted; amended by [ADR-0010](0010-pivot-to-bitable-intake.md) + [ADR-0011](0011-feishu-permission-set.md).** The scope *mechanism* below still holds, but the current user set is `contact:user:search` + `offline_access` only (the `im:chat:readonly` / `im:message` chat scopes were dropped), now on app `cli_aa9a8daf16e2dcdb`. See [ADR-0011](0011-feishu-permission-set.md) for the full permission contract (incl. tenant `bitable:app`).
 
 The bridge searches the directory for real coworker `open_id`s, so that call uses a **user access token**, not the app/bot (tenant) token. Feishu only puts a user-identity scope into the token if it is named in the OAuth `authorize` request's `scope` parameter; our login originally sent **no** `scope`, so every user-identity call failed with **`99991679`** ("app did not obtain the user's authorization"). The login now requests only `contact:user:search offline_access`.
 

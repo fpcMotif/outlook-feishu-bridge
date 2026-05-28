@@ -18,9 +18,7 @@ export const storeToken = internalMutation({
   args: { token: v.string(), expiresAt: v.number() },
   handler: async (ctx, args) => {
     const existing = await ctx.db.query("feishuTokens").take(10);
-    for (const row of existing) {
-      await ctx.db.delete(row._id);
-    }
+    await Promise.all(existing.map((row) => ctx.db.delete(row._id)));
     await ctx.db.insert("feishuTokens", {
       tokenType: "tenant_access_token" as const,
       token: args.token,

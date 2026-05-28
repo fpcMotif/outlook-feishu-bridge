@@ -60,7 +60,7 @@ export function SubmitDock({
         {live && count > 0 ? <ArrowRight className="size-[18px] shrink-0" /> : null}
       </button>
       <div className="text-muted-foreground mt-2 truncate text-center text-[11px]">
-        {footer ?? "Encrypted - routed to your Feishu workspace"}
+        {footer ?? "Encrypted - synced to your Feishu workspace"}
       </div>
     </div>
   );

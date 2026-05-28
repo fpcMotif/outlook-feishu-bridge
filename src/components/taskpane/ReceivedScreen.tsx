@@ -48,30 +48,29 @@ function SuccessHalo() {
   );
 }
 
-function buildSteps(channelCount: number): Step[] {
+function buildSteps(coworkerCount: number): Step[] {
   return [
     { title: "Submitted", sub: "Just now", state: "done" },
     {
       title: "Bitable row created",
       sub:
-        channelCount > 0
-          ? `${channelCount} coworker${channelCount > 1 ? "s" : ""} attached`
+        coworkerCount > 0
+          ? `${coworkerCount} coworker${coworkerCount > 1 ? "s" : ""} attached`
           : "Request details attached",
       state: "done",
     },
     { title: "Convex backup saved", sub: "Recovery record available", state: "done" },
-    { title: "Tagged in Outlook", sub: "Marking Sent to Feishu", state: "active" },
   ];
 }
 
 export function ReceivedScreen({
-  channelCount,
+  coworkerCount,
   onForwardAnother,
 }: {
-  channelCount: number;
+  coworkerCount: number;
   onForwardAnother: () => void;
 }) {
-  const steps = buildSteps(channelCount);
+  const steps = buildSteps(coworkerCount);
 
   return (
     <div className="no-scrollbar flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-6 pt-12 pb-6">
@@ -79,7 +78,7 @@ export function ReceivedScreen({
 
       <h1 className="font-serif text-3xl text-balance">Synced to Feishu</h1>
       <p className="text-muted-foreground mt-1.5 max-w-[34ch] text-center text-sm leading-relaxed text-pretty">
-        The request is synced to Bitable, backed up in Convex, and ready for the selected coworkers.
+        The request is synced to Bitable, backed up in Convex, and ready for the selected coworker.
       </p>
 
       <div className="mt-9 w-full max-w-[320px]">

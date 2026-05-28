@@ -1,22 +1,78 @@
 /* eslint-disable max-lines-per-function */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useMemo, useReducer } from "react";
 
+import type { Contact } from "@/forward/targets";
+import type { MailItemData } from "../../office/useMailItem";
+import { useRequestSync } from "../../hooks/useRequestSync";
+import { Button } from "../ui/button";
 import { CoworkerPicker } from "./CoworkerPicker";
 import { ConnectCard } from "./ConnectCard";
 import { ReceivedScreen } from "./ReceivedScreen";
-import { REQUESTS, RequestCards } from "./RequestCards";
+import { RequestCards } from "./RequestCards";
+import { REQUESTS } from "./requests";
 import { SubmitDock } from "./SubmitDock";
 import { SyncScreen } from "./SyncScreen";
-import type { Contact, RequestSelection } from "@/forward/targets";
-import type { SearchCoworkers } from "./CoworkerPicker";
 
-const noopSearchCoworkers: SearchCoworkers = () => Promise.resolve([]);
-const noopSyncServiceRecord = () => Promise.resolve();
+type ForwardScreenName = "build" | "contacts" | "sync" | "received" | "error";
 
-export interface ServiceRecordSyncInput {
+interface ForwardState {
+  notes: Record<string, string>;
   clientEmail: string;
-  requestSelections: RequestSelection[];
-  selectedCoworkers: Contact[];
+  mailFrom: string;
+  screen: ForwardScreenName;
+  selectedCoworker: Contact | null;
+  syncError: string | null;
+}
+
+type ForwardAction =
+  | { type: "mailFromChanged"; mailFrom: string }
+  | { type: "noteChanged"; id: string; value: string }
+  | { type: "clientEmailChanged"; value: string }
+  | { type: "screenChanged"; screen: ForwardScreenName }
+  | { type: "coworkerSelected"; contact: Contact }
+  | { type: "syncStarted" }
+  | { type: "syncSucceeded" }
+  | { type: "syncFailed"; message: string }
+  | { type: "startedOver" };
+
+function initialForwardState(mailFrom: string): ForwardState {
+  return {
+    notes: {},
+    clientEmail: mailFrom,
+    mailFrom,
+    screen: "build",
+    selectedCoworker: null,
+    syncError: null,
+  };
+}
+
+function forwardReducer(state: ForwardState, action: ForwardAction): ForwardState {
+  switch (action.type) {
+    case "mailFromChanged":
+      return { ...state, clientEmail: action.mailFrom, mailFrom: action.mailFrom };
+    case "noteChanged":
+      return { ...state, notes: { ...state.notes, [action.id]: action.value } };
+    case "clientEmailChanged":
+      return { ...state, clientEmail: action.value };
+    case "screenChanged":
+      return { ...state, screen: action.screen };
+    case "coworkerSelected":
+      return { ...state, selectedCoworker: action.contact };
+    case "syncStarted":
+      return { ...state, screen: "sync", syncError: null };
+    case "syncSucceeded":
+      return { ...state, screen: "received" };
+    case "syncFailed":
+      return { ...state, screen: "error", syncError: action.message };
+    case "startedOver":
+      return {
+        ...state,
+        notes: {},
+        screen: "build",
+        selectedCoworker: null,
+        syncError: null,
+      };
+  }
 }
 
 function Hero() {
@@ -68,81 +124,109 @@ function LoginScreen({
 
 export function ForwardScreen({
   isLoggedIn,
-  clientEmail,
-  searchCoworkers = noopSearchCoworkers,
-  onSyncServiceRecord = noopSyncServiceRecord,
+  mailItem,
+  sessionId,
+  userAccessToken,
   onLogin,
   onLoginFallback,
 }: {
   isLoggedIn: boolean;
-  clientEmail: string;
-  searchCoworkers?: SearchCoworkers;
-  onSyncServiceRecord?: (input: ServiceRecordSyncInput) => Promise<void>;
+  mailItem: MailItemData;
+  sessionId: string;
+  userAccessToken?: string;
   onLogin: () => void;
   onLoginFallback: () => void;
 }) {
-  const [notes, setNotes] = useState<Record<string, string>>({});
-  const [confirmedClientEmail, setConfirmedClientEmail] = useState(clientEmail);
-  const [screen, setScreen] = useState<"build" | "contacts" | "sync" | "received">("build");
-  const [selectedContacts, setSelectedContacts] = useState<Contact[]>([]);
+  const { sync } = useRequestSync();
+  const [state, dispatch] = useReducer(forwardReducer, mailItem.from, initialForwardState);
 
-  useEffect(() => {
-    setConfirmedClientEmail(clientEmail);
-  }, [clientEmail]);
+  if (state.mailFrom !== mailItem.from) {
+    dispatch({ type: "mailFromChanged", mailFrom: mailItem.from });
+  }
 
-  const filledRequests = REQUESTS.flatMap((r) => {
-    const note = (notes[r.id] ?? "").trim();
-    return note ? [{ id: r.id, title: r.title, note }] : [];
-  });
+  const filledRequests = useMemo(
+    () =>
+      REQUESTS.flatMap((r) => {
+        const note = (state.notes[r.id] ?? "").trim();
+        return note ? [{ id: r.id, title: r.title, note }] : [];
+      }),
+    [state.notes],
+  );
   const filledCount = filledRequests.length;
-  const selectedCount = selectedContacts.length;
-  const selectedOpenIds = selectedContacts.map((c) => c.openId);
+  const selectedCount = state.selectedCoworker ? 1 : 0;
+  const selectedOpenId = state.selectedCoworker?.openId;
 
-  const toggleContact = (contact: Contact) => {
-    setSelectedContacts((current) =>
-      current.some((c) => c.openId === contact.openId)
-        ? current.filter((c) => c.openId !== contact.openId)
-        : [contact],
-    );
+  const selectCoworker = (contact: Contact) => {
+    dispatch({ type: "coworkerSelected", contact });
   };
 
+  // First write: hand the intake to the Bitable sync. Email subject/body ride to
+  // the Convex Email Record only; the Bitable row gets the structured request.
+  const runSync = useCallback(() => {
+    dispatch({ type: "syncStarted" });
+    sync({
+      subject: mailItem.subject,
+      from: mailItem.from,
+      to: mailItem.to,
+      cc: mailItem.cc,
+      body: mailItem.body,
+      internetMessageId: mailItem.internetMessageId,
+      itemId: mailItem.itemId || undefined,
+      conversationId: mailItem.conversationId || undefined,
+      userEmail: mailItem.userEmail || undefined,
+      dateTimeCreated: mailItem.dateTimeCreated?.getTime(),
+      clientEmail: state.clientEmail,
+      requestSelections: filledRequests.map((r) => ({ requestType: r.title, note: r.note })),
+      selectedCoworkers: state.selectedCoworker ? [state.selectedCoworker] : [],
+    })
+      .then(() => dispatch({ type: "syncSucceeded" }))
+      .catch((e: unknown) => {
+        dispatch({ type: "syncFailed", message: e instanceof Error ? e.message : "Sync failed" });
+      });
+  }, [sync, mailItem, state.clientEmail, filledRequests, state.selectedCoworker]);
+
   const handleSubmit = () => {
-    if (screen === "build") {
+    if (state.screen === "build") {
       if (filledCount === 0) return;
-      setScreen("contacts");
+      dispatch({ type: "screenChanged", screen: "contacts" });
       return;
     }
     if (selectedCount === 0) return;
-    setScreen("sync");
+    runSync();
   };
 
-  const finishSync = useCallback(() => setScreen("received"), []);
-  const syncServiceRecord = useCallback(
-    () =>
-      onSyncServiceRecord({
-        clientEmail: confirmedClientEmail,
-        requestSelections: filledRequests.map((r) => ({
-          requestType: r.title,
-          note: r.note,
-        })),
-        selectedCoworkers: selectedContacts,
-      }),
-    [confirmedClientEmail, filledRequests, onSyncServiceRecord, selectedContacts],
-  );
+  const startOver = () => {
+    dispatch({ type: "startedOver" });
+  };
 
-  if (screen === "received") {
-    return <ReceivedScreen channelCount={selectedCount} onForwardAnother={() => setScreen("build")} />;
+  if (state.screen === "received") {
+    return <ReceivedScreen coworkerCount={selectedCount} onForwardAnother={startOver} />;
   }
 
-  if (screen === "sync") {
+  if (state.screen === "sync") {
     return (
       <SyncScreen
         requests={filledRequests}
-        clientEmail={confirmedClientEmail}
-        channelCount={selectedCount}
-        onSync={syncServiceRecord}
-        onComplete={finishSync}
+        clientEmail={state.clientEmail}
+        coworkerCount={selectedCount}
       />
+    );
+  }
+
+  if (state.screen === "error") {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 px-8 text-center">
+        <h1 className="font-serif text-2xl">Sync failed</h1>
+        <p className="text-muted-foreground max-w-[34ch] text-sm leading-relaxed">
+          {state.syncError ?? "Could not sync to Feishu Bitable."}
+        </p>
+        <div className="flex gap-2">
+          <Button onClick={runSync}>Try again</Button>
+          <Button variant="secondary" onClick={() => dispatch({ type: "screenChanged", screen: "contacts" })}>
+            Back
+          </Button>
+        </div>
+      </div>
     );
   }
 
@@ -150,28 +234,25 @@ export function ForwardScreen({
     return <LoginScreen onLogin={onLogin} onLoginFallback={onLoginFallback} />;
   }
 
-  if (screen === "contacts") {
+  if (state.screen === "contacts") {
     return (
       <>
         <CoworkerPicker
-          clientEmail={confirmedClientEmail}
-          onClientEmailChange={setConfirmedClientEmail}
-          selectedOpenIds={selectedOpenIds}
-          searchCoworkers={searchCoworkers}
-          onToggle={toggleContact}
-          onBack={() => setScreen("build")}
+          clientEmail={state.clientEmail}
+          onClientEmailChange={(value) => dispatch({ type: "clientEmailChanged", value })}
+          sessionId={sessionId}
+          userAccessToken={userAccessToken}
+          selectedOpenId={selectedOpenId}
+          onSelect={selectCoworker}
+          onBack={() => dispatch({ type: "screenChanged", screen: "build" })}
         />
         <SubmitDock
           count={selectedCount}
           canSubmit={selectedCount > 0}
           sending={false}
-          hint="Choose a Feishu coworker"
-          label={
-            selectedCount > 0
-              ? `Submit to ${selectedCount} coworker${selectedCount > 1 ? "s" : ""}`
-              : undefined
-          }
-          footer={`${filledCount} request${filledCount > 1 ? "s" : ""} ready for Bitable + Convex sync`}
+          hint="Choose exactly one Feishu coworker"
+          label={state.selectedCoworker ? `Sync with ${state.selectedCoworker.name}` : undefined}
+          footer={`${filledCount} request${filledCount > 1 ? "s" : ""} + 1 coworker ready for Bitable + Convex sync`}
           onSubmit={handleSubmit}
         />
       </>
@@ -184,8 +265,8 @@ export function ForwardScreen({
         <Hero />
         <div className="space-y-3">
           <RequestCards
-            values={notes}
-            onChange={(id, value) => setNotes((n) => ({ ...n, [id]: value }))}
+            values={state.notes}
+            onChange={(id, value) => dispatch({ type: "noteChanged", id, value })}
           />
         </div>
       </div>

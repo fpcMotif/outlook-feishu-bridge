@@ -74,17 +74,17 @@ export function SyncFoldPreview({ request }: { request: SyncMotionRequest | unde
     <div className="sync-fold-stage relative mt-5 h-[76px] overflow-hidden rounded-xl bg-card-soft shadow-[var(--shadow-border)]">
       <div className="absolute inset-y-0 left-5 flex items-center">
         <div className="sync-fold-card grid h-[46px] w-[118px] grid-cols-3 overflow-hidden rounded-lg bg-card text-[10px] shadow-[var(--shadow-floating)]">
-          <div className="sync-fold-panel sync-fold-panel-left border-r px-2 py-2">
+          <div className="sync-fold-panel sync-fold-panel-left border-r p-2">
             <div className="bg-primary/70 h-1.5 w-6 rounded-full" />
             <div className="bg-muted mt-2 h-1.5 w-8 rounded-full" />
           </div>
-          <div className="sync-fold-panel px-2 py-2">
+          <div className="sync-fold-panel p-2">
             <div className="text-[9px] font-bold uppercase tracking-wide text-primary">
               {request?.title ?? "Request"}
             </div>
             <div className="bg-muted mt-2 h-1.5 w-8 rounded-full" />
           </div>
-          <div className="sync-fold-panel sync-fold-panel-right border-l px-2 py-2">
+          <div className="sync-fold-panel sync-fold-panel-right border-l p-2">
             <div className="bg-muted h-1.5 w-6 rounded-full" />
             <div className="bg-muted mt-2 h-1.5 w-8 rounded-full" />
           </div>

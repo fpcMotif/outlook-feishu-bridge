@@ -114,7 +114,7 @@ async function uploadMediaChunked(
   const prepare = prep.data;
   if (!prepare) throw new Error("Drive media prepare returned no data");
 
-  for (let seq = 0; seq < prepare.block_num; seq++) {
+  await Promise.all(Array.from({ length: prepare.block_num }, (_, seq) => {
     const start = seq * prepare.block_size;
     const chunk = fileData.slice(start, Math.min(start + prepare.block_size, fileData.byteLength));
     const formData = new FormData();
@@ -122,13 +122,13 @@ async function uploadMediaChunked(
     formData.append("seq", String(seq));
     formData.append("size", String(chunk.byteLength));
     formData.append("file", new Blob([chunk]), fileName);
-    await feishuFetch({
+    return feishuFetch({
       url: `${FEISHU_BASE}/drive/v1/medias/upload_part`,
       token,
       label: `Drive media part ${seq + 1}/${prepare.block_num}`,
       form: formData,
     });
-  }
+  }));
 
   const fin = await feishuFetch<{ data?: { file_token: string } }>({
     url: `${FEISHU_BASE}/drive/v1/medias/upload_finish`,
@@ -177,8 +177,10 @@ async function insertDocMedia(
   fileName: string,
   kind: MediaKind,
 ): Promise<void> {
-  const blockId = await createEmptyMediaBlock(token, documentId, kind);
-  const fileData = await getStorageBytes(ctx, storageId);
+  const [blockId, fileData] = await Promise.all([
+    createEmptyMediaBlock(token, documentId, kind),
+    getStorageBytes(ctx, storageId),
+  ]);
   const parentType = kind === "image" ? "docx_image" : "docx_file";
   const fileToken = await uploadMediaToDrive(token, parentType, blockId, fileData, fileName);
   const replaceKey = kind === "image" ? "replace_image" : "replace_file";
@@ -187,6 +189,25 @@ async function insertDocMedia(
 }
 
 const docMediaItem = v.object({ storageId: v.id("_storage"), fileName: v.string() });
+
+function blockChunks(blocks: FeishuBlock[]): FeishuBlock[][] {
+  const chunks: FeishuBlock[][] = [];
+  for (let i = 0; i < blocks.length; i += 50) {
+    chunks.push(blocks.slice(i, i + 50));
+  }
+  return chunks;
+}
+
+function insertBlocksInOrder(
+  token: string,
+  documentId: string,
+  blocks: FeishuBlock[],
+): Promise<void> {
+  return blockChunks(blocks).reduce(
+    (previous, chunk) => previous.then(() => insertBlocks(token, documentId, chunk)),
+    Promise.resolve(),
+  );
+}
 
 export const createFeishuDoc = action({
   args: {
@@ -200,16 +221,16 @@ export const createFeishuDoc = action({
     const documentId = await createDocument(token, args.title);
 
     const blocks = markdownToBlocks(args.markdown);
-    for (let i = 0; i < blocks.length; i += 50) {
-      await insertBlocks(token, documentId, blocks.slice(i, i + 50));
-    }
+    await insertBlocksInOrder(token, documentId, blocks);
 
-    for (const img of args.imageStorageIds ?? []) {
-      await insertDocMedia(ctx, token, documentId, img.storageId, img.fileName, "image");
-    }
-    for (const file of args.fileStorageIds ?? []) {
-      await insertDocMedia(ctx, token, documentId, file.storageId, file.fileName, "file");
-    }
+    const imageUploads = (args.imageStorageIds ?? []).map((img) =>
+      insertDocMedia(ctx, token, documentId, img.storageId, img.fileName, "image"),
+    );
+    const fileUploads = (args.fileStorageIds ?? []).map((file) =>
+      insertDocMedia(ctx, token, documentId, file.storageId, file.fileName, "file"),
+    );
+    const mediaUploads = [...imageUploads, ...fileUploads];
+    await Promise.all(mediaUploads);
 
     return { docUrl: `https://feishu.cn/docx/${documentId}`, docToken: documentId };
   },

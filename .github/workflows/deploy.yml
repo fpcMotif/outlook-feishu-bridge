@@ -1,0 +1,49 @@
+name: Deploy Global Host (Cloudflare Pages)
+
+# Builds the SPA at base=/ (root) and publishes it to the Cloudflare Pages
+# project `outlook-feishu-bridge` — the Global Host for the non-CN audience
+# (ADR-0009). The CN ECS Host is deployed separately via scripts/deploy.sh.
+#
+# Required GitHub config (Settings -> Secrets and variables -> Actions):
+#   secrets.CLOUDFLARE_API_TOKEN   Cloudflare token with "Cloudflare Pages: Edit"
+#   secrets.CLOUDFLARE_ACCOUNT_ID  2402c36e78fa02ee53d19857978cf1aa
+#   vars.VITE_FEISHU_APP_ID        public Feishu app id baked into the bundle
+# Optional:
+#   vars.VITE_CONVEX_URL / vars.VITE_CONVEX_SITE_URL  override the defaults below
+#   vars.VITE_SENTRY_DSN           Sentry ingest (direct on Pages, no /_sentry/ tunnel)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build SPA (base=/)
+        run: npm run build -- --base=/
+        env:
+          VITE_CONVEX_URL: ${{ vars.VITE_CONVEX_URL || 'https://steady-setter-706.convex.cloud' }}
+          VITE_CONVEX_SITE_URL: ${{ vars.VITE_CONVEX_SITE_URL || 'https://steady-setter-706.convex.site' }}
+          VITE_FEISHU_APP_ID: ${{ vars.VITE_FEISHU_APP_ID }}
+          VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
+
+      - name: Publish to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy dist --project-name=outlook-feishu-bridge --branch=main

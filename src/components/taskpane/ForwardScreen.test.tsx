@@ -1,24 +1,43 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ForwardScreen, type ServiceRecordSyncInput } from "./ForwardScreen";
-import type { SearchCoworkers } from "./CoworkerPicker";
+vi.mock("../../hooks/useRequestSync", () => ({
+  useRequestSync: () => ({
+    sync: vi.fn(() => Promise.resolve({ recordId: "rec1" })),
+    correct: vi.fn(() => Promise.resolve({ recordId: "rec1" })),
+  }),
+}));
 
-const JENNY = { openId: "ou_real_jenny", name: "Jenny Xu" };
-const searchCoworkers: SearchCoworkers = (query) =>
-  Promise.resolve(query.toLowerCase().includes("jenny") ? [JENNY] : []);
+vi.mock("../../hooks/useCoworkerSearch", () => ({
+  useCoworkerSearch: () => vi.fn(() => Promise.resolve([])),
+}));
+
+import { ForwardScreen } from "./ForwardScreen";
+import type { MailItemData } from "../../office/useMailItem";
+
+const SAMPLE: MailItemData = {
+  subject: "Inquiry - bulk pricing",
+  from: "m.hoffmann@bayerpharma.de",
+  to: ["jenny.xu@fenchem.com"],
+  cc: [],
+  body: "We need quarterly pricing.",
+  dateTimeCreated: new Date("2026-05-27T00:00:00Z"),
+  internetMessageId: "<x@bayerpharma.de>",
+  itemId: "item-1",
+  conversationId: "conv-1",
+  userEmail: "jenny.xu@fenchem.com",
+  attachments: [],
+};
 
 function renderForwardScreen(
   isLoggedIn: boolean,
   clientEmail = "m.hoffmann@bayerpharma.de",
-  onSyncServiceRecord?: (input: ServiceRecordSyncInput) => Promise<void>,
 ) {
   render(
     <ForwardScreen
       isLoggedIn={isLoggedIn}
-      clientEmail={clientEmail}
-      searchCoworkers={searchCoworkers}
-      onSyncServiceRecord={onSyncServiceRecord}
+      mailItem={{ ...SAMPLE, from: clientEmail }}
+      sessionId="test-session"
       onLogin={vi.fn()}
       onLoginFallback={vi.fn()}
     />,
@@ -33,12 +52,9 @@ function fillQuotationAndContinue() {
   fireEvent.click(screen.getByRole("button", { name: /^Continue$/i }));
 }
 
-async function searchJenny() {
-  fireEvent.change(screen.getByPlaceholderText("Search Feishu coworkers..."), {
-    target: { value: "Jenny" },
-  });
-  return await screen.findByRole("button", { name: /Jenny Xu/i });
-}
+beforeEach(() => {
+  localStorage.clear();
+});
 
 describe("ForwardScreen login gate", () => {
   it("keeps the Feishu login surface separate from the request builder", () => {
@@ -77,7 +93,7 @@ describe("ForwardScreen request details", () => {
     expect(screen.queryByText("Ready")).not.toBeInTheDocument();
   });
 
-  it("moves filled requests into Act II coworker selection before submit", async () => {
+  it("moves filled requests into Act II coworker selection before submit", () => {
     renderForwardScreen(true);
     fillQuotationAndContinue();
 
@@ -86,9 +102,9 @@ describe("ForwardScreen request details", () => {
     expect(screen.getByDisplayValue("m.hoffmann@bayerpharma.de")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Feishu coworker" })).toBeInTheDocument();
     expect(screen.queryByText("Need a quarterly L-Carnitine quote.")).not.toBeInTheDocument();
-    expect(await searchJenny()).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Jenny Xu/i })).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /Choose a Feishu coworker/i }),
+      screen.getByRole("button", { name: /Choose exactly one Feishu coworker/i }),
     ).toBeDisabled();
   });
 
@@ -103,71 +119,42 @@ describe("ForwardScreen request details", () => {
     expect(screen.getByDisplayValue("updated.client@example.com")).toBeInTheDocument();
   });
 
-  it("keeps coworker selection on cards without selected tags", async () => {
+});
+
+describe("ForwardScreen coworker selection", () => {
+  it("allows exactly one coworker and replaces the selection on the cards", () => {
     renderForwardScreen(true);
     fillQuotationAndContinue();
 
-    fireEvent.click(await searchJenny());
+    const jenny = screen.getByRole("button", { name: /Jenny Xu/i });
+    fireEvent.click(jenny);
+    expect(jenny).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: /Sync with Jenny Xu/i })).toBeInTheDocument();
 
-    expect(screen.getByRole("button", { name: /Submit to 1 coworker/i })).toBeInTheDocument();
+    const michael = screen.getByRole("button", { name: /Michael Chen/i });
+    fireEvent.click(michael);
+    expect(jenny).toHaveAttribute("aria-pressed", "false");
+    expect(michael).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: /Sync with Michael Chen/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Remove coworker/i })).not.toBeInTheDocument();
   });
 });
 
-describe("ForwardScreen service sync payload", () => {
-  it("calls the service-record sync with request content, client, and coworker", async () => {
-    const onSyncServiceRecord = vi.fn(() => Promise.resolve());
-    renderForwardScreen(true, "buyer@example.com", onSyncServiceRecord);
-    fillQuotationAndContinue();
-
-    fireEvent.change(screen.getByLabelText("Client email"), {
-      target: { value: "updated.client@example.com" },
-    });
-    fireEvent.click(await searchJenny());
-    fireEvent.click(screen.getByRole("button", { name: /Submit to 1 coworker/i }));
-
-    expect(onSyncServiceRecord).toHaveBeenCalledWith({
-      clientEmail: "updated.client@example.com",
-      requestSelections: [
-        { requestType: "Quotation", note: "Need a quarterly L-Carnitine quote." },
-      ],
-      selectedCoworkers: [JENNY],
-    });
-  });
-});
-
-describe("ForwardScreen sync progress", () => {
-  it("shows Act IV while syncing before the success screen", async () => {
-    vi.useFakeTimers();
+describe("ForwardScreen sync flow", () => {
+  it("shows Act IV while syncing, then the success screen once sync resolves", async () => {
     renderForwardScreen(true);
     fillQuotationAndContinue();
 
-    fireEvent.change(screen.getByPlaceholderText("Search Feishu coworkers..."), {
-      target: { value: "Jenny" },
-    });
-    await act(async () => {
-      vi.advanceTimersByTime(300);
-      await Promise.resolve();
-      await Promise.resolve();
-    });
     fireEvent.click(screen.getByRole("button", { name: /Jenny Xu/i }));
-    fireEvent.click(screen.getByRole("button", { name: /Submit to 1 coworker/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
 
     expect(
       screen.getByRole("heading", { name: /Syncing to Feishu Bitable/i }),
     ).toBeInTheDocument();
     expect(screen.getByRole("progressbar", { name: /Sync progress/i })).toBeInTheDocument();
 
-    await act(async () => {
-      vi.advanceTimersByTime(3600);
-      await Promise.resolve();
-    });
-    await act(async () => {
-      vi.advanceTimersByTime(250);
-      await Promise.resolve();
-    });
-
-    expect(screen.getByRole("heading", { name: /Synced to Feishu/i })).toBeInTheDocument();
-    vi.useRealTimers();
+    expect(
+      await screen.findByRole("heading", { name: /Synced to Feishu/i }),
+    ).toBeInTheDocument();
   });
 });

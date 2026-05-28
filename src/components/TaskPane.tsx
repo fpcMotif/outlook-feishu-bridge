@@ -1,19 +1,16 @@
 /* eslint-disable max-lines-per-function */
-import { useCallback, useEffect, useState } from "react";
-import { useAction } from "convex/react";
+import { useState } from "react";
 import { Loader2, MailOpen } from "lucide-react";
 
-import { api } from "../../convex/_generated/api";
 import { useFeishuAuth } from "../hooks/useFeishuAuth";
 import { useMailItem, type MailItemData } from "../office/useMailItem";
 import { Button } from "./ui/button";
-import { ForwardScreen, type ServiceRecordSyncInput } from "./taskpane/ForwardScreen";
+import { ForwardScreen } from "./taskpane/ForwardScreen";
 import { PaneHeader } from "./taskpane/PaneHeader";
-import type { Contact } from "@/forward/targets";
 
 // Browser dev has no Office host or mailbox (useOffice falls back to host
 // "browser" after 3s). A sample item lets the full drawer flow render for
-// preview; ForwardScreen simulates the submit so nothing is actually sent.
+// preview; tests mock the Bitable Sync so nothing is actually written.
 const DEV_SAMPLE: MailItemData = {
   subject: "Inquiry - bulk pricing for L-Carnitine 500kg quarterly",
   from: "m.hoffmann@bayerpharma.de",
@@ -29,20 +26,6 @@ const DEV_SAMPLE: MailItemData = {
     { id: "a1", name: "RFQ-2026-Q1.pdf", contentType: "application/pdf", size: 184320, isInline: false },
   ],
 };
-
-const DEV_COWORKERS: Contact[] = [
-  { openId: "ou_jenny", name: "Jenny Xu" },
-  { openId: "ou_michael", name: "Michael Chen" },
-  { openId: "ou_sales_ops", name: "Sales Ops" },
-  { openId: "ou_wei", name: "Wei Liang" },
-];
-
-function searchDevCoworkers(query: string): Promise<Contact[]> {
-  const q = query.trim().toLowerCase();
-  return Promise.resolve(
-    q ? DEV_COWORKERS.filter((c) => c.name.toLowerCase().includes(q)) : [],
-  );
-}
 
 function EmptyState({
   loading,
@@ -60,7 +43,7 @@ function EmptyState({
       </span>
       <h2 className="font-serif text-2xl">{loading ? "Reading your email..." : "No message open"}</h2>
       <p className="text-muted-foreground mt-1.5 max-w-[32ch] text-sm leading-relaxed">
-        {error ?? "Open a received message in Outlook, then forward it to Feishu from here."}
+        {error ?? "Open a received message in Outlook, then sync it to Feishu from here."}
       </p>
       {loading ? null : (
         <Button variant="secondary" className="mt-4" onClick={onRead}>
@@ -72,16 +55,9 @@ function EmptyState({
 }
 
 export function TaskPane({ host }: { host: string | null }) {
-  const { mailItem, loading, error, readCurrentItem } = useMailItem();
+  const { mailItem, loading, error, readCurrentItem } = useMailItem(Boolean(host && host !== "browser"));
   const feishuAuth = useFeishuAuth();
-  const searchContacts = useAction(api.feishu.contacts.searchContacts);
-  const createServiceRecord = useAction(api.feishu.bitable.createServiceRecord);
   const [devLoggedIn, setDevLoggedIn] = useState(false);
-
-  // Auto-load the current email inside Outlook so there's no extra click on open.
-  useEffect(() => {
-    if (host && host !== "browser") void readCurrentItem();
-  }, [host, readCurrentItem]);
 
   // Real Outlook sets host "Outlook"; anything else in dev (host null or
   // "browser") means no mailbox, so preview a sample item and simulate submit.
@@ -100,33 +76,6 @@ export function TaskPane({ host }: { host: string | null }) {
   const handleLogin = devPreview ? () => setDevLoggedIn(true) : feishuAuth.login;
   const handleLoginFallback = devPreview ? () => setDevLoggedIn(true) : feishuAuth.loginFallback;
   const handleLogout = devPreview ? () => setDevLoggedIn(false) : feishuAuth.logout;
-  const searchCoworkers = useCallback(
-    (query: string) =>
-      devPreview
-        ? searchDevCoworkers(query)
-        : searchContacts({
-            sessionId: feishuAuth.sessionId,
-            query,
-            userAccessToken: feishuAuth.userAccessToken,
-          }),
-    [devPreview, feishuAuth.sessionId, feishuAuth.userAccessToken, searchContacts],
-  );
-  const syncServiceRecord = useCallback(
-    async (input: ServiceRecordSyncInput) => {
-      if (devPreview) return;
-      await createServiceRecord({
-        ...input,
-        salesUser: user
-          ? {
-              openId: user.openId,
-              name: user.userName ?? "Feishu user",
-              avatarUrl: "avatarUrl" in user ? user.avatarUrl : undefined,
-            }
-          : undefined,
-      });
-    },
-    [createServiceRecord, devPreview, user],
-  );
 
   return (
     <div className="bg-background flex h-screen w-full flex-col overflow-hidden">
@@ -135,9 +84,9 @@ export function TaskPane({ host }: { host: string | null }) {
         {item ? (
           <ForwardScreen
             isLoggedIn={isLoggedIn}
-            clientEmail={item.from}
-            searchCoworkers={searchCoworkers}
-            onSyncServiceRecord={syncServiceRecord}
+            mailItem={item}
+            sessionId={feishuAuth.sessionId}
+            userAccessToken={feishuAuth.userAccessToken}
             onLogin={handleLogin}
             onLoginFallback={handleLoginFallback}
           />

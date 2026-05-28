@@ -60,10 +60,10 @@ export function FeishuProfile({ user, onLogout }: { user: FeishuUser; onLogout: 
       </button>
 
       {open ? (
-        <div
-          role="dialog"
+        <dialog
+          open
           aria-label="Feishu account"
-          className="bg-popover text-popover-foreground profile-pop absolute top-full right-0 z-50 mt-2 w-72 overflow-hidden rounded-2xl shadow-[var(--shadow-floating)]"
+          className="bg-popover text-popover-foreground profile-pop absolute top-full right-0 z-50 m-0 mt-2 w-72 overflow-hidden rounded-2xl border-0 p-0 shadow-[var(--shadow-floating)]"
         >
           <div className="flex items-center gap-3 p-3.5">
             <Avatar className="size-10">
@@ -95,7 +95,7 @@ export function FeishuProfile({ user, onLogout }: { user: FeishuUser; onLogout: 
             <X className="size-4" />
             Sign out of Feishu
           </button>
-        </div>
+        </dialog>
       ) : null}
     </div>
   );

@@ -26,6 +26,7 @@ import type * as feishu_imageUpload from "../feishu/imageUpload.js";
 import type * as feishu_markdown from "../feishu/markdown.js";
 import type * as feishu_message from "../feishu/message.js";
 import type * as feishu_pdf from "../feishu/pdf.js";
+import type * as feishu_requestSync from "../feishu/requestSync.js";
 import type * as feishu_userAuth from "../feishu/userAuth.js";
 import type * as http from "../http.js";
 import type * as returns from "../returns.js";
@@ -56,6 +57,7 @@ declare const fullApi: ApiFromModules<{
   "feishu/markdown": typeof feishu_markdown;
   "feishu/message": typeof feishu_message;
   "feishu/pdf": typeof feishu_pdf;
+  "feishu/requestSync": typeof feishu_requestSync;
   "feishu/userAuth": typeof feishu_userAuth;
   http: typeof http;
   returns: typeof returns;

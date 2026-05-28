@@ -18,7 +18,7 @@ export const attachmentKeyValidator = v.object({
 export type AttachmentKey = Infer<typeof attachmentKeyValidator>;
 
 // A single request the sender filled in (Quotation / Sample / R&D Support) plus
-// its free-text note, and a Feishu coworker chosen to receive the forward.
+// its free-text note, and the Feishu coworker chosen as the Bitable assignee.
 export const requestSelectionValidator = v.object({
   requestType: v.string(),
   note: v.string(),

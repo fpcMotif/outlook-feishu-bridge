@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { readMailBodyText } from "./mailBody";
 import { dlog, dload, dtime } from "../debug";
 
@@ -28,7 +28,7 @@ type ReadItem = Office.MessageRead & Office.ItemRead;
 
 // In compose/reply windows item.subject/to/cc are async objects (Subject,
 // Recipients) exposing getAsync — NOT the string/array shapes read mode gives.
-// This add-in forwards *received* mail, so we detect compose and fail with a
+// This add-in syncs *received* mail, so we detect compose and fail with a
 // clear message instead of crashing on `.map`/`.slice`.
 function isComposeItem(item: unknown): boolean {
   const subject = (item as { subject?: unknown } | undefined)?.subject;
@@ -85,10 +85,11 @@ function extractMailData(item: ReadItem, body: string): MailItemData {
   };
 }
 
-export function useMailItem() {
+export function useMailItem(autoRead = false) {
   const [mailItem, setMailItem] = useState<MailItemData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const didAutoRead = useRef(false);
 
   const readCurrentItem = useCallback(async () => {
     setLoading(true);
@@ -102,7 +103,7 @@ export function useMailItem() {
         throw new Error("No mail item selected (not inside Outlook, or no message open)");
       }
       if (isComposeItem(item)) {
-        throw new Error("Feishu Bridge forwards received emails — open a received message in the reading pane (not a compose/reply window), then try again.");
+        throw new Error("Feishu Bridge syncs received emails — open a received message in the reading pane (not a compose/reply window), then try again.");
       }
       const body = await readMailBodyText();
       const data = extractMailData(item, body);
@@ -118,6 +119,12 @@ export function useMailItem() {
       setLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (!autoRead || didAutoRead.current) return;
+    didAutoRead.current = true;
+    void readCurrentItem();
+  }, [autoRead, readCurrentItem]);
 
   return { mailItem, loading, error, readCurrentItem };
 }

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useFeishuAuth } from "../hooks/useFeishuAuth";
@@ -13,8 +13,15 @@ vi.mock("../hooks/useFeishuAuth", () => ({
   useFeishuAuth: vi.fn(),
 }));
 
-vi.mock("convex/react", () => ({
-  useAction: vi.fn(() => vi.fn(() => Promise.resolve([]))),
+vi.mock("../hooks/useRequestSync", () => ({
+  useRequestSync: () => ({
+    sync: vi.fn(() => Promise.resolve({ recordId: "rec1" })),
+    correct: vi.fn(() => Promise.resolve({ recordId: "rec1" })),
+  }),
+}));
+
+vi.mock("../hooks/useCoworkerSearch", () => ({
+  useCoworkerSearch: () => vi.fn(() => Promise.resolve([])),
 }));
 
 const mockUseMailItem = vi.mocked(useMailItem);
@@ -47,27 +54,11 @@ function unlockRequestBuilder() {
   fireEvent.click(screen.getByRole("button", { name: /Continue with Feishu/i }));
 }
 
-async function searchJennyWithFakeTimers() {
-  fireEvent.change(screen.getByPlaceholderText("Search Feishu coworkers..."), {
-    target: { value: "Jenny" },
-  });
-  await act(async () => {
-    vi.advanceTimersByTime(300);
-    await Promise.resolve();
-    await Promise.resolve();
-  });
-  return screen.getByRole("button", { name: /Jenny Xu/i });
-}
-
-function resetPreviewTestState() {
-  vi.useRealTimers();
-  window.history.replaceState({}, "", "/");
-  mockLoggedOutPreview();
-}
-
 describe("TaskPane browser preview auth flow", () => {
   beforeEach(() => {
-    resetPreviewTestState();
+    localStorage.clear();
+    window.history.replaceState({}, "", "/");
+    mockLoggedOutPreview();
   });
 
   it("starts on a standalone login page and unlocks the request builder after dev login", () => {
@@ -83,15 +74,8 @@ describe("TaskPane browser preview auth flow", () => {
     expect(screen.queryByText("Connect to Feishu")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Quotation/i })).toBeInTheDocument();
   });
-});
-
-describe("TaskPane browser preview request path", () => {
-  beforeEach(() => {
-    resetPreviewTestState();
-  });
 
   it("supports the full browser-preview request path after login", async () => {
-    vi.useFakeTimers();
     renderPreview();
 
     unlockRequestBuilder();
@@ -101,26 +85,16 @@ describe("TaskPane browser preview request path", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: /^Continue$/i }));
     expect(screen.getByDisplayValue("m.hoffmann@bayerpharma.de")).toBeInTheDocument();
-    fireEvent.click(await searchJennyWithFakeTimers());
-    fireEvent.click(screen.getByRole("button", { name: /Submit to 1 coworker/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Jenny Xu/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
 
     expect(
       screen.getByRole("heading", { name: /Syncing to Feishu Bitable/i }),
     ).toBeInTheDocument();
     expect(screen.getByRole("progressbar", { name: /Sync progress/i })).toBeInTheDocument();
 
-    await act(async () => {
-      vi.advanceTimersByTime(3600);
-      await Promise.resolve();
-    });
-    await act(async () => {
-      vi.advanceTimersByTime(250);
-      await Promise.resolve();
-    });
-
     expect(
-      screen.getByRole("heading", { name: /Synced to Feishu/i }),
+      await screen.findByRole("heading", { name: /Synced to Feishu/i }),
     ).toBeInTheDocument();
-    vi.useRealTimers();
   });
 });

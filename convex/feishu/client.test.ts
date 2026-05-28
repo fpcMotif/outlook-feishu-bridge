@@ -3,7 +3,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { feishuFetch, FeishuError } from "./client";
 
 function mockFetch(payload: unknown) {
-  const fn = vi.fn(async () => ({ json: async () => payload }) as Response);
+  const fn = vi.fn(
+    async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      ({ json: async () => payload }) as Response,
+  );
   globalThis.fetch = fn as unknown as typeof fetch;
   return fn;
 }

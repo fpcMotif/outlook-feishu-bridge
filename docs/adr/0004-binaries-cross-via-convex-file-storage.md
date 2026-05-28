@@ -1,6 +1,6 @@
 # Binary payloads cross SPA → Convex via File Storage, never as function arguments
 
-> **Status: accepted.**
+> **Status: superseded by [ADR-0010](0010-pivot-to-bitable-intake.md).** Historical — the PDF / attachment / Feishu-Doc upload paths this manages are retired in the Bitable-intake pivot; kept for context.
 
 Forwarding an email ships a rendered **PDF** plus the mail's **attachments** / inline images to Feishu. Convex **Node**-action arguments are capped at **5 MiB** (V8 actions at 16 MiB), and an ordinary attachment (or the old raster PDF) easily exceeds that — passing bytes as an action argument fails with *"Node actions arguments size is too large."* So any binary that **can be large** takes the storage path: the SPA uploads it to **Convex File Storage** via `generateUploadUrl()` (a plain HTTP POST, no arg-size cap) and passes only the tiny `storageId` to the action, which reads the bytes back with `getStorageBytes`, uploads to Feishu, then deletes the staged file. This is how **attachments**, **inline images** (`fileUpload.ts`, `imageUpload.ts`), and **large** PDFs travel.
 

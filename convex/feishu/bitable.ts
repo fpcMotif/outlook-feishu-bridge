@@ -1,22 +1,67 @@
-import { action, internalAction, type ActionCtx } from "../_generated/server";
+import { internalAction, type ActionCtx } from "../_generated/server";
 import { v } from "convex/values";
 import { callFeishu } from "./call";
-import { requestSelectionValidator, selectedCoworkerValidator } from "../emailRecord";
-import type { RequestSelection, SelectedCoworker } from "../emailRecord";
 
-type BitableFields = Record<string, unknown>;
-const REQUEST_TYPE_BY_UI_LABEL: Record<string, string> = {
+// Bitable record writes for the sales "Service" table. Endpoints + field-value
+// formats come from the official Feishu docs (the ONLY source of truth):
+//   create  POST /bitable/v1/apps/{app}/tables/{table}/records
+//     https://open.feishu.cn/document/server-docs/docs/bitable-v1/app-table-record/create
+//   update  PUT  /bitable/v1/apps/{app}/tables/{table}/records/{record_id}
+//     https://open.feishu.cn/document/server-docs/docs/bitable-v1/app-table-record/update
+//   search  POST /bitable/v1/apps/{app}/tables/{table}/records/search
+//     https://open.feishu.cn/document/server-docs/docs/bitable-v1/app-table-record/search
+// Field formats (record data structure + official SDK github.com/larksuite/oapi-sdk-go):
+//   MultiSelect -> string[]; Text -> string; DateTime -> epoch ms;
+//   User -> [{ id: open_id }]; DuplexLink -> [record_id].
+// HARD RULE (ADR-0010 / ADR-0012): never modify or delete a PRE-EXISTING row. We
+// only CREATE new rows and may correction-UPDATE a row THIS flow just created; the
+// customer table is only ever READ (searched).
+
+// Request-card title -> "Request Type" MultiSelect option. The table's option is
+// literally "Qutation" (misspelled) — it must match exactly or Feishu rejects it.
+const REQUEST_TYPE_OPTION: Record<string, string> = {
   Quotation: "Qutation",
   Sample: "Sample",
   "R&D Support": "R&D Support",
 };
+// Request-card title -> its note Text column.
+const NOTE_FIELD: Record<string, string> = {
+  Quotation: "Quotation Note",
+  Sample: "Sample Note",
+  "R&D Support": "R&D Support Note",
+};
 
-function emailDomain(email: string): string | null {
-  const domain = email.split("@")[1]?.trim().toLowerCase();
-  return domain || null;
+// Customer table the main "Client" DuplexLink points at, and its email-domain
+// Text field (found via list-fields). Domain matching is intentionally simple —
+// the richer match rules are on-going development and slot into matchClientRecordId.
+const CLIENT_TABLE_ID = "tbl4TE2GV472sKzp";
+const CLIENT_DOMAIN_FIELD = "域名";
+
+const requestSelectionValidator = v.object({ requestType: v.string(), note: v.string() });
+const coworkerValidator = v.object({
+  openId: v.string(),
+  name: v.string(),
+  avatarUrl: v.optional(v.string()),
+});
+
+// Shared write args. The client is the email sender; it is matched to the customer
+// table by email domain. The email subject/body are NOT written here — they live
+// only on the Convex Email Record (ADR-0010).
+const serviceRowArgs = {
+  clientEmail: v.optional(v.string()),
+  dateOfOffer: v.optional(v.number()),
+  requestSelections: v.optional(v.array(requestSelectionValidator)),
+  selectedCoworkers: v.optional(v.array(coworkerValidator)),
+};
+
+interface ServiceRowInput {
+  clientEmail?: string;
+  dateOfOffer?: number;
+  requestSelections?: { requestType: string; note: string }[];
+  selectedCoworkers?: { openId: string; name: string; avatarUrl?: string }[];
 }
 
-function requireBitableTarget() {
+function requireBitableEnv() {
   const appToken = process.env.FEISHU_BITABLE_APP_TOKEN;
   const tableId = process.env.FEISHU_BITABLE_TABLE_ID;
   if (!appToken || !tableId) {
@@ -25,117 +70,139 @@ function requireBitableTarget() {
   return { appToken, tableId };
 }
 
-async function createBitableRecord(
-  ctx: ActionCtx,
-  fields: BitableFields,
-  label: string,
-): Promise<{ recordId: string }> {
-  const { appToken, tableId } = requireBitableTarget();
-  const data = await callFeishu<{ record?: { record_id: string } }>(ctx, {
-    path: `/bitable/v1/apps/${appToken}/tables/${tableId}/records`,
-    auth: "tenant",
-    query: { user_id_type: "open_id" },
-    label,
-    json: { fields },
-  });
-
-  return { recordId: data.record?.record_id ?? "" };
+function emailDomain(email: string): string | null {
+  const at = email.lastIndexOf("@");
+  if (at < 0) return null;
+  const domain = email.slice(at + 1).trim().toLowerCase();
+  return domain || null;
 }
 
-export function buildServiceRecordFields(args: {
-  clientEmail: string;
-  requestSelections: RequestSelection[];
-  selectedCoworkers?: SelectedCoworker[];
-  salesUser?: SelectedCoworker;
-  clientRecordId?: string;
-}): BitableFields {
-  const domain = emailDomain(args.clientEmail);
-  const notes = args.requestSelections
-    .map((r) => `${r.requestType}: ${r.note}`)
-    .join("\n\n");
-  const fields: BitableFields = {
-    "Request Remark": [
-      `Client email: ${args.clientEmail}`,
-      ...(domain ? [`Client domain: ${domain}`] : []),
-      "",
-      notes,
-    ].join("\n"),
-    "Request Type": args.requestSelections.map(
-      (r) => REQUEST_TYPE_BY_UI_LABEL[r.requestType] ?? r.requestType,
-    ),
-  };
+// READ-ONLY. Resolve a customer record_id by the email's domain (域名), or null.
+// Lenient by design: no domain / no match -> null (Client left unlinked, the email
+// stays on the Convex Email Record). Richer rules are on-going dev. ADR-0012.
+async function matchClientRecordId(
+  ctx: ActionCtx,
+  appToken: string,
+  email: string | undefined,
+): Promise<string | null> {
+  const domain = email ? emailDomain(email) : null;
+  if (!domain) return null;
+  const data = await callFeishu<{ items?: { record_id: string }[] }>(ctx, {
+    path: `/bitable/v1/apps/${appToken}/tables/${CLIENT_TABLE_ID}/records/search`,
+    method: "POST",
+    auth: "tenant",
+    json: {
+      filter: {
+        conjunction: "and",
+        conditions: [{ field_name: CLIENT_DOMAIN_FIELD, operator: "is", value: [domain] }],
+      },
+    },
+    query: { page_size: "1" },
+    label: "Bitable client domain search",
+  });
+  return data.items?.[0]?.record_id ?? null;
+}
 
-  if (args.clientRecordId) {
-    fields.Client = [args.clientRecordId];
+// Build the Service row's `fields` — "derivable only" (ADR-0010): Request Type +
+// the three Notes + exactly one Co Worker + Date of Offer + Client (if matched).
+// Business Branch / Service Type are intentionally left blank (filled manually in Bitable).
+function buildServiceFields(
+  input: ServiceRowInput,
+  clientRecordId: string | null,
+): Record<string, unknown> {
+  const fields: Record<string, unknown> = {};
+  const types = (input.requestSelections ?? [])
+    .map((r) => REQUEST_TYPE_OPTION[r.requestType])
+    .filter((t): t is string => t !== undefined);
+  if (types.length > 0) fields["Request Type"] = types;
+  for (const r of input.requestSelections ?? []) {
+    const noteField = NOTE_FIELD[r.requestType];
+    if (noteField && r.note.trim()) fields[noteField] = r.note;
   }
-
-  const coworker = args.selectedCoworkers?.[0];
-  if (coworker) {
-    fields["Co Worker"] = [{ id: coworker.openId }];
+  if (!input.selectedCoworkers || input.selectedCoworkers.length !== 1) {
+    throw new Error("Bitable Service row requires exactly one Feishu coworker");
   }
-
-  if (args.salesUser) {
-    fields.Sales = [{ id: args.salesUser.openId }];
-  }
-
-  for (const request of args.requestSelections) {
-    if (request.requestType === "Quotation") fields["Quotation Note"] = request.note;
-    if (request.requestType === "Sample") fields["Sample Note"] = request.note;
-    if (request.requestType === "R&D Support") fields["R&D Support Note"] = request.note;
-  }
-
+  fields["Co Worker"] = input.selectedCoworkers.map((c) => ({ id: c.openId }));
+  if (input.dateOfOffer !== undefined) fields["Date of Offer"] = input.dateOfOffer;
+  if (clientRecordId) fields["Client"] = [clientRecordId];
   return fields;
 }
 
-export const createServiceRecord = action({
-  args: {
-    requestSelections: v.array(requestSelectionValidator),
-    clientEmail: v.string(),
-    selectedCoworkers: v.optional(v.array(selectedCoworkerValidator)),
-    salesUser: v.optional(selectedCoworkerValidator),
-    clientRecordId: v.optional(v.string()),
-  },
+// CREATE a new Service row. Never touches an existing row.
+export const createServiceRecord = internalAction({
+  args: serviceRowArgs,
   handler: async (ctx, args): Promise<{ recordId: string }> => {
-    if (args.requestSelections.length === 0) {
-      throw new Error("At least one request selection is required");
-    }
-
-    return await createBitableRecord(ctx, buildServiceRecordFields(args), "Bitable create service row");
+    const { appToken, tableId } = requireBitableEnv();
+    const clientRecordId = await matchClientRecordId(ctx, appToken, args.clientEmail);
+    const fields = buildServiceFields(args, clientRecordId);
+    const data = await callFeishu<{ record?: { record_id: string } }>(ctx, {
+      path: `/bitable/v1/apps/${appToken}/tables/${tableId}/records`,
+      method: "POST",
+      auth: "tenant",
+      json: { fields },
+      label: "Bitable create service row",
+    });
+    return { recordId: data.record?.record_id ?? "" };
   },
 });
 
-export const createRecord = internalAction({
-  args: {
-    subject: v.string(),
-    from: v.string(),
-    to: v.array(v.string()),
-    bodyPreview: v.string(),
-    dateTimeCreated: v.optional(v.number()),
-    requestSelections: v.optional(
-      v.array(v.object({ requestType: v.string(), note: v.string() })),
-    ),
-    selectedCoworkers: v.optional(
-      v.array(
-        v.object({
-          openId: v.string(),
-          name: v.string(),
-          avatarUrl: v.optional(v.string()),
-        }),
-      ),
-    ),
-  },
+// CORRECTION update — bounded to a row THIS flow just created (ADR-0012). The
+// caller MUST pass a recordId returned by createServiceRecord in the same session;
+// never a pre-existing record_id.
+export const correctServiceRecord = internalAction({
+  args: { recordId: v.string(), ...serviceRowArgs },
   handler: async (ctx, args): Promise<{ recordId: string }> => {
-    return await createBitableRecord(ctx, {
-      Subject: args.subject,
-      From: args.from,
-      To: args.to.join(", "),
-      "Body Preview": args.bodyPreview,
-      "Request Types": args.requestSelections?.map((r) => r.requestType).join(", ") ?? "",
-      "Request Notes": args.requestSelections
-        ?.map((r) => `${r.requestType}: ${r.note}`)
-        .join("\n\n") ?? "",
-      Coworkers: args.selectedCoworkers?.map((c) => c.name).join(", ") ?? "",
-      Date: args.dateTimeCreated ?? Date.now(),
-    }, "Bitable create");
+    const { appToken, tableId } = requireBitableEnv();
+    const clientRecordId = await matchClientRecordId(ctx, appToken, args.clientEmail);
+    const fields = buildServiceFields(args, clientRecordId);
+    const data = await callFeishu<{ record?: { record_id: string } }>(ctx, {
+      path: `/bitable/v1/apps/${appToken}/tables/${tableId}/records/${args.recordId}`,
+      method: "PUT",
+      auth: "tenant",
+      json: { fields },
+      label: "Bitable correct service row",
+    });
+    return { recordId: data.record?.record_id ?? args.recordId };
+  },
+});
+
+// Read-only schema introspection. Official "List fields" API (GET, no body):
+//   GET /open-apis/bitable/v1/apps/{app_token}/tables/{table_id}/fields
+//   https://open.feishu.cn/document/server-docs/docs/bitable-v1/app-table-field/list
+// Used to map the email -> the table's REAL columns before writing. Touches no rows.
+export const listFields = internalAction({
+  args: { tableId: v.optional(v.string()) },
+  handler: async (ctx, args): Promise<{
+    fields: { name: string; type: number; ui: string; primary: boolean; property: unknown }[];
+  }> => {
+    const appToken = process.env.FEISHU_BITABLE_APP_TOKEN;
+    const tableId = args.tableId ?? process.env.FEISHU_BITABLE_TABLE_ID;
+    if (!appToken || !tableId) {
+      throw new Error("FEISHU_BITABLE_APP_TOKEN and FEISHU_BITABLE_TABLE_ID must be set");
+    }
+    const data = await callFeishu<{
+      items?: {
+        field_name: string;
+        type: number;
+        ui_type?: string;
+        is_primary?: boolean;
+        property?: unknown;
+      }[];
+    }>(ctx, {
+      path: `/bitable/v1/apps/${appToken}/tables/${tableId}/fields`,
+      method: "GET",
+      auth: "tenant",
+      query: { page_size: "100" },
+      label: "Bitable list fields",
+    });
+    return {
+      fields: (data.items ?? []).map((f) => ({
+        name: f.field_name,
+        type: f.type,
+        ui: f.ui_type ?? "",
+        primary: f.is_primary ?? false,
+        property: f.property,
+      })),
+    };
   },
 });

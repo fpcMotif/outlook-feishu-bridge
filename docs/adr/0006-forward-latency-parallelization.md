@@ -1,6 +1,6 @@
 # Cut Outlook→Feishu forward latency by parallelizing the pipeline
 
-> **Status: accepted.**
+> **Status: superseded by [ADR-0010](0010-pivot-to-bitable-intake.md).** Historical — the multi-target forward dispatch this parallelizes is retired in the Bitable-intake pivot (a single Bitable write remains); kept for context.
 
 Forwarding an email to Feishu ran the whole pipeline in series: generate the
 PDF, then upload each attachment one-by-one, then create the Feishu Doc, then

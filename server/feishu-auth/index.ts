@@ -14,7 +14,7 @@
 //      office.js and calls Office.context.ui.messageParent(token) — the only way a
 //      same-domain dialog page can hand data back to the taskpane.
 // The SPA receives it via DialogMessageReceived, keeps the token in localStorage
-// (no DB), and passes it to forwards as an argument.
+// (no DB), and passes it to Coworker search as an argument.
 //
 // Run with Bun (no dependencies): `bun run index.ts`. Uses the `routes` API
 // (Bun >= 1.2.3). Env (Bun auto-loads .env; systemd supplies them in prod):
@@ -28,7 +28,7 @@
 const FEISHU_API = "https://open.feishu.cn/open-apis";
 const FEISHU_AUTHORIZE = "https://accounts.feishu.cn/open-apis/authen/v1/authorize";
 const OFFICE_JS = "https://appsforoffice.microsoft.com/lib/1/hosted/office.js";
-const DEFAULT_SCOPE = "im:chat:readonly contact:user:search im:message offline_access";
+const DEFAULT_SCOPE = "contact:user:search offline_access";
 
 function requireEnv(name: string): string {
   const v = process.env[name];

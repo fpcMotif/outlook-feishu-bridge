@@ -162,9 +162,9 @@ deploy_cloudflare() {
   echo "==> vite build (base=/, direct Sentry ingest)"
   # MSYS_NO_PATHCONV stops Git Bash rewriting the bare / base into a Windows path.
   MSYS_NO_PATHCONV=1 npm run build -- --base=/
-  echo "==> wrangler pages deploy dist (project: outlook-feishu-addin)"
+  echo "==> wrangler pages deploy dist (project: outlook-feishu-bridge)"
   npx wrangler pages deploy dist
-  echo "OK Global Host -> https://outlook-feishu-addin.pages.dev/"
+  echo "OK Global Host -> https://outlook-feishu-bridge.pages.dev/"
 }
 
 case "$cmd" in
@@ -210,7 +210,7 @@ One-time setup NOT done by this script:
   - Convex: generate prod deploy key (Dashboard -> Settings -> Deploy Keys).
   - Cloudflare (for `cloudflare`): re-auth before deploying with
     `npx wrangler logout && npx wrangler login` (interactive). The first deploy may
-    need `npx wrangler pages project create outlook-feishu-addin`. The Global Host's
+    need `npx wrangler pages project create outlook-feishu-bridge`. The Global Host's
     CSP + SPA fallback live in public/_headers + public/_redirects (CF equivalents
     of deploy/nginx/). No new Feishu redirect URI is needed (primary login lands on
     *.convex.site, host-independent).

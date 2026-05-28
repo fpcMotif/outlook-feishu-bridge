@@ -17,6 +17,9 @@ test-results
 .env
 .env.deploy
 
+# Generated sideload manifests (scripts/manifest.sh output); source is public/manifest.xml
+/manifest-*.xml
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

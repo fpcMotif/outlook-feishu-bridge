@@ -10,10 +10,11 @@ const FALLBACK_KEY = "feishu_fallback_token";
 
 // User-identity scopes baked into the user_access_token. Feishu only grants
 // scopes explicitly REQUESTED here at authorize time; omitting `scope` yields a
-// token with default scopes only, so chat/contact calls fail with 99991679
-// "app did not obtain the user's authorization" (see ADR-0003). All are enabled
-// on the app (cli_a945ac390ff9dcc0). Request only what we use (least privilege).
-//   contact:user:search → contacts.ts GET /search/v1/user (search users; returns
+// token with default scopes only, so the search call fails with 99991679
+// "app did not obtain the user's authorization" (see ADR-0003). Request only what
+// we use (least privilege). Post-pivot (ADR-0010) the lone user-token call is
+// Coworker search — the chat scopes (im:chat:readonly, im:message) are dropped.
+//   contact:user:search → contacts.ts GET /search/v1/user (search Coworkers; returns
 //                          name/avatar/open_id - user_id would need employee_id:readonly)
 //   offline_access      → required for the OIDC token endpoint to return a refresh_token
 const FEISHU_USER_SCOPES = "contact:user:search offline_access";
@@ -188,7 +189,7 @@ export function useFeishuAuth() {
       ? { openId: fallback.openId, userName: fallback.userName ?? undefined, avatarUrl: fallback.avatarUrl ?? undefined }
       : null;
 
-  // Token to hand the Forward pipeline: set ONLY on the box-fallback path. When
+  // Token to hand Coworker search: set ONLY on the box-fallback path. When
   // undefined, the Convex action reads the token from its DB (the primary path).
   const userAccessToken =
     !convexLoggedIn && fallbackLoggedIn ? fallback.accessToken : undefined;

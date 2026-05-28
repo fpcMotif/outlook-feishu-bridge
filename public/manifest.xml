@@ -15,7 +15,7 @@
   <AppDomains>
     <AppDomain>https://__ADDIN_DOMAIN__</AppDomain>
     <AppDomain>https://open.feishu.cn</AppDomain>
-    <AppDomain>https://diligent-parakeet-460.convex.site</AppDomain>
+    <AppDomain>https://steady-setter-706.convex.site</AppDomain>
   </AppDomains>
   <Hosts>
     <Host Name="Mailbox"/>

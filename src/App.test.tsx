@@ -21,7 +21,7 @@ describe('App loading and error states', () => {
   it('shows loading state when Office is not ready', () => {
     mockUseOffice.mockReturnValue({ isReady: false, host: null, error: null })
     render(<App />)
-    expect(screen.getByText('Loading Office Add-in...')).toBeInTheDocument()
+    expect(screen.getByText(/Loading Office Add-in/)).toBeInTheDocument()
   })
 
   it('shows error message when Office fails to initialize', () => {
@@ -59,7 +59,7 @@ describe('App loading and error states', () => {
     })
     render(<App />)
     expect(screen.getByText('Init failed')).toBeInTheDocument()
-    expect(screen.queryByText('Loading Office Add-in...')).not.toBeInTheDocument()
+    expect(screen.queryByText(/Loading Office Add-in/)).not.toBeInTheDocument()
   })
 })
 

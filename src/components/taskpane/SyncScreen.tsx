@@ -16,13 +16,12 @@ const SYNC_DURATION_MS = 3600;
 const PROGRESS_TICK_MS = 180;
 const PACKET_MIN_PROGRESS = 12;
 const PACKET_MAX_PROGRESS = 88;
-const COMPLETE_HOLD_MS = 250;
 
 const PHASES = [
-  { at: 0, label: "Reading Outlook context", detail: "Parsing the request card and selected coworkers." },
+  { at: 0, label: "Reading Outlook context", detail: "Parsing the request card and selected coworker." },
   { at: 34, label: "Writing Bitable row", detail: "Mapping request fields into the Feishu table schema." },
   { at: 68, label: "Backing up in Convex", detail: "Persisting a recoverable copy for workflow history." },
-  { at: 90, label: "Final checks", detail: "Confirming recipients and sync receipts." },
+  { at: 90, label: "Final checks", detail: "Confirming the Bitable row and Convex backup." },
 ];
 
 function phaseForProgress(progress: number) {
@@ -32,26 +31,13 @@ function phaseForProgress(progress: number) {
   return PHASES[0];
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, ms);
-  });
-}
-
-function useSyncProgress({
-  onSync,
-  onComplete,
-  onError,
-}: {
-  onSync: () => Promise<void>;
-  onComplete: () => void;
-  onError: (message: string) => void;
-}) {
+// Visual progress only — animates toward 98% and holds. The parent (ForwardScreen)
+// decides when the sync is actually done (the real action resolved) and flips the
+// screen; this hook never auto-completes.
+function useSyncProgress() {
   const [progress, setProgress] = useState(8);
 
   useEffect(() => {
-    let cancelled = false;
-    let doneTimer: number | undefined;
     const progressTimer = window.setInterval(() => {
       setProgress((current) => {
         if (current >= 98) return current;
@@ -60,25 +46,8 @@ function useSyncProgress({
       });
     }, PROGRESS_TICK_MS);
 
-    void Promise.all([onSync(), delay(SYNC_DURATION_MS)])
-      .then(() => {
-        if (cancelled) return;
-        window.clearInterval(progressTimer);
-        setProgress(100);
-        doneTimer = window.setTimeout(onComplete, COMPLETE_HOLD_MS);
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        window.clearInterval(progressTimer);
-        onError(err instanceof Error ? err.message : "Could not sync to Feishu Bitable.");
-      });
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(progressTimer);
-      if (doneTimer !== undefined) window.clearTimeout(doneTimer);
-    };
-  }, [onComplete, onError, onSync]);
+    return () => window.clearInterval(progressTimer);
+  }, []);
 
   return progress;
 }
@@ -154,13 +123,10 @@ function SyncHeader() {
         <span className="bg-muted-foreground inline-block h-px w-3.5" />
         Act IV
       </div>
-      <h1
-        aria-label="Syncing to Feishu Bitable..."
-        className="font-serif text-[33px] leading-[1.02] text-balance"
-      >
-        Syncing to
+      <h1 className="font-serif text-[33px] leading-[1.02] text-balance">
+        Syncing to{" "}
         <br />
-        Feishu Bitable...
+        Feishu Bitable&hellip;
       </h1>
       <p className="text-foreground/70 mt-2 max-w-[34ch] text-sm leading-relaxed text-pretty">
         Folding the email context into a structured Bitable record with a Convex backup.
@@ -181,14 +147,8 @@ function ProgressMeter({
       <div className="text-primary font-serif text-[54px] leading-none font-semibold tabular-nums">
         {progress}%
       </div>
-      <div
-        role="progressbar"
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={progress}
-        aria-label="Sync progress"
-        className="bg-secondary mt-4 h-2 overflow-hidden rounded-full"
-      >
+      <progress className="sr-only" value={progress} max={100} aria-label="Sync progress" />
+      <div aria-hidden="true" className="bg-secondary mt-4 h-2 overflow-hidden rounded-full">
         <div
           className="bg-primary h-full w-full origin-left rounded-full transition-transform duration-300 ease-[var(--ease-out-strong)]"
           style={{ transform: `scaleX(${progress / 100})` }}
@@ -244,7 +204,7 @@ function SyncSummary({ summary }: { summary: string }) {
         <div>
           <div className="text-accent-foreground text-xs font-bold">{summary}</div>
           <p className="text-accent-foreground/80 mt-0.5 text-[11px] leading-relaxed text-pretty">
-            Recipients, Bitable, and Convex are updated as one workflow checkpoint.
+            Bitable and Convex are updated as one workflow checkpoint.
           </p>
         </div>
         <ArrowRight className="text-primary ml-auto size-4 shrink-0" />
@@ -256,33 +216,23 @@ function SyncSummary({ summary }: { summary: string }) {
 export function SyncScreen({
   requests,
   clientEmail,
-  channelCount,
-  onSync,
-  onComplete,
+  coworkerCount,
 }: {
   requests: SyncRequest[];
   clientEmail: string;
-  channelCount: number;
-  onSync: () => Promise<void>;
-  onComplete: () => void;
+  coworkerCount: number;
 }) {
-  const [syncError, setSyncError] = useState<string | null>(null);
-  const progress = useSyncProgress({ onSync, onComplete, onError: setSyncError });
+  const progress = useSyncProgress();
   const summary = useMemo(() => {
     const requestLabel = `${requests.length} request${requests.length === 1 ? "" : "s"}`;
-    const channelLabel = `${channelCount} coworker${channelCount === 1 ? "" : "s"}`;
-    return `${clientEmail} -> ${requestLabel} -> ${channelLabel}`;
-  }, [channelCount, clientEmail, requests.length]);
+    const coworkerLabel = `${coworkerCount} coworker${coworkerCount === 1 ? "" : "s"}`;
+    return `${clientEmail} -> ${requestLabel} -> ${coworkerLabel}`;
+  }, [coworkerCount, clientEmail, requests.length]);
 
   return (
     <div className="no-scrollbar flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-5 pt-6 pb-5">
       <SyncHeader />
       <SyncPanel requests={requests} progress={progress} />
-      {syncError ? (
-        <p className="text-destructive mt-4 w-full max-w-[520px] px-1 text-sm leading-relaxed">
-          {syncError}
-        </p>
-      ) : null}
       <SyncSummary summary={summary} />
     </div>
   );

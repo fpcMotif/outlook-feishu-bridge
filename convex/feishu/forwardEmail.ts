@@ -142,13 +142,17 @@ async function createBitableRecord(
   args: DispatchArgs,
   emailMeta: EmailMeta,
 ): Promise<string> {
-  const result: { recordId: string } = await ctx.runAction(internal.feishu.bitable.createRecord, {
-    ...emailMeta,
-    to: args.to,
-    dateTimeCreated: args.dateTimeCreated,
-    requestSelections: args.requestSelections,
-    selectedCoworkers: args.selectedCoworkers,
-  });
+  // The client is the email sender; createServiceRecord matches it to the customer
+  // table by email domain (ADR-0012). Subject/body stay on the Convex Email Record.
+  const result: { recordId: string } = await ctx.runAction(
+    internal.feishu.bitable.createServiceRecord,
+    {
+      clientEmail: emailMeta.from,
+      dateOfOffer: args.dateTimeCreated,
+      requestSelections: args.requestSelections,
+      selectedCoworkers: args.selectedCoworkers,
+    },
+  );
   return result.recordId;
 }
 

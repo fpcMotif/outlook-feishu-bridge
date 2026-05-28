@@ -56,31 +56,23 @@ export function FeishuProfile({ user, onLogout }: { user: FeishuUser; onLogout: 
             {initials(user.userName)}
           </AvatarFallback>
         </Avatar>
-        <span className="border-card bg-sage absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full border-2" />
+        <span className="border-background bg-sage absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full border-2" />
       </button>
 
       {open ? (
-        <dialog
-          open
+        <div
+          role="dialog"
           aria-label="Feishu account"
-          className="bg-popover text-popover-foreground profile-pop absolute top-full right-0 z-50 m-0 mt-2 w-72 overflow-hidden rounded-2xl border-0 p-0 shadow-[var(--shadow-floating)]"
+          className="bg-popover text-popover-foreground profile-pop absolute top-full right-0 z-50 mt-2 w-64 max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-xl shadow-[var(--shadow-floating)]"
         >
-          <div className="flex items-center gap-3 p-3.5">
-            <Avatar className="size-10">
-              {user.avatarUrl ? <AvatarImage src={user.avatarUrl} alt="" /> : null}
-              <AvatarFallback className="bg-foreground text-background text-sm">
-                {initials(user.userName)}
-              </AvatarFallback>
-            </Avatar>
+          <div className="px-3.5 pt-3 pb-2.5">
             <div className="min-w-0">
-              <div className="truncate text-sm font-semibold">{user.userName ?? "Feishu user"}</div>
-              {user.email ? (
-                <div className="text-muted-foreground truncate text-xs">{user.email}</div>
-              ) : null}
-              <div className="mt-1 flex items-center gap-1.5 text-xs">
-                <span className="bg-sage size-1.5 rounded-full" />
-                <span className="text-sage font-medium">Connected</span>
-                {user.org ? <span className="text-muted-foreground">- {user.org}</span> : null}
+              <div className="truncate text-[13px] font-semibold">{user.userName ?? "Feishu user"}</div>
+              {user.email ? <div className="text-muted-foreground truncate text-xs">{user.email}</div> : null}
+              <div className="mt-1.5 flex items-center gap-1.5 text-xs">
+                <span className="bg-sage size-1.5 shrink-0 rounded-full" />
+                <span className="text-sage shrink-0 font-medium">Connected</span>
+                {user.org ? <span className="text-muted-foreground min-w-0 truncate">{user.org}</span> : null}
               </div>
             </div>
           </div>
@@ -95,7 +87,7 @@ export function FeishuProfile({ user, onLogout }: { user: FeishuUser; onLogout: 
             <X className="size-4" />
             Sign out of Feishu
           </button>
-        </dialog>
+        </div>
       ) : null}
     </div>
   );

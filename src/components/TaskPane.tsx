@@ -7,7 +7,7 @@ import { useFeishuAuth } from "../hooks/useFeishuAuth";
 import { useMailItem, type MailItemData } from "../office/useMailItem";
 import { Button } from "./ui/button";
 import { RequestIntakeScreen } from "./taskpane/RequestIntakeScreen";
-import { PaneHeader } from "./taskpane/PaneHeader";
+import { FeishuProfile } from "./taskpane/FeishuProfile";
 
 // Browser dev has no Office host or mailbox (useOffice falls back to host
 // "browser" after 3s). A sample item lets the full drawer flow render for
@@ -91,11 +91,15 @@ export function TaskPane({ host }: { host: string | null }) {
   const handleLogout = devPreview ? () => setDevLoggedIn(false) : feishuAuth.logout;
 
   return (
-    <div className="bg-background flex h-screen w-full flex-col overflow-hidden">
+    <div className="bg-background relative flex h-screen w-full flex-col overflow-hidden">
       {host !== null && !feishuAuth.isLoading ? (
         <BootReadyMilestone host={host} isLoggedIn={feishuAuth.isLoggedIn} />
       ) : null}
-      {isLoggedIn && user ? <PaneHeader user={user} onLogout={handleLogout} /> : null}
+      {isLoggedIn && user ? (
+        <div className="absolute top-2 right-2 z-40">
+          <FeishuProfile user={user} onLogout={handleLogout} />
+        </div>
+      ) : null}
       <main className="flex min-h-0 flex-1 flex-col">
         {item ? (
           <RequestIntakeScreen

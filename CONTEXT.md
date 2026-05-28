@@ -51,6 +51,10 @@ _Avoid_: "ticket", "channel" (an earlier word for these cards).
 A Feishu directory user, found via **Search Users** (`/search/v1/user`, scope `contact:user:search`) and selected as the single **assignee** written into the **Bitable** row. Exactly one **Coworker** is required per **Bitable Sync**. The app sends them **no message** — assignment is metadata; any alerting is Bitable's own feature.
 _Avoid_: "recipient" / "contact" (we don't deliver anything to them), "channel".
 
+**Initiator**:
+The signed-in Feishu user who clicks **Sync** — the salesperson who triggered the **Bitable Sync**. Distinct from the **Coworker** (the assignee). Written into the Bitable Service row's `Sales` (User) column and mirrored onto the **Email Record** as the audit trail of *who* synced it.
+_Avoid_: "creator" (Bitable's auto-`创建人` column captures the tenant-bot identity, not the salesperson), "sender" (that's the email's `from`, the client side).
+
 **Bitable**:
 The Feishu multi-dimensional table (`FEISHU_BITABLE_APP_TOKEN` + `FEISHU_BITABLE_TABLE_ID`) that is the product's primary output. Each synced email is one row (Request Types, Request Notes, one Coworker, Date, and a link to a **Customer** when one is matched or chosen), written with the **tenant** token (app permission `bitable:app`).
 _Avoid_: "the spreadsheet", "the database" (the record of record is Bitable; Convex holds a backup).
@@ -66,6 +70,10 @@ _Avoid_: "client table", "customer base" (overloaded — the *Bitable Base* is t
 **Email Record**:
 The Convex-persisted copy of a synced request — a recoverable backup / workflow history of what was written to **Bitable** (email metadata, a body preview, the chosen **Requests** + the single **Coworker**, and the resulting `bitableRecordId`). The full email body is never stored — only a ≤500-char preview.
 _Avoid_: "the email" (it's a derived record, not the original mail), "the PDF" (no PDF is produced anymore).
+
+**Mail Item**:
+The Outlook message the salesperson has open in the reading pane, accessed inside the **SPA** through Office.js as `Office.context.mailbox.item` (typed as `Office.MessageRead & Office.ItemRead`). The taskpane reads `subject`, `from`, `to`, `cc`, `dateTimeCreated`, `internetMessageId`, `itemId`, `conversationId`, and the **plain-text body** via `body.getAsync(Office.CoercionType.Text)`. Compose/reply mail items (which expose `subject` as a `Subject` object with `.getAsync`) are detected and rejected — this add-in only syncs received mail.
+_Avoid_: "the mail", "the message" (overloaded), "the email" (the **Email Record** is the *persisted* derivative, the Mail Item is the *live* Office.js handle).
 
 **User-identity call / tenant-identity call**:
 The two Feishu token types. A **user-identity call** uses the signed-in person's user access token and is now used for exactly one thing — **searching the directory for Coworkers** (`/search/v1/user`). A **tenant-identity call** uses the app token and does the **Bitable** write.

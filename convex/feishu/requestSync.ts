@@ -7,6 +7,7 @@ import { action } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import {
+  initiatorValidator,
   requestSelectionValidator,
   selectedCoworkerValidator,
   selectedCustomerValidator,
@@ -33,6 +34,7 @@ const intakeArgs = {
   dateTimeCreated: v.optional(v.number()),
   clientEmail: v.optional(v.string()),
   selectedCustomer: v.optional(selectedCustomerValidator),
+  initiator: v.optional(initiatorValidator),
   requestSelections: v.optional(v.array(requestSelectionValidator)),
   selectedCoworkers: v.optional(v.array(selectedCoworkerValidator)),
 };
@@ -52,11 +54,13 @@ export const syncRequest = action({
   handler: async (ctx, args): Promise<{ recordId: string }> => {
     const selectedCoworkers = requireExactlyOneCoworker(args.selectedCoworkers);
     const { recordId } = await ctx.runAction(internal.feishu.bitable.createServiceRecord, {
+      subject: args.subject,
       clientEmail: args.clientEmail ?? args.from,
       clientRecordId: args.selectedCustomer?.recordId,
       dateOfOffer: args.dateTimeCreated,
       requestSelections: args.requestSelections,
       selectedCoworkers,
+      initiator: args.initiator,
     });
     const record = toEmailRecord(
       {
@@ -73,6 +77,7 @@ export const syncRequest = action({
         requestSelections: args.requestSelections,
         selectedCoworkers,
         selectedCustomer: args.selectedCustomer,
+        initiator: args.initiator,
       },
       { bitableRecordId: recordId },
     );
@@ -90,11 +95,13 @@ export const correctRequest = action({
     const selectedCoworkers = requireExactlyOneCoworker(args.selectedCoworkers);
     const { recordId } = await ctx.runAction(internal.feishu.bitable.correctServiceRecord, {
       recordId: args.recordId,
+      subject: args.subject,
       clientEmail: args.clientEmail ?? args.from,
       clientRecordId: args.selectedCustomer?.recordId,
       dateOfOffer: args.dateTimeCreated,
       requestSelections: args.requestSelections,
       selectedCoworkers,
+      initiator: args.initiator,
     });
     return { recordId };
   },

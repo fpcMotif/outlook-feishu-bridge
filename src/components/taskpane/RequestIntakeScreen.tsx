@@ -159,6 +159,7 @@ export function RequestIntakeScreen({
   isLoggedIn,
   mailItem,
   sessionId,
+  user,
   userAccessToken,
   onLogin,
   onLoginFallback,
@@ -166,6 +167,9 @@ export function RequestIntakeScreen({
   isLoggedIn: boolean;
   mailItem: MailItemData;
   sessionId: string;
+  // The signed-in Feishu user (the Initiator, ADR-0014). Optional because the
+  // dev-preview / browser path can render the screen without a real session.
+  user?: { openId: string; userName?: string; avatarUrl?: string };
   userAccessToken?: string;
   onLogin: () => void;
   onLoginFallback: () => void;
@@ -239,6 +243,7 @@ export function RequestIntakeScreen({
       selectedCustomer: state.selectedCustomer
         ? { recordId: state.selectedCustomer.recordId, name: state.selectedCustomer.name }
         : undefined,
+      initiator: user?.openId ? { openId: user.openId, name: user.userName } : undefined,
       requestSelections: filledRequests.map((r) => ({ requestType: r.title, note: r.note })),
       selectedCoworkers: state.selectedCoworker ? [state.selectedCoworker] : [],
     })
@@ -246,7 +251,7 @@ export function RequestIntakeScreen({
       .catch((e: unknown) => {
         dispatch({ type: "syncFailed", message: e instanceof Error ? e.message : "Sync failed" });
       });
-  }, [sync, mailItem, state.clientEmail, state.selectedCustomer, filledRequests, state.selectedCoworker]);
+  }, [sync, mailItem, state.clientEmail, state.selectedCustomer, user, filledRequests, state.selectedCoworker]);
 
   const handleSubmit = () => {
     if (state.screen === "build") {

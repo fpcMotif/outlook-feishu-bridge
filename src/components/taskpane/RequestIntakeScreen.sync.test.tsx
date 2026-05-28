@@ -46,12 +46,15 @@ const SAMPLE: MailItemData = {
   attachments: [],
 };
 
-function renderScreen() {
+function renderScreen(
+  user?: { openId: string; userName?: string; avatarUrl?: string },
+) {
   render(
     <RequestIntakeScreen
       isLoggedIn={true}
       mailItem={SAMPLE}
       sessionId="test-session"
+      user={user}
       onLogin={vi.fn()}
       onLoginFallback={vi.fn()}
     />,
@@ -129,6 +132,26 @@ describe("RequestIntakeScreen sync wiring", () => {
     await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(1));
     expect(mockSync.mock.calls[0][0]).toMatchObject({
       selectedCustomer: { recordId: "rec_stock", name: STOCKMEIER.name },
+    });
+  });
+
+  // ADR-0014: the signed-in Feishu user (the Initiator) rides on every sync
+  // call so the backend can write the `Sales` User column. Distinct from the
+  // assignee Coworker — the salesperson who clicked Sync vs the one who'll
+  // handle the request.
+  it("passes the signed-in user as the Initiator on sync", async () => {
+    renderScreen({ openId: "ou_jenny_initiator", userName: "Jenny Xu" });
+    fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "Need a quarterly L-Carnitine quote." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Continue$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Jenny Xu/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
+
+    await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(1));
+    expect(mockSync.mock.calls[0][0]).toMatchObject({
+      initiator: { openId: "ou_jenny_initiator", name: "Jenny Xu" },
     });
   });
 

@@ -43,6 +43,16 @@ export const selectedCustomerValidator = v.object({
 
 export type SelectedCustomer = Infer<typeof selectedCustomerValidator>;
 
+// The signed-in Feishu user who clicked Sync — the Initiator (ADR-0014).
+// Distinct from selectedCoworkers (the assignee). Mirrored onto the Bitable
+// Service row's `Sales` (User) column.
+export const initiatorValidator = v.object({
+  openId: v.string(),
+  name: v.optional(v.string()),
+});
+
+export type Initiator = Infer<typeof initiatorValidator>;
+
 // Persisted fields of an Email Record (everything except the server-stamped
 // `createdAt`, which the table adds). Spread into defineTable and reused verbatim
 // as the storeEmailRecord args, so the table and the mutation cannot drift.
@@ -65,6 +75,7 @@ export const emailRecordFields = {
   requestSelections: v.optional(v.array(requestSelectionValidator)),
   selectedCoworkers: v.optional(v.array(selectedCoworkerValidator)),
   selectedCustomer: v.optional(selectedCustomerValidator),
+  initiator: v.optional(initiatorValidator),
   feishuMessageId: v.optional(v.string()),
   bitableRecordId: v.optional(v.string()),
   pdfFileKey: v.optional(v.string()),
@@ -95,6 +106,7 @@ export interface EmailRecordInput {
   requestSelections?: RequestSelection[];
   selectedCoworkers?: SelectedCoworker[];
   selectedCustomer?: SelectedCustomer;
+  initiator?: Initiator;
 }
 
 // The Feishu handle produced during sync.
@@ -128,6 +140,7 @@ export function toEmailRecord(
     requestSelections: input.requestSelections,
     selectedCoworkers: input.selectedCoworkers,
     selectedCustomer: input.selectedCustomer,
+    initiator: input.initiator,
     feishuMessageId: undefined,
     bitableRecordId: ids.bitableRecordId,
     pdfFileKey: undefined,

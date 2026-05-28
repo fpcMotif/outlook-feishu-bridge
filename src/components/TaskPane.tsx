@@ -86,6 +86,7 @@ export function TaskPane({ host }: { host: string | null }) {
             isLoggedIn={isLoggedIn}
             mailItem={item}
             sessionId={feishuAuth.sessionId}
+            user={user ?? undefined}
             userAccessToken={feishuAuth.userAccessToken}
             onLogin={handleLogin}
             onLoginFallback={handleLoginFallback}

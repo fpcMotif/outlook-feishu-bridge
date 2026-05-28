@@ -1,6 +1,7 @@
 import { internalAction, type ActionCtx } from "../_generated/server";
 import { v } from "convex/values";
 import { callFeishu } from "./call";
+import { buildServiceFields, type ServiceRowInput } from "./serviceRow";
 
 // Bitable record writes for the sales "Service" table. Endpoints + field-value
 // formats come from the official Feishu docs (the ONLY source of truth):
@@ -10,26 +11,12 @@ import { callFeishu } from "./call";
 //     https://open.feishu.cn/document/server-docs/docs/bitable-v1/app-table-record/update
 //   search  POST /bitable/v1/apps/{app}/tables/{table}/records/search
 //     https://open.feishu.cn/document/server-docs/docs/bitable-v1/app-table-record/search
-// Field formats (record data structure + official SDK github.com/larksuite/oapi-sdk-go):
-//   MultiSelect -> string[]; Text -> string; DateTime -> epoch ms;
-//   User -> [{ id: open_id }]; DuplexLink -> [record_id].
+// Field-value SHAPES (and how this file maps the SPA intake to them) live in
+// `serviceRow.ts` — the pure module that is unit-tested. This file only owns
+// the env config, the Customer-Table lookup (read-only), and the HTTP path.
 // HARD RULE (ADR-0010 / ADR-0012): never modify or delete a PRE-EXISTING row. We
 // only CREATE new rows and may correction-UPDATE a row THIS flow just created; the
 // customer table is only ever READ (searched).
-
-// Request-card title -> "Request Type" MultiSelect option. The table's option is
-// literally "Qutation" (misspelled) — it must match exactly or Feishu rejects it.
-const REQUEST_TYPE_OPTION: Record<string, string> = {
-  Quotation: "Qutation",
-  Sample: "Sample",
-  "R&D Support": "R&D Support",
-};
-// Request-card title -> its note Text column.
-const NOTE_FIELD: Record<string, string> = {
-  Quotation: "Quotation Note",
-  Sample: "Sample Note",
-  "R&D Support": "R&D Support Note",
-};
 
 // Customer table the main "Client" DuplexLink points at, and its email-domain
 // Text field (found via list-fields). Domain matching is intentionally simple —
@@ -43,27 +30,27 @@ const coworkerValidator = v.object({
   name: v.string(),
   avatarUrl: v.optional(v.string()),
 });
+const initiatorValidator = v.object({
+  openId: v.string(),
+  name: v.optional(v.string()),
+});
 
 // Shared write args. The client is the email sender; if `clientRecordId` is
 // passed (the salesperson's override picked from the Customer Picker, ADR-0013)
 // we use it directly. Otherwise we fall back to the legacy email-domain match
-// against the Customer Table. The email subject/body are NOT written here —
-// they live only on the Convex Email Record (ADR-0010).
+// against the Customer Table. `subject` + `initiator` are written into the
+// row's `Email Subject` and `Sales` columns respectively (ADR-0014); the email
+// BODY is NOT written here — that stays preview-only on the Email Record
+// (ADR-0010 still holds for body).
 const serviceRowArgs = {
+  subject: v.optional(v.string()),
   clientEmail: v.optional(v.string()),
   clientRecordId: v.optional(v.string()),
   dateOfOffer: v.optional(v.number()),
   requestSelections: v.optional(v.array(requestSelectionValidator)),
   selectedCoworkers: v.optional(v.array(coworkerValidator)),
+  initiator: v.optional(initiatorValidator),
 };
-
-interface ServiceRowInput {
-  clientEmail?: string;
-  clientRecordId?: string;
-  dateOfOffer?: number;
-  requestSelections?: { requestType: string; note: string }[];
-  selectedCoworkers?: { openId: string; name: string; avatarUrl?: string }[];
-}
 
 function requireBitableEnv() {
   const appToken = process.env.FEISHU_BITABLE_APP_TOKEN;
@@ -105,31 +92,6 @@ async function matchClientRecordId(
     label: "Bitable client domain search",
   });
   return data.items?.[0]?.record_id ?? null;
-}
-
-// Build the Service row's `fields` — "derivable only" (ADR-0010): Request Type +
-// the three Notes + exactly one Co Worker + Date of Offer + Client (if matched).
-// Business Branch / Service Type are intentionally left blank (filled manually in Bitable).
-function buildServiceFields(
-  input: ServiceRowInput,
-  clientRecordId: string | null,
-): Record<string, unknown> {
-  const fields: Record<string, unknown> = {};
-  const types = (input.requestSelections ?? [])
-    .map((r) => REQUEST_TYPE_OPTION[r.requestType])
-    .filter((t): t is string => t !== undefined);
-  if (types.length > 0) fields["Request Type"] = types;
-  for (const r of input.requestSelections ?? []) {
-    const noteField = NOTE_FIELD[r.requestType];
-    if (noteField && r.note.trim()) fields[noteField] = r.note;
-  }
-  if (!input.selectedCoworkers || input.selectedCoworkers.length !== 1) {
-    throw new Error("Bitable Service row requires exactly one Feishu coworker");
-  }
-  fields["Co Worker"] = input.selectedCoworkers.map((c) => ({ id: c.openId }));
-  if (input.dateOfOffer !== undefined) fields["Date of Offer"] = input.dateOfOffer;
-  if (clientRecordId) fields["Client"] = [clientRecordId];
-  return fields;
 }
 
 // Resolve the Client DuplexLink target for a sync: prefer the override picked

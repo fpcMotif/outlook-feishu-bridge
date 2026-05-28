@@ -4,7 +4,7 @@
  *
  * THIS CODE IS AUTOMATICALLY GENERATED.
  *
- * To regenerate, run `bunx convex dev`.
+ * To regenerate, run `npx convex dev`.
  * @module
  */
 
@@ -17,6 +17,7 @@ import type * as feishu_client from "../feishu/client.js";
 import type * as feishu_coworkers from "../feishu/coworkers.js";
 import type * as feishu_customers from "../feishu/customers.js";
 import type * as feishu_requestSync from "../feishu/requestSync.js";
+import type * as feishu_serviceRow from "../feishu/serviceRow.js";
 import type * as feishu_userAuth from "../feishu/userAuth.js";
 import type * as http from "../http.js";
 import type * as returns from "../returns.js";
@@ -38,6 +39,7 @@ declare const fullApi: ApiFromModules<{
   "feishu/coworkers": typeof feishu_coworkers;
   "feishu/customers": typeof feishu_customers;
   "feishu/requestSync": typeof feishu_requestSync;
+  "feishu/serviceRow": typeof feishu_serviceRow;
   "feishu/userAuth": typeof feishu_userAuth;
   http: typeof http;
   returns: typeof returns;

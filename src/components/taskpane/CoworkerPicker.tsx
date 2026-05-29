@@ -304,11 +304,6 @@ export function CoworkerPicker({
       </CoworkerSearchSection>
 
       {!searching && selectedCoworker ? <SelectedCoworkerCard coworker={selectedCoworker} /> : null}
-      {!searching && !selectedCoworker ? (
-        <p className="text-muted-foreground px-1 py-2 text-sm">
-          Search by name to choose a Feishu coworker
-        </p>
-      ) : null}
     </section>
   );
 }

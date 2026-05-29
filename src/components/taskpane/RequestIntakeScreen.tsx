@@ -142,11 +142,7 @@ function intakeReducer(state: IntakeState, action: IntakeAction): IntakeState {
 
 function Hero() {
   return (
-    <header className="px-1 pt-3 pb-5">
-      <div className="text-accent-foreground mb-3 flex items-center gap-2 text-[11px] font-semibold uppercase">
-        <span className="bg-muted-foreground inline-block h-px w-3.5" />
-        New request
-      </div>
+    <header className="px-1 pt-2 pb-5">
       <h1 className="font-serif text-[34px] leading-[0.98] tracking-tight">
         How can we
         <br />
@@ -155,6 +151,10 @@ function Hero() {
       <p className="text-foreground/70 mt-2 max-w-[32ch] text-sm leading-relaxed">
         Route it to the right coworker in seconds.
       </p>
+      <div className="text-accent-foreground mt-3 flex items-center gap-2 text-[11px] font-semibold uppercase">
+        <span className="bg-muted-foreground inline-block h-px w-3.5" />
+        New request
+      </div>
     </header>
   );
 }

@@ -100,13 +100,13 @@ export function TaskPane({ host }: { host: string | null }) {
   const handleLogout = devPreview ? () => setDevLoggedIn(false) : feishuAuth.logout;
   const profileHeader =
     isLoggedIn && user ? (
-      <header
+      <section
         aria-label="Feishu account controls"
-        className="flex shrink-0 justify-end px-1 pt-1 pb-3"
+        className="flex shrink-0 justify-end px-1 pb-2"
         data-profile-header="true"
       >
         <FeishuProfile user={user} onLogout={handleLogout} />
-      </header>
+      </section>
     ) : null;
 
   return (

@@ -101,7 +101,7 @@ describe("TaskPane browser preview auth flow", () => {
     expect(screen.queryByText("Connect to Feishu")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Quotation/i })).toBeInTheDocument();
     expect(screen.getByText("Client email")).toBeInTheDocument();
-    expect(screen.getByText("Search by name to choose a Feishu coworker")).toBeInTheDocument();
+    expect(screen.queryByText("Search by name to choose a Feishu coworker")).not.toBeInTheDocument();
     expect(screen.queryByText(/Recent & suggested/i)).not.toBeInTheDocument();
   });
 
@@ -119,8 +119,9 @@ describe("TaskPane browser preview auth flow", () => {
     renderPreview();
 
     unlockRequestBuilder();
-    const profileHeader = screen.getByRole("banner", { name: /Feishu account controls/i });
+    const profileHeader = screen.getByRole("region", { name: /Feishu account controls/i });
     expect(profileHeader).toHaveAttribute("data-profile-header", "true");
+    expect(profileHeader).toHaveClass("justify-end");
     expect(profileHeader).not.toHaveClass("sticky", "top-0");
 
     fireEvent.click(screen.getByRole("button", { name: /Feishu profile/i }));
@@ -172,6 +173,6 @@ describe("TaskPane browser preview request flow", () => {
 
     expect(await screen.findByRole("heading", { name: /Synced to Feishu/i })).toBeInTheDocument();
 
-    expect(screen.queryByRole("banner", { name: /Feishu account controls/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: /Feishu account controls/i })).not.toBeInTheDocument();
   });
 });

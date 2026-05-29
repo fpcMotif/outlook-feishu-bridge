@@ -45,7 +45,7 @@ test("browser preview keeps login separate and shows merged request routing", as
   await expect(page.getByRole("heading", { name: "Connect to Feishu" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Quotation" })).toBeVisible();
   await expect(page.getByText("Client email")).toBeVisible();
-  await expect(page.getByText("Search by name to choose a Feishu coworker")).toBeVisible();
+  await expect(page.getByText("Search by name to choose a Feishu coworker")).toHaveCount(0);
   await expect(page.getByText(/Recent & suggested/i)).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Start a request above" })).toBeDisabled();
 

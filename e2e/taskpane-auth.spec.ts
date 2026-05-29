@@ -56,7 +56,7 @@ test("browser preview keeps login separate and shows merged request routing", as
   await screenshot(page, "outlook-sales-builder.png");
 
   await page.getByLabel("Search Feishu coworkers").fill("Jenny");
-  await page.getByRole("button", { name: /Jenny Xu/ }).click();
+  await page.getByRole("button", { name: /^Jenny Xu/ }).click();
   await expect(page.getByRole("button", { name: "Sync with Jenny Xu" })).toBeEnabled();
   await expect(page.getByRole("heading", { name: "Connect to Feishu" })).toHaveCount(0);
   await screenshot(page, "outlook-sales-merged-routing.png");

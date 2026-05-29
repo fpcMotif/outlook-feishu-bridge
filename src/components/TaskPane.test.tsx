@@ -78,7 +78,7 @@ async function searchCoworker(name: string) {
   fireEvent.change(screen.getByLabelText("Search Feishu coworkers"), {
     target: { value: name },
   });
-  return await screen.findByRole("button", { name: new RegExp(name, "i") });
+  return await screen.findByRole("button", { name: new RegExp(`^${name}`, "i") });
 }
 
 beforeEach(() => {
@@ -115,12 +115,13 @@ describe("TaskPane browser preview auth flow", () => {
     expect(screen.getByRole("button", { name: /Feishu profile/i })).toBeInTheDocument();
   });
 
-  it("renders the account menu in the sticky profile header and signs out", () => {
+  it("renders the account menu in the static request header and signs out", () => {
     renderPreview();
 
     unlockRequestBuilder();
     const profileHeader = screen.getByRole("banner", { name: /Feishu account controls/i });
-    expect(profileHeader).toHaveClass("sticky", "top-0");
+    expect(profileHeader).toHaveAttribute("data-profile-header", "true");
+    expect(profileHeader).not.toHaveClass("sticky", "top-0");
 
     fireEvent.click(screen.getByRole("button", { name: /Feishu profile/i }));
 
@@ -145,7 +146,7 @@ describe("TaskPane browser preview request flow", () => {
       target: { value: "Need a quarterly L-Carnitine quote." },
     });
     expect(screen.getByDisplayValue("m.hoffmann@bayerpharma.de")).toBeInTheDocument();
-    fireEvent.click(await searchCoworker("Jenny"));
+    fireEvent.click(await searchCoworker("Jenny Xu"));
     fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
 
     expect(
@@ -158,7 +159,7 @@ describe("TaskPane browser preview request flow", () => {
     ).toBeInTheDocument();
   });
 
-  it("keeps the profile header visible instead of auto-hiding on scroll", async () => {
+  it("does not keep the profile header pinned after leaving the request builder", async () => {
     renderPreview();
 
     unlockRequestBuilder();
@@ -166,15 +167,11 @@ describe("TaskPane browser preview request flow", () => {
     fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
       target: { value: "Need a quarterly L-Carnitine quote." },
     });
-    fireEvent.click(await searchCoworker("Jenny"));
+    fireEvent.click(await searchCoworker("Jenny Xu"));
     fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
 
     expect(await screen.findByRole("heading", { name: /Synced to Feishu/i })).toBeInTheDocument();
-    const profileHeader = screen.getByRole("banner", { name: /Feishu account controls/i });
 
-    fireEvent.wheel(screen.getByRole("main"));
-
-    expect(profileHeader).toBeVisible();
-    expect(profileHeader).toHaveClass("sticky", "top-0");
+    expect(screen.queryByRole("banner", { name: /Feishu account controls/i })).not.toBeInTheDocument();
   });
 });

@@ -98,20 +98,21 @@ export function TaskPane({ host }: { host: string | null }) {
   const handleLogin = devPreview ? () => setDevLoggedIn(true) : feishuAuth.login;
   const handleLoginFallback = devPreview ? () => setDevLoggedIn(true) : feishuAuth.loginFallback;
   const handleLogout = devPreview ? () => setDevLoggedIn(false) : feishuAuth.logout;
+  const profileHeader =
+    isLoggedIn && user ? (
+      <header
+        aria-label="Feishu account controls"
+        className="flex shrink-0 justify-end px-1 pt-1 pb-3"
+        data-profile-header="true"
+      >
+        <FeishuProfile user={user} onLogout={handleLogout} />
+      </header>
+    ) : null;
 
   return (
     <div className="bg-background relative flex h-screen w-full flex-col overflow-hidden">
       {host !== null && !feishuAuth.isLoading ? (
         <BootReadyMilestone host={host} isLoggedIn={feishuAuth.isLoggedIn} />
-      ) : null}
-      {isLoggedIn && user ? (
-        <header
-          aria-label="Feishu account controls"
-          className="bg-background/95 sticky top-0 z-40 flex shrink-0 justify-end px-2 pt-2 pb-1 backdrop-blur"
-          data-profile-header="true"
-        >
-          <FeishuProfile user={user} onLogout={handleLogout} />
-        </header>
       ) : null}
       <main className="flex min-h-0 flex-1 flex-col">
         {item ? (
@@ -123,6 +124,7 @@ export function TaskPane({ host }: { host: string | null }) {
             user={user ?? undefined}
             userAccessToken={feishuAuth.userAccessToken}
             usePreviewCoworkers={useCoworkerFixtures}
+            profileSlot={profileHeader}
             onLogin={handleLogin}
             onLoginFallback={handleLoginFallback}
           />

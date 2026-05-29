@@ -1,5 +1,5 @@
 /* eslint-disable max-lines-per-function, max-lines */
-import { useCallback, useMemo, useReducer } from "react";
+import { useCallback, useMemo, useReducer, type ReactNode } from "react";
 import { Loader2 } from "lucide-react";
 
 import type { Coworker } from "./coworkers";
@@ -203,6 +203,7 @@ export function RequestIntakeScreen({
   user,
   userAccessToken,
   usePreviewCoworkers = false,
+  profileSlot,
   onLogin,
   onLoginFallback,
 }: {
@@ -218,6 +219,7 @@ export function RequestIntakeScreen({
   user?: { openId: string; userName?: string; avatarUrl?: string };
   userAccessToken?: string;
   usePreviewCoworkers?: boolean;
+  profileSlot?: ReactNode;
   onLogin: () => void;
   onLoginFallback: () => void;
 }) {
@@ -426,6 +428,7 @@ export function RequestIntakeScreen({
   return (
     <>
       <div className="no-scrollbar flex-1 overflow-y-auto px-5 pt-1 pb-24">
+        {profileSlot}
         <Hero />
         <div className="space-y-5">
           <RequestCards

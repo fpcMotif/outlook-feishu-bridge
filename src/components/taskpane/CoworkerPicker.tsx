@@ -1,4 +1,4 @@
-/* eslint-disable max-lines-per-function */
+/* eslint-disable max-lines-per-function, max-lines */
 import * as React from "react";
 import { useEffect, useMemo, useReducer, useState } from "react";
 import { Check, Search, UserRound, X } from "lucide-react";
@@ -90,8 +90,8 @@ function CoworkerOption({
       type="button"
       aria-pressed={selected}
       onClick={() => onSelect(coworker)}
-      className="bg-card flex w-full items-center gap-3 rounded-[14px] px-4 py-3 text-left shadow-[var(--shadow-border)] transition-[background-color,box-shadow,scale] duration-150 ease-[var(--ease-out-strong)] active:scale-[0.97] data-[pressed=true]:bg-accent data-[pressed=true]:shadow-[0_0_0_1.5px_var(--primary)]"
-      data-pressed={selected}
+      className="bg-card flex w-full cursor-pointer items-center gap-3 rounded-[14px] px-4 py-3 text-left shadow-[var(--shadow-border)] transition-[background-color,box-shadow,scale] duration-150 ease-[var(--ease-out-strong)] outline-none active:scale-[0.97] data-[selected=true]:bg-accent data-[selected=true]:shadow-[0_0_0_1.5px_var(--primary)] focus-visible:ring-[3px] focus-visible:ring-ring/15"
+      data-selected={selected}
     >
       <span className="bg-secondary text-primary flex size-10 items-center justify-center rounded-full">
         <UserRound className="size-5" />
@@ -105,16 +105,28 @@ function CoworkerOption({
   );
 }
 
+function SelectedCoworkerCard({ coworker }: { coworker: Coworker }) {
+  return (
+    <div className="bg-accent text-accent-foreground mt-2 flex items-center gap-2 rounded-xl px-3 py-2 shadow-[var(--shadow-border)]">
+      <Check className="text-primary size-4 shrink-0" />
+      <span className="text-muted-foreground text-[11px] font-semibold uppercase">Selected</span>
+      <span className="min-w-0 truncate text-sm font-semibold">{coworker.name}</span>
+    </div>
+  );
+}
+
 function CoworkerSearchSection({
   query,
   focused,
   onQueryChange,
   onFocusChange,
+  children,
 }: {
   query: string;
   focused: boolean;
   onQueryChange: (value: string) => void;
   onFocusChange: (focused: boolean) => void;
+  children?: React.ReactNode;
 }) {
   return (
     <section
@@ -126,32 +138,35 @@ function CoworkerSearchSection({
           Feishu coworker
         </h2>
       </div>
-      <div
-        className={
-          "bg-background flex items-center gap-2 rounded-xl px-3 shadow-[var(--shadow-border)] transition-[box-shadow] duration-150 " +
-          (focused ? "ring-ring/10 ring-[3px]" : "")
-        }
-      >
-        <Search className="text-primary size-4 shrink-0" />
-        <input
-          aria-label="Search Feishu coworkers"
-          value={query}
-          onChange={(e) => onQueryChange(e.target.value)}
-          onFocus={() => onFocusChange(true)}
-          onBlur={() => onFocusChange(false)}
-          placeholder="Search Feishu coworkers..."
-          className="placeholder:text-muted-foreground h-11 w-full bg-transparent text-sm outline-none"
-        />
-        {query ? (
-          <button
-            type="button"
-            onClick={() => onQueryChange("")}
-            aria-label="Clear search"
-            className="text-muted-foreground hover:text-foreground inline-flex min-h-10 min-w-10 items-center justify-center"
-          >
-            <X className="size-4" />
-          </button>
-        ) : null}
+      <div className="relative">
+        <div
+          className={
+            "bg-background flex items-center gap-2 rounded-xl px-3 shadow-[var(--shadow-border)] transition-[box-shadow] duration-150 " +
+            (focused ? "ring-ring/10 ring-[3px]" : "")
+          }
+        >
+          <Search className="text-primary size-4 shrink-0" />
+          <input
+            aria-label="Search Feishu coworkers"
+            value={query}
+            onChange={(e) => onQueryChange(e.target.value)}
+            onFocus={() => onFocusChange(true)}
+            onBlur={() => onFocusChange(false)}
+            placeholder="Search Feishu coworkers..."
+            className="placeholder:text-muted-foreground h-11 w-full bg-transparent text-sm outline-none"
+          />
+          {query ? (
+            <button
+              type="button"
+              onClick={() => onQueryChange("")}
+              aria-label="Clear search"
+              className="text-muted-foreground hover:text-foreground inline-flex min-h-10 min-w-10 items-center justify-center"
+            >
+              <X className="size-4" />
+            </button>
+          ) : null}
+        </div>
+        {children}
       </div>
     </section>
   );
@@ -223,8 +238,7 @@ export function CoworkerPicker({
 
   const searching = q.length > 0;
   const selectedCoworker = selectedOpenId ? directoryById.get(selectedOpenId) : undefined;
-  const list = searching ? results : selectedCoworker ? [selectedCoworker] : [];
-  const listLabel = searching ? "Results" : selectedCoworker ? "Current coworker" : "";
+  const listboxId = "coworker-search-results";
 
   const handleSelect = (coworker: Coworker) => {
     const next = [coworker, ...loadRecents().filter((c) => c.openId !== coworker.openId)].slice(0, 6);
@@ -234,6 +248,7 @@ export function CoworkerPicker({
       /* ignore quota / unavailable storage */
     }
     setRecents(next);
+    setQuery("");
     onSelect(coworker);
   };
 
@@ -257,29 +272,43 @@ export function CoworkerPicker({
         focused={focused}
         onQueryChange={setQuery}
         onFocusChange={setFocused}
-      />
+      >
+        {searching ? (
+          <div
+            id={listboxId}
+            role="menu"
+            aria-label="Feishu coworker search results"
+            className="bg-popover text-popover-foreground absolute inset-x-0 top-[calc(100%+0.5rem)] z-30 max-h-72 overflow-y-auto rounded-2xl border p-1.5 shadow-[var(--shadow-floating)]"
+          >
+            <div className="text-muted-foreground px-2 py-1.5 text-[11px] font-semibold tracking-wide uppercase">
+              Search results
+            </div>
+            <div className="space-y-1.5">
+              {results.length > 0 ? (
+                results.map((coworker) => (
+                  <CoworkerOption
+                    key={coworker.openId}
+                    coworker={directoryById.get(coworker.openId) ?? coworker}
+                    selected={selectedOpenId === coworker.openId}
+                    onSelect={handleSelect}
+                  />
+                ))
+              ) : (
+                <div className="text-muted-foreground rounded-xl p-3 text-sm">
+                  No real Feishu coworkers match "{query}"
+                </div>
+              )}
+            </div>
+          </div>
+        ) : null}
+      </CoworkerSearchSection>
 
-      {listLabel ? (
-        <div className="text-muted-foreground mt-4 mb-2 px-1 text-[11px] font-semibold tracking-wide uppercase">
-          {listLabel}
-        </div>
+      {!searching && selectedCoworker ? <SelectedCoworkerCard coworker={selectedCoworker} /> : null}
+      {!searching && !selectedCoworker ? (
+        <p className="text-muted-foreground px-1 py-2 text-sm">
+          Search by name to choose a Feishu coworker
+        </p>
       ) : null}
-      <div className="space-y-2">
-        {list.length > 0 ? (
-          list.map((coworker) => (
-            <CoworkerOption
-              key={coworker.openId}
-              coworker={directoryById.get(coworker.openId) ?? coworker}
-              selected={selectedOpenId === coworker.openId}
-              onSelect={handleSelect}
-            />
-          ))
-        ) : (
-          <p className="text-muted-foreground px-1 py-2 text-sm">
-            {searching ? `No coworkers match "${query}"` : "Search by name to choose a Feishu coworker"}
-          </p>
-        )}
-      </div>
     </section>
   );
 }

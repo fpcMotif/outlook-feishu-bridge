@@ -78,7 +78,7 @@ async function searchCoworker(name: string) {
   fireEvent.change(screen.getByLabelText("Search Feishu coworkers"), {
     target: { value: name },
   });
-  return await screen.findByRole("button", { name: new RegExp(name, "i") });
+  return await screen.findByRole("button", { name: new RegExp(`^${name}`, "i") });
 }
 
 beforeEach(() => {
@@ -155,14 +155,12 @@ describe("RequestIntakeScreen coworker selection", () => {
     renderRequestIntakeScreen(true);
     fillQuotation();
 
-    const jenny = await searchCoworker("Jenny");
-    fireEvent.click(jenny);
-    expect(jenny).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(await searchCoworker("Jenny Xu"));
+    expect(screen.getByText("Jenny Xu")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Sync with Jenny Xu/i })).toBeInTheDocument();
 
-    const michael = await searchCoworker("Michael");
-    fireEvent.click(michael);
-    expect(michael).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(await searchCoworker("Michael Chen"));
+    expect(screen.getByText("Michael Chen")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Sync with Michael Chen/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Remove coworker/i })).not.toBeInTheDocument();
   });
@@ -173,7 +171,7 @@ describe("RequestIntakeScreen sync flow", () => {
     renderRequestIntakeScreen(true);
     fillQuotation();
 
-    fireEvent.click(await searchCoworker("Jenny"));
+    fireEvent.click(await searchCoworker("Jenny Xu"));
     fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
 
     expect(

@@ -15,6 +15,11 @@ import { v } from "convex/values";
 
 import { action, type ActionCtx } from "../_generated/server";
 import { callFeishu } from "./call";
+import {
+  mergePreferredCustomers,
+  searchDevCustomerFixtures,
+  withDevCustomerFixtures,
+} from "./devCustomerFixtures";
 
 // Same Base as the Service table (FEISHU_BITABLE_APP_TOKEN). The customer
 // table id is fixed — see ADR-0012's "Client linkage (domain match)" section.
@@ -98,16 +103,23 @@ function firstOwner(value: unknown): { openId: string; name: string } | null {
  * is intentionally strict (no suffix or fuzzy heuristics) — silently picking
  * the wrong Customer is worse than no match (ADR-0013).
  */
+const CUSTOMER_DOMAIN_ALIASES: Record<string, string> = {
+  "microsoftonline.com": "microsoft.com",
+};
+
 export function findCustomerByEmail<R extends { domain?: string }>(
   directory: readonly R[],
   email: string,
 ): R | null {
-  const target = emailDomain(email);
+  const target = canonicalCustomerDomain(emailDomain(email));
   if (!target) return null;
-  return (
-    directory.find((c) => typeof c.domain === "string" && c.domain.toLowerCase() === target) ??
-    null
-  );
+  return directory.find((c) => canonicalCustomerDomain(c.domain) === target) ?? null;
+}
+
+export function canonicalCustomerDomain(domain: string | undefined | null): string | null {
+  const normalized = domain?.trim().toLowerCase();
+  if (!normalized) return null;
+  return CUSTOMER_DOMAIN_ALIASES[normalized] ?? normalized;
 }
 
 function emailDomain(email: string): string | null {
@@ -174,7 +186,13 @@ export const listCustomers = action({
   handler: async (ctx): Promise<{ records: CustomerRecord[]; generatedAt: number }> => {
     const appToken = requireAppToken();
     const records = await fetchCustomerPage(ctx, appToken, undefined, [], 0);
-    return { records, generatedAt: Date.now() };
+    const withFixtures = withDevCustomerFixtures(records);
+    if (withFixtures[0]?.recordId === "dev_fixture_fanpc_customer") {
+      console.log(
+        `[dev-customer-fixture] TEST ONLY injected fanpc customer domain=fenchem.com rows=${withFixtures.length}`,
+      );
+    }
+    return { records: withFixtures, generatedAt: Date.now() };
   },
 });
 
@@ -206,6 +224,7 @@ export const searchCustomers = action({
       query: { page_size: String(PAGE_SIZE) },
       label: "Bitable search customers",
     });
-    return { records: (data.items ?? []).map((item) => mapFeishuItemToCustomer(item)) };
+    const liveRecords = (data.items ?? []).map((item) => mapFeishuItemToCustomer(item));
+    return { records: mergePreferredCustomers(searchDevCustomerFixtures(q), liveRecords) };
   },
 });

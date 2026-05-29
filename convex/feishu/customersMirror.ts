@@ -1,3 +1,4 @@
+/* eslint-disable max-lines */
 // Server-indexed Customer search (ADR-0016). Mirrors the Feishu Customer Table
 // into a Convex table with a search index, so per-keystroke autocomplete in
 // the SPA can run as a ranked Convex query — no client-side preload, no
@@ -23,12 +24,22 @@ import {
 } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { callFeishu } from "./call";
-import { mapFeishuItemToCustomer, type CustomerRecord } from "./customers";
+import {
+  canonicalCustomerDomain,
+  mapFeishuItemToCustomer,
+  type CustomerRecord,
+} from "./customers";
 import {
   dedupeRowsByRecordId,
   mirrorDocToCustomer,
   projectionToRow,
 } from "./customerMirrorRows";
+import {
+  DEV_CUSTOMER_FIXTURES,
+  isDevCustomerFixturesEnabled,
+  mergePreferredCustomers,
+  searchDevCustomerFixtures,
+} from "./devCustomerFixtures";
 
 export { buildSearchBlob } from "./customerMirrorRows";
 
@@ -149,6 +160,14 @@ async function runFullSync(ctx: ActionCtx): Promise<{ pages: number; rows: numbe
     pageToken = data.page_token;
   }
 
+  if (isDevCustomerFixturesEnabled()) {
+    await ctx.runMutation(internal.feishu.customersMirror.applyPage, {
+      rows: DEV_CUSTOMER_FIXTURES.map((customer) => projectionToRow(customer)),
+      mirroredAt,
+    });
+    rows += DEV_CUSTOMER_FIXTURES.length;
+  }
+
   await ctx.runMutation(internal.feishu.customersMirror.recordSyncCompletion, {
     lastFullSyncAt: mirroredAt,
     lastRowCount: rows,
@@ -217,16 +236,50 @@ export const searchAndCacheMiss = action({
         mirroredAt: Date.now(),
       });
     }
-    const records =
+    const records = mergePreferredCustomers(
+      searchDevCustomerFixtures(q, args.mineFor),
       args.mineFor === undefined
         ? backfilledRecords
-        : backfilledRecords.filter((record) => record.owner?.openId === args.mineFor);
+        : backfilledRecords.filter((record) => record.owner?.openId === args.mineFor),
+    );
     console.log(
       `[customers-mirror] searchAndCacheMiss q="${q.slice(0, 40)}" -> ${records.length}/${backfilledRecords.length} backfilled (${Date.now() - started}ms)`,
     );
     return { records, backfilled: backfilledRecords.length };
   },
 });
+
+export const matchByEmail = query({
+  args: { email: v.string() },
+  handler: async (ctx, args): Promise<{ customer: CustomerRecord | null }> => {
+    const domain = canonicalCustomerDomain(emailDomain(args.email));
+    if (!domain) return { customer: null };
+    const hit = await ctx.db
+      .query("customers")
+      .withIndex("by_domain", (q) => q.eq("domain", domain))
+      .first();
+    if (hit) {
+      if (hit.recordId === "dev_fixture_fanpc_customer") {
+        console.log(
+          `[dev-customer-fixture] TEST ONLY matched fanpc customer for ${domain}`,
+        );
+      }
+      return { customer: mirrorDocToCustomer(hit) };
+    }
+    const fixture = searchDevCustomerFixtures(domain)[0] ?? null;
+    if (fixture) {
+      console.log(`[dev-customer-fixture] TEST ONLY matched in-memory fixture for ${domain}`);
+    }
+    return { customer: fixture };
+  },
+});
+
+function emailDomain(email: string): string | null {
+  const at = email.lastIndexOf("@");
+  if (at < 0 || at === email.length - 1) return null;
+  const domain = email.slice(at + 1).trim().toLowerCase();
+  return domain || null;
+}
 
 // Public ranked search query. Uses Convex's `withSearchIndex` for prefix +
 // score ranking on the `searchBlob` column. Optional `mineFor` filters to
@@ -253,7 +306,10 @@ export const search = query({
         return s;
       })
       .take(limit);
-    const records: CustomerRecord[] = hits.map((hit) => mirrorDocToCustomer(hit));
+    const records: CustomerRecord[] = mergePreferredCustomers(
+      searchDevCustomerFixtures(q, args.mineFor),
+      hits.map((hit) => mirrorDocToCustomer(hit)),
+    ).slice(0, limit);
     return { records, mirroredAt: state?.lastFullSyncAt ?? null };
   },
 });

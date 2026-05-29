@@ -5,7 +5,7 @@
 
 /* eslint-disable max-lines-per-function */
 import { useMemo, useRef, useState } from "react";
-import { Plus, Search, X } from "lucide-react";
+import { Plus, Search, UserRound } from "lucide-react";
 
 import type {
   CustomerDirectoryState,
@@ -19,6 +19,7 @@ import {
   ownerFilter,
 } from "./customerSearchHelpers";
 import { dlog, dtime } from "../../debug";
+import { TaskpaneSearchField } from "./TaskpaneSearchField";
 
 export interface CustomerPickerProps {
   directory: CustomerDirectoryState;
@@ -33,6 +34,7 @@ export interface CustomerPickerProps {
   // The signed-in Feishu user's open_id (the Initiator, ADR-0014). When
   // provided, the search panel offers a "Show mine" quick toggle.
   currentUserOpenId?: string;
+  embedded?: boolean;
   onChange: (customer: CustomerRecord | null) => void;
 }
 
@@ -41,6 +43,7 @@ export function CustomerPicker({
   emailDomain,
   selectedCustomer,
   currentUserOpenId,
+  embedded = false,
   onChange,
   searchCustomers,
   triggerRefresh,
@@ -56,11 +59,6 @@ export function CustomerPicker({
     setSearchSession({ openedAt });
   };
 
-  const closeSearch = () => {
-    if (searchSession) dtime("customer picker: search closed", searchSession.openedAt);
-    setSearchSession(null);
-  };
-
   if (searchSession) {
     return (
       <SearchPanel
@@ -68,7 +66,7 @@ export function CustomerPicker({
         searchCustomers={searchCustomers}
         openedAt={searchSession.openedAt}
         currentUserOpenId={currentUserOpenId}
-        onCancel={closeSearch}
+        embedded={embedded}
         onSelect={(customer) => {
           onChange(customer);
           setSearchSession(null);
@@ -78,15 +76,17 @@ export function CustomerPicker({
   }
 
   return (
-    <section className="bg-card-soft rounded-xl px-3 py-2 shadow-[var(--shadow-border)]">
-      <div className="flex min-w-0 items-center gap-2">
-        <span className="text-muted-foreground shrink-0 text-[11px] font-semibold uppercase">
-          Customer
+    <section className={embedded ? "" : "bg-card-soft rounded-xl shadow-[var(--shadow-border)]"}>
+      <div className="flex min-h-14 min-w-0 items-center gap-3 px-3 py-2" data-customer-row="true">
+        <span
+          className="text-muted-foreground flex size-8 shrink-0 items-center justify-center"
+          aria-hidden="true"
+        >
+          <UserRound className="size-4" />
         </span>
-        <span className="bg-border h-3 w-px shrink-0" />
         {selectedCustomer ? (
           <>
-            <span className="min-w-0 flex-1 truncate text-xs font-semibold">
+            <span className="min-w-0 flex-1 whitespace-normal break-words text-xs leading-4 font-semibold">
               {selectedCustomer.name}
             </span>
             <button
@@ -98,11 +98,11 @@ export function CustomerPicker({
             </button>
           </>
         ) : directory.status === "loading" || directory.status === "idle" ? (
-          <span className="text-muted-foreground min-w-0 flex-1 truncate text-xs">
+          <span className="text-muted-foreground min-w-0 flex-1 whitespace-normal break-words text-xs leading-4">
             Resolving customer for {emailDomain}...
           </span>
         ) : (
-          <NoMatch emailDomain={emailDomain} onSearch={openSearch} />
+          <NoMatch onSearch={openSearch} />
         )}
       </div>
     </section>
@@ -117,7 +117,7 @@ function SearchPanel({
   searchCustomers,
   openedAt,
   currentUserOpenId,
-  onCancel,
+  embedded = false,
   onSelect,
 }: {
   directory: CustomerDirectoryState;
@@ -127,7 +127,7 @@ function SearchPanel({
   ) => Promise<CustomerRecord[]>;
   openedAt: number;
   currentUserOpenId?: string;
-  onCancel: () => void;
+  embedded?: boolean;
   onSelect: (customer: CustomerRecord) => void;
 }) {
   const [query, setQuery] = useState("");
@@ -178,7 +178,7 @@ function SearchPanel({
   const matches = localMatches.length > 0 ? localMatches : serverMatches;
 
   return (
-    <section className="bg-card-soft rounded-xl px-3 py-2 shadow-[var(--shadow-border)]">
+    <section className={embedded ? "px-3 py-2" : "bg-card-soft rounded-xl px-3 py-2 shadow-[var(--shadow-border)]"}>
       <div className="flex items-center justify-between gap-2 pb-2">
         <span className="text-muted-foreground text-[11px] font-semibold uppercase">
           Pick a customer
@@ -195,28 +195,14 @@ function SearchPanel({
               Show mine
             </button>
           ) : null}
-          <button
-            type="button"
-            onClick={onCancel}
-            aria-label="Cancel"
-            className="text-muted-foreground inline-flex min-h-8 items-center gap-1 rounded-md px-1 text-[11px] font-semibold"
-          >
-            <X className="size-3.5" />
-            Cancel
-          </button>
         </div>
       </div>
-      <div className="bg-background flex items-center gap-2 rounded-xl px-3 shadow-[var(--shadow-border)]">
-        <Search className="text-primary size-4 shrink-0" />
-        <input
-          type="search"
-          aria-label="Search customers"
-          value={query}
-          onChange={(event) => handleQueryChange(event.target.value)}
-          placeholder="Search by name, domain, account no..."
-          className="placeholder:text-muted-foreground h-10 w-full bg-transparent text-sm outline-none"
-        />
-      </div>
+      <TaskpaneSearchField
+        label="Search customers"
+        value={query}
+        onChange={handleQueryChange}
+        placeholder="Search by name, domain, account no..."
+      />
       <ul className="mt-2 space-y-1">
         {matches.slice(0, 8).map((customer) => (
           <li key={customer.recordId}>
@@ -252,28 +238,31 @@ function SearchPanel({
 
 // Lenient no-match (ADR-0013): tell the salesperson the auto-match found
 // nothing and reserve a placeholder for the future create-new affordance, but
-// do not block the sync. A Search button lets them override manually.
-function NoMatch({ emailDomain, onSearch }: { emailDomain: string; onSearch: () => void }) {
+// do not block the sync. A search icon button lets them override manually.
+function NoMatch({ onSearch }: { onSearch: () => void }) {
   return (
-    <span className="flex min-w-0 flex-1 items-center gap-2">
-      <span className="text-muted-foreground min-w-0 flex-1 truncate text-xs">
-        No customer matched for {emailDomain}
+    <span className="flex min-w-0 flex-1 items-center gap-1">
+      <span
+        className="text-muted-foreground min-w-0 flex-1 whitespace-normal break-words text-xs leading-4"
+        title="No matched"
+      >
+        No matched
       </span>
       <button
         type="button"
         onClick={onSearch}
-        className="text-primary inline-flex min-h-8 items-center rounded-md px-2 text-[11px] font-semibold"
+        aria-label="Search customer"
+        className="text-primary hover:bg-accent inline-flex size-10 shrink-0 items-center justify-center rounded-full transition-colors active:scale-[0.96]"
       >
-        Search
+        <Search className="size-4" />
       </button>
       <button
         type="button"
         disabled
         aria-label="Add new customer (coming soon)"
-        className="text-muted-foreground inline-flex min-h-8 items-center gap-1 rounded-md px-2 text-[11px] font-semibold opacity-50"
+        className="text-muted-foreground inline-flex size-10 shrink-0 items-center justify-center rounded-full opacity-40"
       >
-        <Plus className="size-3.5" />
-        Add new customer
+        <Plus className="size-4" />
       </button>
     </span>
   );

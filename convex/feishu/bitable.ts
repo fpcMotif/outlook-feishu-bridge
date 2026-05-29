@@ -1,3 +1,4 @@
+/* eslint-disable max-lines */
 import { internalAction, type ActionCtx } from "../_generated/server";
 import { v } from "convex/values";
 import { callFeishu } from "./call";
@@ -50,6 +51,9 @@ const serviceRowArgs = {
   requestSelections: v.optional(v.array(requestSelectionValidator)),
   selectedCoworkers: v.optional(v.array(coworkerValidator)),
   initiator: v.optional(initiatorValidator),
+  // ADR-0017: Outlook `item.conversationId` lands in the Service row's
+  // `Email Conversation ID` column as the Bitable→Outlook join key.
+  emailConversationId: v.optional(v.string()),
 };
 
 function requireBitableEnv() {
@@ -114,6 +118,23 @@ export const createServiceRecord = internalAction({
     const { appToken, tableId } = requireBitableEnv();
     const clientRecordId = await resolveClientRecordId(ctx, appToken, args);
     const fields = buildServiceFields(args, clientRecordId);
+    // Diagnostic: dump the exact intake args + resolved fields payload so a
+    // post-mortem on Feishu's generic 1255001 can see what we actually sent.
+    console.log(
+      `[bitable] createServiceRecord intake=${JSON.stringify({
+        subject: args.subject,
+        clientEmail: args.clientEmail,
+        clientRecordId: args.clientRecordId,
+        resolvedClientRecordId: clientRecordId,
+        dateOfOffer: args.dateOfOffer,
+        emailConversationId: args.emailConversationId,
+        emailConversationIdLen: args.emailConversationId?.length ?? 0,
+        initiator: args.initiator,
+        coworkers: args.selectedCoworkers,
+        requestSelections: args.requestSelections,
+      })}`,
+    );
+    console.log(`[bitable] createServiceRecord fields=${JSON.stringify(fields)}`);
     const data = await callFeishu<{ record?: { record_id: string } }>(ctx, {
       path: `/bitable/v1/apps/${appToken}/tables/${tableId}/records`,
       method: "POST",
@@ -145,6 +166,119 @@ export const correctServiceRecord = internalAction({
   },
 });
 
+// Diagnostic: get one record by record_id (READ-ONLY), or search for one with
+// Client set, so we can compare Feishu's stored DuplexLink cell shape against
+// what we're sending on writes.
+export const diagGetRecord = internalAction({
+  args: { tableId: v.optional(v.string()), recordId: v.string() },
+  handler: async (ctx, args): Promise<{ ok: boolean; record?: unknown; error?: string }> => {
+    const appToken = process.env.FEISHU_BITABLE_APP_TOKEN;
+    const tableId = args.tableId ?? process.env.FEISHU_BITABLE_TABLE_ID;
+    if (!appToken || !tableId) {
+      return { ok: false, error: "env not set" };
+    }
+    try {
+      const data = await callFeishu<{ record?: unknown }>(ctx, {
+        path: `/bitable/v1/apps/${appToken}/tables/${tableId}/records/${args.recordId}`,
+        method: "GET",
+        auth: "tenant",
+        label: "Bitable diag get record",
+      });
+      return { ok: true, record: data.record };
+    } catch (e: unknown) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  },
+});
+
+export const diagSearchCustomerByName = internalAction({
+  args: { name: v.string() },
+  handler: async (ctx, args): Promise<{ ok: boolean; matches?: { record_id: string; name?: string }[]; error?: string }> => {
+    const appToken = process.env.FEISHU_BITABLE_APP_TOKEN;
+    if (!appToken) return { ok: false, error: "env not set" };
+    try {
+      const data = await callFeishu<{ items?: { record_id: string; fields?: Record<string, unknown> }[] }>(ctx, {
+        path: `/bitable/v1/apps/${appToken}/tables/${CLIENT_TABLE_ID}/records/search`,
+        method: "POST",
+        auth: "tenant",
+        json: {
+          filter: {
+            conjunction: "and",
+            conditions: [{ field_name: "Account Name", operator: "contains", value: [args.name] }],
+          },
+        },
+        query: { page_size: "5" },
+        label: "Bitable diag search customer by name",
+      });
+      return {
+        ok: true,
+        matches: (data.items ?? []).map((i) => ({
+          record_id: i.record_id,
+          name: i.fields?.["Name"] as string | undefined,
+        })),
+      };
+    } catch (e: unknown) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  },
+});
+
+export const diagSearchAnyClientRow = internalAction({
+  args: {},
+  handler: async (ctx): Promise<{ ok: boolean; sample?: unknown; error?: string }> => {
+    const appToken = process.env.FEISHU_BITABLE_APP_TOKEN;
+    const tableId = process.env.FEISHU_BITABLE_TABLE_ID;
+    if (!appToken || !tableId) return { ok: false, error: "env not set" };
+    try {
+      const data = await callFeishu<{ items?: { record_id: string; fields?: Record<string, unknown> }[] }>(ctx, {
+        path: `/bitable/v1/apps/${appToken}/tables/${tableId}/records/search`,
+        method: "POST",
+        auth: "tenant",
+        json: {
+          filter: {
+            conjunction: "and",
+            conditions: [{ field_name: "Client", operator: "isNotEmpty", value: [] }],
+          },
+        },
+        query: { page_size: "1" },
+        label: "Bitable diag search Client",
+      });
+      const first = data.items?.[0];
+      return { ok: true, sample: { recordId: first?.record_id, clientCell: first?.fields?.["Client"] } };
+    } catch (e: unknown) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  },
+});
+
+// List a few raw records from the LIVE Customer Info table so we can compare
+// real record_ids with what the mirror has cached.
+export const diagListCustomers = internalAction({
+  args: {},
+  handler: async (ctx): Promise<{ ok: boolean; records?: { record_id: string; accountName?: unknown }[]; error?: string }> => {
+    const appToken = process.env.FEISHU_BITABLE_APP_TOKEN;
+    if (!appToken) return { ok: false, error: "env not set" };
+    try {
+      const data = await callFeishu<{ items?: { record_id: string; fields?: Record<string, unknown> }[] }>(ctx, {
+        path: `/bitable/v1/apps/${appToken}/tables/${CLIENT_TABLE_ID}/records`,
+        method: "GET",
+        auth: "tenant",
+        query: { page_size: "5" },
+        label: "Bitable diag list customers",
+      });
+      return {
+        ok: true,
+        records: (data.items ?? []).map((i) => ({
+          record_id: i.record_id,
+          accountName: i.fields?.["Account Name"],
+        })),
+      };
+    } catch (e: unknown) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  },
+});
+
 // Read-only schema introspection. Official "List fields" API (GET, no body):
 //   GET /open-apis/bitable/v1/apps/{app_token}/tables/{table_id}/fields
 //   https://open.feishu.cn/document/server-docs/docs/bitable-v1/app-table-field/list
@@ -152,7 +286,7 @@ export const correctServiceRecord = internalAction({
 export const listFields = internalAction({
   args: { tableId: v.optional(v.string()) },
   handler: async (ctx, args): Promise<{
-    fields: { name: string; type: number; ui: string; primary: boolean; property: unknown }[];
+    fields: { id: string; name: string; type: number; ui: string; primary: boolean; property: unknown }[];
   }> => {
     const appToken = process.env.FEISHU_BITABLE_APP_TOKEN;
     const tableId = args.tableId ?? process.env.FEISHU_BITABLE_TABLE_ID;
@@ -161,6 +295,7 @@ export const listFields = internalAction({
     }
     const data = await callFeishu<{
       items?: {
+        field_id?: string;
         field_name: string;
         type: number;
         ui_type?: string;
@@ -176,6 +311,7 @@ export const listFields = internalAction({
     });
     return {
       fields: (data.items ?? []).map((f) => ({
+        id: f.field_id ?? "",
         name: f.field_name,
         type: f.type,
         ui: f.ui_type ?? "",

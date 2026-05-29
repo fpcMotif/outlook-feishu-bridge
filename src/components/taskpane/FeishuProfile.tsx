@@ -50,20 +50,22 @@ export function FeishuProfile({ user, onLogout }: { user: FeishuUser; onLogout: 
         aria-expanded={open}
         aria-label="Feishu profile"
       >
-        <Avatar className="size-8">
-          {user.avatarUrl ? <AvatarImage src={user.avatarUrl} alt="" /> : null}
-          <AvatarFallback className="bg-foreground text-background">
-            {initials(user.userName)}
-          </AvatarFallback>
-        </Avatar>
-        <span className="border-background bg-sage absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full border-2" />
+        <span className="relative flex size-8">
+          <Avatar className="size-8">
+            {user.avatarUrl ? <AvatarImage src={user.avatarUrl} alt="" /> : null}
+            <AvatarFallback className="bg-foreground text-background">
+              {initials(user.userName)}
+            </AvatarFallback>
+          </Avatar>
+          <span className="border-background bg-sage absolute right-0 bottom-0 size-2.5 rounded-full border-2" />
+        </span>
       </button>
 
       {open ? (
-        <div
-          role="dialog"
+        <dialog
+          open
           aria-label="Feishu account"
-          className="bg-popover text-popover-foreground profile-pop absolute top-full right-0 z-50 mt-2 w-64 max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-xl shadow-[var(--shadow-floating)]"
+          className="bg-popover text-popover-foreground profile-pop absolute top-full right-0 left-auto z-50 m-0 mt-2 w-64 max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-xl border-0 p-0 shadow-[var(--shadow-floating)] backdrop:bg-transparent"
         >
           <div className="px-3.5 pt-3 pb-2.5">
             <div className="min-w-0">
@@ -87,7 +89,7 @@ export function FeishuProfile({ user, onLogout }: { user: FeishuUser; onLogout: 
             <X className="size-4" />
             Sign out of Feishu
           </button>
-        </div>
+        </dialog>
       ) : null}
     </div>
   );

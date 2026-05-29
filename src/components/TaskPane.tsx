@@ -22,7 +22,11 @@ const DEV_SAMPLE: MailItemData = {
   internetMessageId: "<dev-sample@fenchem.com>",
   itemId: "dev-sample",
   conversationId: "dev-sample",
-  userEmail: "jenny.xu@fenchem.com",
+  // The Self-Forward target is always the signed-in user's own mailbox; in
+  // dev preview that is fanpc@fenchem.com (the test user). jenny.xu is just
+  // a fictional "to" recipient on the sample inbound email; never a sendable
+  // address from this add-in.
+  userEmail: "fanpc@fenchem.com",
   attachments: [
     { id: "a1", name: "RFQ-2026-Q1.pdf", contentType: "application/pdf", size: 184320, isInline: false },
   ],
@@ -75,39 +79,52 @@ export function TaskPane({ host }: { host: string | null }) {
   // Real Outlook sets host "Outlook"; anything else in dev (host null or
   // "browser") means no mailbox, so preview a sample item and simulate submit.
   const devPreview = import.meta.env.DEV && host !== "Outlook";
+  const params = new URLSearchParams(window.location.search);
+  const useCoworkerFixtures = devPreview && params.has("e2eCoworkers");
   const item = mailItem ?? (devPreview ? DEV_SAMPLE : null);
 
   // Dev-only: clicking "Log in" advances straight to the logged-in UI (profile +
   // coworker picker) without the real OAuth popup. ?devUser=1 starts logged in.
-  const showDevUser =
-    devPreview && (devLoggedIn || new URLSearchParams(window.location.search).has("devUser"));
+  const showDevUser = devPreview && (devLoggedIn || params.has("devUser"));
   const devUser = showDevUser
     ? { openId: "ou_dev", userName: "Jenny Xu", email: "jenny.xu@fenchem.com", org: "Branch Sales" }
     : null;
   const isLoggedIn = feishuAuth.isLoggedIn || devUser !== null;
+  // While the Convex session query is in flight, isLoggedIn is briefly false
+  // even for a returning user with a valid cached session. RequestIntakeScreen
+  // uses this to render a quiet placeholder instead of flashing the LoginScreen.
+  const isAuthLoading = feishuAuth.isLoading && devUser === null;
   const user = feishuAuth.user ?? devUser;
   const handleLogin = devPreview ? () => setDevLoggedIn(true) : feishuAuth.login;
   const handleLoginFallback = devPreview ? () => setDevLoggedIn(true) : feishuAuth.loginFallback;
   const handleLogout = devPreview ? () => setDevLoggedIn(false) : feishuAuth.logout;
+  const profileHeader =
+    isLoggedIn && user ? (
+      <section
+        aria-label="Feishu account controls"
+        className="absolute top-1 right-5 z-20"
+        data-profile-header="true"
+      >
+        <FeishuProfile user={user} onLogout={handleLogout} />
+      </section>
+    ) : null;
 
   return (
     <div className="bg-background relative flex h-screen w-full flex-col overflow-hidden">
       {host !== null && !feishuAuth.isLoading ? (
         <BootReadyMilestone host={host} isLoggedIn={feishuAuth.isLoggedIn} />
       ) : null}
-      {isLoggedIn && user ? (
-        <div className="absolute top-2 right-2 z-40">
-          <FeishuProfile user={user} onLogout={handleLogout} />
-        </div>
-      ) : null}
       <main className="flex min-h-0 flex-1 flex-col">
         {item ? (
           <RequestIntakeScreen
             isLoggedIn={isLoggedIn}
+            isAuthLoading={isAuthLoading}
             mailItem={item}
             sessionId={feishuAuth.sessionId}
             user={user ?? undefined}
             userAccessToken={feishuAuth.userAccessToken}
+            usePreviewCoworkers={useCoworkerFixtures}
+            profileSlot={profileHeader}
             onLogin={handleLogin}
             onLoginFallback={handleLoginFallback}
           />

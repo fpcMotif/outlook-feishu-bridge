@@ -3,10 +3,12 @@ import { v } from "convex/values";
 import { callFeishu } from "./call";
 
 // Search Users response (open.feishu.cn GET /open-apis/search/v1/user): each
-// user carries open_id, name, an `avatar` object of sized URLs, and
-// department_ids. `user_id` is only returned with contact:user.employee_id:readonly,
-// which we don't request — Bitable Sync assigns Coworkers by open_id. See ADR-0003.
-interface FeishuUser {
+// user carries open_id, name, and usually an `avatar` object of sized URLs.
+// Some tenants/API responses omit avatar_72 but include a larger avatar size,
+// so the projection below falls back through the available Feishu avatar fields.
+// `user_id` is only returned with contact:user.employee_id:readonly, which we
+// don't request — Bitable Sync assigns Coworkers by open_id. See ADR-0003.
+export interface FeishuUser {
   open_id: string;
   name: string;
   avatar?: {
@@ -15,7 +17,50 @@ interface FeishuUser {
     avatar_640?: string;
     avatar_origin?: string;
   };
+  avatar_url?: string;
   department_ids?: string[];
+}
+
+export interface Coworker {
+  openId: string;
+  name: string;
+  avatarUrl?: string;
+}
+
+export function coworkerAvatarUrl(u: FeishuUser): string | undefined {
+  return (
+    u.avatar?.avatar_72 ??
+    u.avatar?.avatar_240 ??
+    u.avatar?.avatar_640 ??
+    u.avatar?.avatar_origin ??
+    u.avatar_url
+  );
+}
+
+export function mapFeishuUserToCoworker(u: FeishuUser): Coworker {
+  return {
+    openId: u.open_id,
+    name: u.name,
+    avatarUrl: coworkerAvatarUrl(u),
+  };
+}
+
+export function mapCoworkers(data: { users?: FeishuUser[] }): Coworker[] {
+  return (data.users ?? []).map((u) => mapFeishuUserToCoworker(u));
+}
+
+function logCoworkerAvatarDiagnostics(users: FeishuUser[], coworkers: Coworker[]) {
+  const avatarKeys = new Set<string>();
+  for (const user of users) {
+    for (const key of Object.keys(user.avatar ?? {})) avatarKeys.add(key);
+    if (user.avatar_url) avatarKeys.add("avatar_url");
+  }
+  const withAvatar = coworkers.filter((coworker) => Boolean(coworker.avatarUrl)).length;
+  console.log(
+    `[coworkers] Search Users returned users=${users.length} avatars=${withAvatar} avatarKeys=${[
+      ...avatarKeys,
+    ].join(",") || "none"}`,
+  );
 }
 
 export const searchCoworkers = action({
@@ -37,10 +82,9 @@ export const searchCoworkers = action({
       label: "Coworker search",
     });
 
-    return (data.users ?? []).map((u) => ({
-      openId: u.open_id,
-      name: u.name,
-      avatarUrl: u.avatar?.avatar_72,
-    }));
+    const users = data.users ?? [];
+    const coworkers = mapCoworkers(data);
+    logCoworkerAvatarDiagnostics(users, coworkers);
+    return coworkers;
   },
 });

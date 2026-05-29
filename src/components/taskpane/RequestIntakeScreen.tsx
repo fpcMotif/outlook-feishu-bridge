@@ -1,11 +1,13 @@
 /* eslint-disable max-lines-per-function, max-lines */
-import { useCallback, useMemo, useReducer } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, type ReactNode } from "react";
+import { Loader2 } from "lucide-react";
 
 import type { Coworker } from "./coworkers";
 import { findCustomerByEmail, type CustomerRecord } from "./customers";
 import type { MailItemData } from "../../office/useMailItem";
 import { useCustomerSearch } from "../../hooks/useCustomerSearch";
 import { useRequestSync } from "../../hooks/useRequestSync";
+import { useSelfForward, type SelfForwardResult } from "../../hooks/useSelfForward";
 import { Button } from "../ui/button";
 import { CoworkerPicker } from "./CoworkerPicker";
 import { ConnectCard } from "./ConnectCard";
@@ -13,10 +15,16 @@ import { CustomerPicker } from "./CustomerPicker";
 import { ReceivedScreen } from "./ReceivedScreen";
 import { RequestCards } from "./RequestCards";
 import { REQUESTS } from "./requests";
+import { TaskpaneSection } from "./TaskpaneSection";
 import { SubmitDock } from "./SubmitDock";
 import { SyncScreen } from "./SyncScreen";
 
-type IntakeScreenName = "build" | "coworker" | "sync" | "received" | "error";
+type IntakeScreenName = "build" | "sync" | "received" | "error";
+
+// Status of the parallel Self-Forward (ADR-0017). `pending` while the chain
+// runs; `ok` once the Note-to-myself sends; `failed` on any non-2xx so the
+// ReceivedScreen renders the retry chip. `null` before the first attempt.
+type SelfForwardStatus = "pending" | "ok" | "failed" | null;
 
 interface IntakeState {
   notes: Record<string, string>;
@@ -30,6 +38,8 @@ interface IntakeState {
   selectedCustomer: CustomerRecord | null;
   customerTouched: boolean;
   syncError: string | null;
+  selfForwardStatus: SelfForwardStatus;
+  selfForwardError: { code: string; message: string } | null;
 }
 
 type IntakeAction =
@@ -43,6 +53,9 @@ type IntakeAction =
   | { type: "syncStarted" }
   | { type: "syncSucceeded" }
   | { type: "syncFailed"; message: string }
+  | { type: "selfForwardStarted" }
+  | { type: "selfForwardSucceeded" }
+  | { type: "selfForwardFailed"; code: string; message: string }
   | { type: "startedOver" };
 
 function initialIntakeState(mailFrom: string): IntakeState {
@@ -55,6 +68,8 @@ function initialIntakeState(mailFrom: string): IntakeState {
     selectedCustomer: null,
     customerTouched: false,
     syncError: null,
+    selfForwardStatus: null,
+    selfForwardError: null,
   };
 }
 
@@ -90,11 +105,27 @@ function intakeReducer(state: IntakeState, action: IntakeAction): IntakeState {
     case "customerOverridden":
       return { ...state, selectedCustomer: action.customer, customerTouched: true };
     case "syncStarted":
-      return { ...state, screen: "sync", syncError: null };
+      return {
+        ...state,
+        screen: "sync",
+        syncError: null,
+        selfForwardStatus: "pending",
+        selfForwardError: null,
+      };
     case "syncSucceeded":
       return { ...state, screen: "received" };
     case "syncFailed":
       return { ...state, screen: "error", syncError: action.message };
+    case "selfForwardStarted":
+      return { ...state, selfForwardStatus: "pending", selfForwardError: null };
+    case "selfForwardSucceeded":
+      return { ...state, selfForwardStatus: "ok", selfForwardError: null };
+    case "selfForwardFailed":
+      return {
+        ...state,
+        selfForwardStatus: "failed",
+        selfForwardError: { code: action.code, message: action.message },
+      };
     case "startedOver":
       return {
         ...state,
@@ -104,6 +135,8 @@ function intakeReducer(state: IntakeState, action: IntakeAction): IntakeState {
         selectedCustomer: null,
         customerTouched: false,
         syncError: null,
+        selfForwardStatus: null,
+        selfForwardError: null,
       };
   }
 }
@@ -111,10 +144,6 @@ function intakeReducer(state: IntakeState, action: IntakeAction): IntakeState {
 function Hero() {
   return (
     <header className="px-1 pt-3 pb-5">
-      <div className="text-accent-foreground mb-3 flex items-center gap-2 text-[11px] font-semibold uppercase">
-        <span className="bg-muted-foreground inline-block h-px w-3.5" />
-        New request
-      </div>
       <h1 className="font-serif text-[34px] leading-[0.98] tracking-tight">
         How can we
         <br />
@@ -124,6 +153,20 @@ function Hero() {
         Route it to the right coworker in seconds.
       </p>
     </header>
+  );
+}
+
+function NewRequestSection({
+  values,
+  onChange,
+}: {
+  values: Record<string, string>;
+  onChange: (id: string, value: string) => void;
+}) {
+  return (
+    <TaskpaneSection id="new-request-title" title="New request">
+      <RequestCards values={values} onChange={onChange} />
+    </TaskpaneSection>
   );
 }
 
@@ -155,27 +198,46 @@ function LoginScreen({
   );
 }
 
+function AuthResolvingScreen() {
+  return (
+    <div className="flex min-h-0 flex-1 items-center justify-center">
+      <Loader2 className="text-muted-foreground size-6 animate-spin" aria-label="Checking Feishu session" />
+    </div>
+  );
+}
+
 export function RequestIntakeScreen({
   isLoggedIn,
+  isAuthLoading = false,
   mailItem,
   sessionId,
   user,
   userAccessToken,
+  usePreviewCoworkers = false,
+  profileSlot,
   onLogin,
   onLoginFallback,
 }: {
   isLoggedIn: boolean;
+  // True only while the Convex session query is still in flight AND we don't
+  // already have a logged-in signal (real Feishu session or dev preview user).
+  // Used to suppress the LoginScreen flash on returning users with cached creds.
+  isAuthLoading?: boolean;
   mailItem: MailItemData;
   sessionId: string;
   // The signed-in Feishu user (the Initiator, ADR-0014). Optional because the
   // dev-preview / browser path can render the screen without a real session.
   user?: { openId: string; userName?: string; avatarUrl?: string };
   userAccessToken?: string;
+  usePreviewCoworkers?: boolean;
+  profileSlot?: ReactNode;
   onLogin: () => void;
   onLoginFallback: () => void;
 }) {
   const { sync } = useRequestSync();
+  const { sendNote: sendSelfForwardNote } = useSelfForward();
   const [state, dispatch] = useReducer(intakeReducer, mailItem.from, initialIntakeState);
+  const customerRefreshAttemptedFor = useRef<string | null>(null);
 
   if (state.mailFrom !== mailItem.from) {
     dispatch({ type: "mailFromChanged", mailFrom: mailItem.from });
@@ -188,8 +250,13 @@ export function RequestIntakeScreen({
   const {
     directory: customerDirectory,
     search: searchCustomers,
+    matchEmail: matchCustomerEmail,
     triggerRefresh: triggerCustomerRefresh,
   } = useCustomerSearch(isLoggedIn);
+
+  const emailDomainPart = state.clientEmail.includes("@")
+    ? state.clientEmail.split("@").pop() ?? state.clientEmail
+    : state.clientEmail;
 
   // Re-run the local auto-match whenever the directory finishes loading or
   // the client email changes. The reducer guards against clobbering a user
@@ -206,10 +273,30 @@ export function RequestIntakeScreen({
   if (
     !state.customerTouched &&
     customerDirectory.status === "ready" &&
+    autoMatch !== null &&
     autoMatchId !== currentMatchId
   ) {
     dispatch({ type: "customerAutoMatched", customer: autoMatch });
   }
+
+  useEffect(() => {
+    if (!isLoggedIn || state.customerTouched || state.selectedCustomer) return;
+    if (!state.clientEmail.includes("@")) return;
+    let cancelled = false;
+    void matchCustomerEmail(state.clientEmail).then((customer) => {
+      if (!cancelled && customer) dispatch({ type: "customerAutoMatched", customer });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoggedIn, matchCustomerEmail, state.clientEmail, state.customerTouched, state.selectedCustomer]);
+
+  useEffect(() => {
+    if (state.customerTouched || customerDirectory.status !== "ready" || autoMatch) return;
+    if (!emailDomainPart || customerRefreshAttemptedFor.current === emailDomainPart) return;
+    customerRefreshAttemptedFor.current = emailDomainPart;
+    triggerCustomerRefresh();
+  }, [autoMatch, customerDirectory.status, emailDomainPart, state.customerTouched, triggerCustomerRefresh]);
 
   const filledRequests = useMemo(
     () =>
@@ -219,6 +306,11 @@ export function RequestIntakeScreen({
       }),
     [state.notes],
   );
+  const requestSelections = useMemo(
+    () => filledRequests.map((r) => ({ requestType: r.title, note: r.note })),
+    [filledRequests],
+  );
+  const selectedCustomerName = state.selectedCustomer?.name;
   const filledCount = filledRequests.length;
   const selectedCount = state.selectedCoworker ? 1 : 0;
   const selectedOpenId = state.selectedCoworker?.openId;
@@ -227,11 +319,51 @@ export function RequestIntakeScreen({
     dispatch({ type: "coworkerSelected", coworker });
   };
 
-  // First write: hand the intake to the Bitable sync. Email subject/body ride to
-  // the Convex Email Record only; the Bitable row gets the structured request.
+  // Sync = (a) the Bitable write that creates the Service row + the Convex
+  // Email Record, AND (b) the Self-Forward "Note to myself" copy into the
+  // Initiator's own mailbox (ADR-0017). Both fire on submit; Bitable is
+  // authoritative, the Self-Forward soft-fails into a retry chip.
+  const fireSelfForward = useCallback(async () => {
+    if (!mailItem.itemId) {
+      dispatch({
+        type: "selfForwardFailed",
+        code: "no_item_id",
+        message: "Mail Item id is unavailable (dev preview / browser host).",
+      });
+      return;
+    }
+    if (!mailItem.userEmail) {
+      dispatch({
+        type: "selfForwardFailed",
+        code: "no_self_email",
+        message: "Outlook user email is unavailable (dev preview / browser host).",
+      });
+      return;
+    }
+    const result: SelfForwardResult = await sendSelfForwardNote({
+      originalMessageId: mailItem.itemId,
+      selfEmail: mailItem.userEmail,
+      customerName: selectedCustomerName,
+      clientEmail: state.clientEmail,
+      requestSelections,
+    });
+    if (result.ok) {
+      dispatch({ type: "selfForwardSucceeded" });
+    } else {
+      dispatch({ type: "selfForwardFailed", code: result.code, message: result.message });
+    }
+  }, [
+    sendSelfForwardNote,
+    mailItem.itemId,
+    mailItem.userEmail,
+    selectedCustomerName,
+    state.clientEmail,
+    requestSelections,
+  ]);
+
   const runSync = useCallback(() => {
     dispatch({ type: "syncStarted" });
-    sync({
+    const bitable = sync({
       subject: mailItem.subject,
       from: mailItem.from,
       to: mailItem.to,
@@ -247,22 +379,30 @@ export function RequestIntakeScreen({
         ? { recordId: state.selectedCustomer.recordId, name: state.selectedCustomer.name }
         : undefined,
       initiator: user?.openId ? { openId: user.openId, name: user.userName } : undefined,
-      requestSelections: filledRequests.map((r) => ({ requestType: r.title, note: r.note })),
+      requestSelections,
       selectedCoworkers: state.selectedCoworker ? [state.selectedCoworker] : [],
     })
       .then(() => dispatch({ type: "syncSucceeded" }))
       .catch((e: unknown) => {
         dispatch({ type: "syncFailed", message: e instanceof Error ? e.message : "Sync failed" });
       });
-  }, [sync, mailItem, state.clientEmail, state.selectedCustomer, user, filledRequests, state.selectedCoworker]);
+    // Parallel — Self-Forward never blocks the Bitable result; if it fails we
+    // surface the retry chip on the ReceivedScreen.
+    void fireSelfForward();
+    return bitable;
+  }, [
+    sync,
+    mailItem,
+    state.clientEmail,
+    state.selectedCustomer,
+    user,
+    requestSelections,
+    state.selectedCoworker,
+    fireSelfForward,
+  ]);
 
   const handleSubmit = () => {
-    if (state.screen === "build") {
-      if (filledCount === 0) return;
-      dispatch({ type: "screenChanged", screen: "coworker" });
-      return;
-    }
-    if (selectedCount === 0) return;
+    if (filledCount === 0 || selectedCount === 0) return;
     runSync();
   };
 
@@ -271,7 +411,14 @@ export function RequestIntakeScreen({
   };
 
   if (state.screen === "received") {
-    return <ReceivedScreen coworkerCount={selectedCount} onSyncAnother={startOver} />;
+    return (
+      <ReceivedScreen
+        coworkerCount={selectedCount}
+        onSyncAnother={startOver}
+        selfForwardStatus={state.selfForwardStatus}
+        onRetrySelfForward={fireSelfForward}
+      />
+    );
   }
 
   if (state.screen === "sync") {
@@ -293,7 +440,7 @@ export function RequestIntakeScreen({
         </p>
         <div className="flex gap-2">
           <Button onClick={runSync}>Try again</Button>
-          <Button variant="secondary" onClick={() => dispatch({ type: "screenChanged", screen: "coworker" })}>
+          <Button variant="secondary" onClick={() => dispatch({ type: "screenChanged", screen: "build" })}>
             Back
           </Button>
         </div>
@@ -302,67 +449,57 @@ export function RequestIntakeScreen({
   }
 
   if (!isLoggedIn) {
+    if (isAuthLoading) return <AuthResolvingScreen />;
     return <LoginScreen onLogin={onLogin} onLoginFallback={onLoginFallback} />;
   }
 
-  if (state.screen === "coworker") {
-    const emailDomainPart = state.clientEmail.includes("@")
-      ? state.clientEmail.split("@").pop() ?? state.clientEmail
-      : state.clientEmail;
-    return (
-      <>
-        <CoworkerPicker
-          clientEmail={state.clientEmail}
-          onClientEmailChange={(value) => dispatch({ type: "clientEmailChanged", value })}
-          customerSlot={
-            <CustomerPicker
-              directory={customerDirectory}
-              searchCustomers={searchCustomers}
-              triggerRefresh={triggerCustomerRefresh}
-              emailDomain={emailDomainPart}
-              selectedCustomer={state.selectedCustomer}
-              currentUserOpenId={user?.openId}
-              onChange={(customer) => dispatch({ type: "customerOverridden", customer })}
-            />
-          }
-          sessionId={sessionId}
-          userAccessToken={userAccessToken}
-          selectedOpenId={selectedOpenId}
-          onSelect={selectCoworker}
-          onBack={() => dispatch({ type: "screenChanged", screen: "build" })}
-        />
-        <SubmitDock
-          count={selectedCount}
-          canSubmit={selectedCount > 0}
-          sending={false}
-          hint="Choose exactly one Feishu coworker"
-          label={state.selectedCoworker ? `Sync with ${state.selectedCoworker.name}` : undefined}
-          footer={`${filledCount} request${filledCount > 1 ? "s" : ""} + 1 coworker ready for Bitable + Convex sync`}
-          onSubmit={handleSubmit}
-        />
-      </>
-    );
-  }
+  const readyToSync = filledCount > 0 && selectedCount > 0;
+  const submitHint = filledCount === 0 ? "Start a request above" : "Choose exactly one Feishu coworker";
+  const submitFooter = readyToSync
+    ? `${filledCount} request${filledCount > 1 ? "s" : ""} + 1 coworker ready for Bitable + Convex sync`
+    : "Request details, client, and coworker stay on one screen";
 
   return (
     <>
-      <div className="no-scrollbar flex-1 overflow-y-auto px-5 pt-1 pb-2">
+      <div className="no-scrollbar relative flex-1 overflow-y-auto px-5 pt-0 pb-24">
+        {profileSlot}
         <Hero />
-        <div className="space-y-3">
-          <RequestCards
+        <div className="space-y-5">
+          <NewRequestSection
             values={state.notes}
             onChange={(id, value) => dispatch({ type: "noteChanged", id, value })}
+          />
+          <CoworkerPicker
+            clientEmail={state.clientEmail}
+            onClientEmailChange={(value) => dispatch({ type: "clientEmailChanged", value })}
+            customerSlot={
+              <CustomerPicker
+                directory={customerDirectory}
+                searchCustomers={searchCustomers}
+                triggerRefresh={triggerCustomerRefresh}
+                emailDomain={emailDomainPart}
+                selectedCustomer={state.selectedCustomer}
+                currentUserOpenId={user?.openId}
+                embedded={true}
+                onChange={(customer) => dispatch({ type: "customerOverridden", customer })}
+              />
+            }
+            sessionId={sessionId}
+            userAccessToken={userAccessToken}
+            selectedOpenId={selectedOpenId}
+            onSelect={selectCoworker}
+            usePreviewCoworkers={usePreviewCoworkers}
           />
         </div>
       </div>
 
       <SubmitDock
-        count={filledCount}
-        canSubmit={filledCount > 0}
+        count={readyToSync ? filledCount : 0}
+        canSubmit={readyToSync}
         sending={false}
-        hint="Start a request above"
-        label={filledCount > 0 ? "Continue" : undefined}
-        footer="Request Types & Details"
+        hint={submitHint}
+        label={readyToSync && state.selectedCoworker ? `Sync with ${state.selectedCoworker.name}` : undefined}
+        footer={submitFooter}
         onSubmit={handleSubmit}
       />
     </>

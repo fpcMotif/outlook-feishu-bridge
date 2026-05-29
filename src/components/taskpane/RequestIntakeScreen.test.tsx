@@ -9,14 +9,55 @@ vi.mock("../../hooks/useRequestSync", () => ({
   }),
 }));
 
-vi.mock("../../hooks/useCoworkerSearch", () => ({
-  useCoworkerSearch: () => vi.fn(() => Promise.resolve([])),
+vi.mock("../../hooks/useSelfForward", () => ({
+  useSelfForward: () => ({ sendNote: vi.fn(() => Promise.resolve({ ok: true })) }),
 }));
+
+vi.mock("../../hooks/useCoworkerSearch", () => {
+  const coworkers = [
+    { openId: "ou_jenny", name: "Jenny Xu", avatarUrl: "https://example.test/jenny.png" },
+    { openId: "ou_michael", name: "Michael Chen", avatarUrl: "https://example.test/michael.png" },
+    { openId: "ou_sales_ops", name: "Sales Ops" },
+    { openId: "ou_wei", name: "Wei Liang" },
+  ];
+  return {
+    useCoworkerSearch: () =>
+      vi.fn((query: string) =>
+        Promise.resolve(coworkers.filter((c) => c.name.toLowerCase().includes(query.toLowerCase()))),
+      ),
+  };
+});
+
+const MICROSOFT = {
+  recordId: "rec_microsoft",
+  name: "Microsoft",
+  domain: "microsoft.com",
+  owner: null,
+};
+
+const FANPC = {
+  recordId: "dev_fixture_fanpc_customer",
+  name: "fanpc",
+  domain: "fenchem.com",
+  owner: { openId: "ou_dev", name: "fanpc" },
+};
+
+let customerDirectoryRecords = [FANPC, MICROSOFT];
 
 vi.mock("../../hooks/useCustomerSearch", () => ({
   useCustomerSearch: () => ({
-    directory: { status: "ready", records: [] },
+    directory: { status: "ready", records: customerDirectoryRecords },
     search: vi.fn(() => Promise.resolve([])),
+    matchEmail: vi.fn((email: string) =>
+      Promise.resolve(
+        email.endsWith("@fenchem.com")
+          ? FANPC
+          : email.endsWith("@microsoftonline.com") || email.endsWith("@microsoft.com")
+            ? MICROSOFT
+            : null,
+      ),
+    ),
+    triggerRefresh: vi.fn(),
   }),
 }));
 
@@ -52,16 +93,23 @@ function renderRequestIntakeScreen(
   );
 }
 
-function fillQuotationAndContinue() {
+function fillQuotation() {
   fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
-  fireEvent.change(screen.getByRole("textbox"), {
+  fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
     target: { value: "Need a quarterly L-Carnitine quote." },
   });
-  fireEvent.click(screen.getByRole("button", { name: /^Continue$/i }));
+}
+
+async function searchCoworker(name: string) {
+  fireEvent.change(screen.getByLabelText("Search Feishu coworkers"), {
+    target: { value: name },
+  });
+  return await screen.findByRole("button", { name: new RegExp(`^${name}`, "i") });
 }
 
 beforeEach(() => {
   localStorage.clear();
+  customerDirectoryRecords = [FANPC, MICROSOFT];
 });
 
 describe("RequestIntakeScreen login gate", () => {
@@ -77,14 +125,22 @@ describe("RequestIntakeScreen login gate", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("shows the request builder without the login prompt after sign-in", () => {
+  it("shows request details and client/coworker controls together after sign-in", () => {
     renderRequestIntakeScreen(true);
 
     expect(screen.queryByText("Connect to Feishu")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Quotation/i })).toBeInTheDocument();
+    expect(screen.getByLabelText("Email")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Feishu coworker" })).toBeInTheDocument();
+    const routeCopy = screen.getByText("Route it to the right coworker in seconds.");
+    expect(routeCopy.compareDocumentPosition(screen.getByText("New request"))).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(screen.queryByText("Search by name to choose a Feishu coworker")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Recent & suggested/i)).not.toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /Start a request above/i }),
-    ).toBeInTheDocument();
+    ).toBeDisabled();
   });
 });
 
@@ -92,35 +148,32 @@ describe("RequestIntakeScreen request details", () => {
   it("marks filled request cards as selected", () => {
     renderRequestIntakeScreen(true);
 
-    fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
-    fireEvent.change(screen.getByRole("textbox"), {
-      target: { value: "Need a quarterly L-Carnitine quote." },
-    });
+    fillQuotation();
 
     expect(screen.getByText("Selected")).toBeInTheDocument();
     expect(screen.queryByText("Ready")).not.toBeInTheDocument();
   });
 
-  it("moves filled requests into Act II coworker selection before submit", () => {
+  it("keeps request details and client/coworker selection on one screen before submit", () => {
     renderRequestIntakeScreen(true);
-    fillQuotationAndContinue();
+    fillQuotation();
 
-    expect(screen.getByText("Client & coworker")).toBeInTheDocument();
-    expect(screen.getByText("Client email")).toBeInTheDocument();
+    expect(screen.getByText("Customer & coworker")).toBeInTheDocument();
+    expect(screen.getByLabelText("Email")).toBeInTheDocument();
     expect(screen.getByDisplayValue("m.hoffmann@bayerpharma.de")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Feishu coworker" })).toBeInTheDocument();
-    expect(screen.queryByText("Need a quarterly L-Carnitine quote.")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Jenny Xu/i })).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Need a quarterly L-Carnitine quote.")).toBeInTheDocument();
+    expect(screen.queryByText(/Recent & suggested/i)).not.toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /Choose exactly one Feishu coworker/i }),
     ).toBeDisabled();
   });
 
-  it("lets users confirm and update the retrieved client email", () => {
+  it("lets users confirm and update the retrieved email", () => {
     renderRequestIntakeScreen(true);
-    fillQuotationAndContinue();
+    fillQuotation();
 
-    fireEvent.change(screen.getByLabelText("Client email"), {
+    fireEvent.change(screen.getByLabelText("Email"), {
       target: { value: "updated.client@example.com" },
     });
 
@@ -129,20 +182,50 @@ describe("RequestIntakeScreen request details", () => {
 
 });
 
-describe("RequestIntakeScreen coworker selection", () => {
-  it("allows exactly one coworker and replaces the selection on the cards", () => {
-    renderRequestIntakeScreen(true);
-    fillQuotationAndContinue();
+describe("RequestIntakeScreen customer auto-match", () => {
+  it("auto-matches Microsoft from microsoft-noreply@microsoft.com", () => {
+    renderRequestIntakeScreen(true, "microsoft-noreply@microsoft.com");
 
-    const jenny = screen.getByRole("button", { name: /Jenny Xu/i });
-    fireEvent.click(jenny);
-    expect(jenny).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("Microsoft")).toBeInTheDocument();
+    expect(screen.queryByText(/No match/i)).not.toBeInTheDocument();
+  });
+
+  it("auto-matches Microsoft from microsoftonline.com", () => {
+    renderRequestIntakeScreen(true, "alerts@microsoftonline.com");
+
+    expect(screen.getByText("Microsoft")).toBeInTheDocument();
+    expect(screen.queryByText(/No match/i)).not.toBeInTheDocument();
+  });
+
+  it("auto-matches fanpc from fanpc@fenchem.com", () => {
+    renderRequestIntakeScreen(true, "fanpc@fenchem.com");
+
+    expect(screen.getByText("fanpc")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /change/i })).toBeInTheDocument();
+    expect(screen.queryByText(/No match/i)).not.toBeInTheDocument();
+  });
+
+  it("keeps the async Convex mirror match when the local directory is empty", async () => {
+    customerDirectoryRecords = [];
+
+    renderRequestIntakeScreen(true, "fanpc@fenchem.com");
+
+    expect(await screen.findByText("fanpc")).toBeInTheDocument();
+    expect(screen.queryByText(/No matched/i)).not.toBeInTheDocument();
+  });
+});
+
+describe("RequestIntakeScreen coworker selection", () => {
+  it("allows exactly one coworker and replaces the selection on the cards", async () => {
+    renderRequestIntakeScreen(true);
+    fillQuotation();
+
+    fireEvent.click(await searchCoworker("Jenny Xu"));
+    expect(screen.getByText("Jenny Xu")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Sync with Jenny Xu/i })).toBeInTheDocument();
 
-    const michael = screen.getByRole("button", { name: /Michael Chen/i });
-    fireEvent.click(michael);
-    expect(jenny).toHaveAttribute("aria-pressed", "false");
-    expect(michael).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(await searchCoworker("Michael Chen"));
+    expect(screen.getByText("Michael Chen")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Sync with Michael Chen/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Remove coworker/i })).not.toBeInTheDocument();
   });
@@ -151,9 +234,9 @@ describe("RequestIntakeScreen coworker selection", () => {
 describe("RequestIntakeScreen sync flow", () => {
   it("shows Act IV while syncing, then the success screen once sync resolves", async () => {
     renderRequestIntakeScreen(true);
-    fillQuotationAndContinue();
+    fillQuotation();
 
-    fireEvent.click(screen.getByRole("button", { name: /Jenny Xu/i }));
+    fireEvent.click(await searchCoworker("Jenny Xu"));
     fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
 
     expect(

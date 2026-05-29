@@ -10,7 +10,7 @@ After the [ADR-0013](0013-customer-directory-preload-and-picker.md) deploy, the 
 - **`Email Subject` (Text)** is written with the intake's `subject` field as a plain string.
 - **The Email Record gains `initiator: { openId, name } | undefined`** (strictly additive optional). Mirrors what was written to Bitable so the Convex audit row matches.
 - **`Email Body` is NOT written.** The column does not exist in the live Service Table today, and per ADR-0010 we still store the body only as the ≤500-char `bodyPreview` on the Email Record. If a body column is added later, it gets its own ADR.
-- **`Email Conversation ID` is NOT written.** Deferred — a future iteration will auto-forward each synced email to a common inbox and write the *forwarded* conversation's id to this column (the current Outlook `conversationId` is the wrong value).
+- **`Email Conversation ID` is NOT written *yet*.** Deferred at the time of writing — picked up by [ADR-0017](0017-graph-self-forward-note-to-myself.md), which writes the current Outlook `item.conversationId` (the per-rep mailbox-local thread id) into this column as a Bitable-to-Outlook deep-link key. ADR-0017 supersedes the "wrong value" framing in the rejected-alternative below.
 
 ## Why
 
@@ -32,7 +32,7 @@ After the [ADR-0013](0013-customer-directory-preload-and-picker.md) deploy, the 
 - **Use the `创建人` (CreatedUser) auto field.** Captures the bot identity, not the human. Wrong by construction.
 - **Add a UI affordance to pick the Initiator.** Unnecessary — the Initiator is, by definition, whoever clicked Sync. A picker just lets people misattribute the row.
 - **Write the email body to Bitable too.** No body column exists, the user explicitly dropped the request, and ADR-0010's reasoning still stands. Body stays preview-only on the Email Record.
-- **Write `Email Conversation ID` with Outlook's current conversationId.** That value will be replaced by a forwarded-thread conv id in the future auto-forward workflow; writing the wrong value now would mislead.
+- ~~**Write `Email Conversation ID` with Outlook's current conversationId.** That value will be replaced by a forwarded-thread conv id in the future auto-forward workflow; writing the wrong value now would mislead.~~ **Reversed by [ADR-0017](0017-graph-self-forward-note-to-myself.md):** the sales process turned out to be per-rep, not shared-inbox; Outlook's `item.conversationId` is exactly the right join key from the Bitable row back to the salesperson's mailbox view of the original client thread. ADR-0017 also adds a Self-Forward ("Note to myself") delivered to the Initiator's own mailbox via Microsoft Graph — that is a *parallel* annotation, not the join key.
 
 ## References
 

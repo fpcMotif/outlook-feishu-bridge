@@ -25,17 +25,25 @@ export interface CustomerSearchOptions {
   mineFor?: string;
 }
 
+const CUSTOMER_DOMAIN_ALIASES: Record<string, string> = {
+  "microsoftonline.com": "microsoft.com",
+};
+
 export function findCustomerByEmail<R extends { domain?: string }>(
   directory: readonly R[],
   email: string,
 ): R | null {
-  const target = emailDomain(email);
+  const target = canonicalCustomerDomain(emailDomain(email));
   if (!target) return null;
   return (
-    directory.find((customer) =>
-      typeof customer.domain === "string" && customer.domain.toLowerCase() === target,
-    ) ?? null
+    directory.find((customer) => canonicalCustomerDomain(customer.domain) === target) ?? null
   );
+}
+
+function canonicalCustomerDomain(domain: string | undefined | null): string | null {
+  const normalized = domain?.trim().toLowerCase();
+  if (!normalized) return null;
+  return CUSTOMER_DOMAIN_ALIASES[normalized] ?? normalized;
 }
 
 function emailDomain(email: string): string | null {

@@ -20,14 +20,29 @@ vi.mock("../hooks/useRequestSync", () => ({
   }),
 }));
 
-vi.mock("../hooks/useCoworkerSearch", () => ({
-  useCoworkerSearch: () => vi.fn(() => Promise.resolve([])),
+vi.mock("../hooks/useSelfForward", () => ({
+  useSelfForward: () => ({ sendNote: vi.fn(() => Promise.resolve({ ok: true })) }),
 }));
+
+vi.mock("../hooks/useCoworkerSearch", () => {
+  const coworkers = [
+    { openId: "ou_jenny", name: "Jenny Xu", avatarUrl: "https://example.test/jenny.png" },
+    { openId: "ou_michael", name: "Michael Chen", avatarUrl: "https://example.test/michael.png" },
+  ];
+  return {
+    useCoworkerSearch: () =>
+      vi.fn((query: string) =>
+        Promise.resolve(coworkers.filter((c) => c.name.toLowerCase().includes(query.toLowerCase()))),
+      ),
+  };
+});
 
 vi.mock("../hooks/useCustomerSearch", () => ({
   useCustomerSearch: () => ({
     directory: { status: "ready", records: [] },
     search: vi.fn(() => Promise.resolve([])),
+    matchEmail: vi.fn(() => Promise.resolve(null)),
+    triggerRefresh: vi.fn(),
   }),
 }));
 
@@ -61,6 +76,13 @@ function unlockRequestBuilder() {
   fireEvent.click(screen.getByRole("button", { name: /Continue with Feishu/i }));
 }
 
+async function searchCoworker(name: string) {
+  fireEvent.change(screen.getByLabelText("Search Feishu coworkers"), {
+    target: { value: name },
+  });
+  return await screen.findByRole("button", { name: new RegExp(`^${name}`, "i") });
+}
+
 beforeEach(() => {
   localStorage.clear();
   window.history.replaceState({}, "", "/");
@@ -80,6 +102,9 @@ describe("TaskPane browser preview auth flow", () => {
 
     expect(screen.queryByText("Connect to Feishu")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Quotation/i })).toBeInTheDocument();
+    expect(screen.getByLabelText("Email")).toBeInTheDocument();
+    expect(screen.queryByText("Search by name to choose a Feishu coworker")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Recent & suggested/i)).not.toBeInTheDocument();
   });
 
   it("does not duplicate the host app title after login", () => {
@@ -92,14 +117,20 @@ describe("TaskPane browser preview auth flow", () => {
     expect(screen.getByRole("button", { name: /Feishu profile/i })).toBeInTheDocument();
   });
 
-  it("opens an anchored account menu and signs out", () => {
+  it("renders the account menu in the static request header and signs out", () => {
     renderPreview();
 
     unlockRequestBuilder();
+    const profileHeader = screen.getByRole("region", { name: /Feishu account controls/i });
+    expect(profileHeader).toHaveAttribute("data-profile-header", "true");
+    expect(profileHeader).toHaveClass("absolute", "top-1", "right-5");
+    expect(profileHeader).not.toHaveClass("sticky", "top-0");
+
     fireEvent.click(screen.getByRole("button", { name: /Feishu profile/i }));
 
     const accountMenu = screen.getByRole("dialog", { name: /Feishu account/i });
-    expect(accountMenu.tagName).toBe("DIV");
+    expect(accountMenu.tagName).toBe("DIALOG");
+    expect(accountMenu).toHaveClass("m-0", "left-auto");
     expect(screen.getAllByText("JX")).toHaveLength(1);
     expect(accountMenu).toHaveTextContent("Connected");
     fireEvent.click(screen.getByRole("button", { name: /Sign out of Feishu/i }));
@@ -114,12 +145,11 @@ describe("TaskPane browser preview request flow", () => {
 
     unlockRequestBuilder();
     fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
-    fireEvent.change(screen.getByRole("textbox"), {
+    fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
       target: { value: "Need a quarterly L-Carnitine quote." },
     });
-    fireEvent.click(screen.getByRole("button", { name: /^Continue$/i }));
     expect(screen.getByDisplayValue("m.hoffmann@bayerpharma.de")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Jenny Xu/i }));
+    fireEvent.click(await searchCoworker("Jenny Xu"));
     fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
 
     expect(
@@ -130,5 +160,21 @@ describe("TaskPane browser preview request flow", () => {
     expect(
       await screen.findByRole("heading", { name: /Synced to Feishu/i }),
     ).toBeInTheDocument();
+  });
+
+  it("does not keep the profile header pinned after leaving the request builder", async () => {
+    renderPreview();
+
+    unlockRequestBuilder();
+    fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
+    fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
+      target: { value: "Need a quarterly L-Carnitine quote." },
+    });
+    fireEvent.click(await searchCoworker("Jenny Xu"));
+    fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
+
+    expect(await screen.findByRole("heading", { name: /Synced to Feishu/i })).toBeInTheDocument();
+
+    expect(screen.queryByRole("region", { name: /Feishu account controls/i })).not.toBeInTheDocument();
   });
 });

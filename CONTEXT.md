@@ -56,8 +56,8 @@ A single categorized ask captured from the client email — one of **Quotation**
 _Avoid_: "ticket", "channel" (an earlier word for these cards).
 
 **Coworker**:
-A Feishu directory user, found via **Search Users** (`/search/v1/user`, scope `contact:user:search`) and selected as the single **assignee** written into the **Bitable** row. Exactly one **Coworker** is required per **Bitable Sync**. The app sends them **no message** — assignment is metadata; any alerting is Bitable's own feature.
-_Avoid_: "recipient" / "contact" (we don't deliver anything to them), "channel".
+A real Feishu directory user, found via **Search Users** (`/search/v1/user`, scope `contact:user:search`) and selected as the single **assignee** written into the **Bitable** row. Exactly one **Coworker** is required per **Bitable Sync**; made-up fixture users are not Coworkers and belong only in automated tests. The app sends them **no message** — assignment is metadata; any alerting is Bitable's own feature.
+_Avoid_: "recipient" / "contact" (we don't deliver anything to them), "sample coworker", "preview user", "channel".
 
 **Initiator**:
 The signed-in Feishu user who clicks **Sync** — the salesperson who triggered the **Bitable Sync**. Distinct from the **Coworker** (the assignee). Written into the Bitable Service row's `Sales` (User) column and mirrored onto the **Email Record** as the audit trail of *who* synced it.
@@ -113,7 +113,7 @@ _Avoid_: "the Feishu token" — there are two, user vs tenant.
 - "Gateway" — earlier designs called the ECS box a "CN Edge Gateway" / warm-standby proxy (see superseded ADR-0001). It is now primarily a **web server** serving the SPA. Say **ECS Host**, not "gateway".
 - "Convex" sometimes refers to the SaaS company, sometimes to our specific deployment. We say **Convex Backend** when we mean ours.
 - The SPA base path is **host-specific**: `/addin/` on the **ECS Host**, `/` on the **Global Host** ([ADR-0009](docs/adr/0009-cloudflare-global-host-dual-deploy.md)). A mismatch — an ECS manifest pointing at root, or a `/addin/` build deployed to the Global Host's root — 404s on assets.
-- `/search/v1/user` reads as legacy but is **current** — it's the official Search Users API (GET, keyword in the `query` URL param, scope `contact:user:search`); there is no `contact/v3` search ([ADR-0003](docs/adr/0003-feishu-user-scopes-and-search-v1.md)). It is still used — by **Coworker** search.
+- `/search/v1/user` reads as legacy but is **current** — it's the official Search Users API (GET, keyword in the `query` URL param, scope `contact:user:search`); there is no `contact/v3` search ([ADR-0003](docs/adr/0003-feishu-user-scopes-and-search-v1.md)). It is still used — by **Coworker** search, whose user-visible results must come only from real Feishu directory users.
 - **Bitable Sync** scopes: a user token needs `contact:user:search` + `offline_access` only; the chat scopes `im:chat:readonly` / `im:message` were **dropped** with the pivot ([ADR-0010](docs/adr/0010-pivot-to-bitable-intake.md)). The **Bitable** write itself is tenant-token (app permission `bitable:app`), not a user scope. Changing the user scope set forces every user to log out and re-authorize.
 - **The UI is wired to Bitable Sync.** The redesigned taskpane ([RequestIntakeScreen.tsx](src/components/taskpane/RequestIntakeScreen.tsx) → [SyncScreen.tsx](src/components/taskpane/SyncScreen.tsx)) calls `requestSync.syncRequest`; "Synced to Feishu" means the Bitable write and Convex **Email Record** action resolved.
 - **"Forward" is retired language.** The multi-target Forward pipeline has been removed from live code. Prefer **Bitable Sync** in prose.

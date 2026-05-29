@@ -32,7 +32,7 @@ test("browser preview keeps login separate and shows merged request routing", as
     };
   });
 
-  await page.goto("/");
+  await page.goto("/?e2eCoworkers=1");
   await expect(page).toHaveTitle("feishu-sync");
   await expect(page.getByRole("heading", { name: "Connect to Feishu" })).toBeVisible({
     timeout: 12_000,

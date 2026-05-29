@@ -79,12 +79,13 @@ export function TaskPane({ host }: { host: string | null }) {
   // Real Outlook sets host "Outlook"; anything else in dev (host null or
   // "browser") means no mailbox, so preview a sample item and simulate submit.
   const devPreview = import.meta.env.DEV && host !== "Outlook";
+  const params = new URLSearchParams(window.location.search);
+  const useCoworkerFixtures = devPreview && params.has("e2eCoworkers");
   const item = mailItem ?? (devPreview ? DEV_SAMPLE : null);
 
   // Dev-only: clicking "Log in" advances straight to the logged-in UI (profile +
   // coworker picker) without the real OAuth popup. ?devUser=1 starts logged in.
-  const showDevUser =
-    devPreview && (devLoggedIn || new URLSearchParams(window.location.search).has("devUser"));
+  const showDevUser = devPreview && (devLoggedIn || params.has("devUser"));
   const devUser = showDevUser
     ? { openId: "ou_dev", userName: "Jenny Xu", email: "jenny.xu@fenchem.com", org: "Branch Sales" }
     : null;
@@ -121,7 +122,7 @@ export function TaskPane({ host }: { host: string | null }) {
             sessionId={feishuAuth.sessionId}
             user={user ?? undefined}
             userAccessToken={feishuAuth.userAccessToken}
-            usePreviewCoworkers={devPreview}
+            usePreviewCoworkers={useCoworkerFixtures}
             onLogin={handleLogin}
             onLoginFallback={handleLoginFallback}
           />

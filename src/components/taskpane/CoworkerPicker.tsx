@@ -6,9 +6,10 @@ import { Check, Search, UserRound, X } from "lucide-react";
 import type { Coworker } from "./coworkers";
 import { useCoworkerSearch } from "../../hooks/useCoworkerSearch";
 
-// Dev/preview fallback directory, used only when the live Feishu search is
-// unavailable (browser preview has no Convex user session). In real Outlook the
-// search hook returns actual coworkers (real open_ids). See ADR-0003.
+// Test fixture directory. These made-up coworkers are allowed only when an
+// e2e/dev-test harness explicitly opts in; production search must never fall
+// back to them. Real user-visible results come only from Feishu Search Users.
+// See ADR-0003.
 const PREVIEW_COWORKERS: Coworker[] = [
   { openId: "ou_jenny", name: "Jenny Xu" },
   { openId: "ou_michael", name: "Michael Chen" },
@@ -183,8 +184,8 @@ export function CoworkerPicker({
 
   const q = query.trim();
 
-  // Live search (debounced). On failure (no session / browser preview) fall back
-  // to the preview directory so the demo still works.
+  // Live search (debounced). User-visible results are either Feishu Search Users
+  // results, or explicit test fixtures when an e2e/dev-test harness opts in.
   useEffect(() => {
     if (!q) {
       dispatchResults([]);
@@ -204,7 +205,7 @@ export function CoworkerPicker({
           if (!cancelled) dispatchResults(found);
         })
         .catch(() => {
-          if (!cancelled) dispatchResults(previewMatches);
+          if (!cancelled) dispatchResults([]);
         });
     }, SEARCH_DEBOUNCE_MS);
     return () => {
@@ -215,9 +216,10 @@ export function CoworkerPicker({
 
   const directoryById = useMemo(() => {
     const map = new Map<string, Coworker>();
-    for (const c of [...PREVIEW_COWORKERS, ...recents, ...results]) map.set(c.openId, c);
+    const fixtureCoworkers = usePreviewCoworkers ? PREVIEW_COWORKERS : [];
+    for (const c of [...fixtureCoworkers, ...recents, ...results]) map.set(c.openId, c);
     return map;
-  }, [recents, results]);
+  }, [recents, results, usePreviewCoworkers]);
 
   const searching = q.length > 0;
   const selectedCoworker = selectedOpenId ? directoryById.get(selectedOpenId) : undefined;

@@ -4,6 +4,8 @@
 
 The bridge searches the directory for real coworker `open_id`s, so that call uses a **user access token**, not the app/bot (tenant) token. Feishu only puts a user-identity scope into the token if it is named in the OAuth `authorize` request's `scope` parameter; our login originally sent **no** `scope`, so every user-identity call failed with **`99991679`** ("app did not obtain the user's authorization"). The login now requests only `contact:user:search offline_access`.
 
+User-visible Coworker search has a single source of truth: Feishu Search Users. Static or made-up coworker fixtures may exist only inside automated tests; they must not appear as fallback results when a real Feishu search fails.
+
 ## On the `v1` in `/open-apis/search/v1/user`
 
 `GET /open-apis/search/v1/user` (keyword in the `query` URL param, scope `contact:user:search`, `user_access_token`) is the **current** official Search Users API — verified directly against the open.feishu.cn docs (both the `contact-v3/user/search-users` page and the older page; neither carries a deprecation / 旧版 banner). The `v1` is **not** legacy and there is **no** `contact/v3` search-users replacement. Do not "upgrade" the path.
@@ -15,4 +17,5 @@ The real defect was the *call shape*: `coworkers.ts` originally issued a **POST 
 - **Scope changes force re-login.** Adding or removing a requested scope only takes effect after each user logs out and re-authorizes; tokens minted earlier keep their old scope set.
 - **`offline_access` is load-bearing.** Once `scope` is sent explicitly, the OIDC token endpoint returns a `refresh_token` only when `offline_access` is among the requested scopes — dropping it would break `userAuth`'s silent refresh.
 - **Least privilege.** We request only the scopes actually exercised; `contact:user.base:readonly`, `im:chat:readonly`, and `im:message` are unused by the current Bitable sync flow. Search Users returns name/avatar/open_id under `contact:user:search` alone; `user_id` would need `contact:user.employee_id:readonly`, which we don't use.
+- **No synthetic production results.** If real Coworker search cannot authenticate or Feishu returns no match, the UI must show no matching Coworker rather than sample people. Made-up coworkers are test fixtures only.
 - **Tenant-identity calls are unaffected.** Bot-webhook posts, Doc creation, and Bitable writes use the tenant token and were never implicated in `99991679`.

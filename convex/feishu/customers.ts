@@ -116,7 +116,7 @@ export function findCustomerByEmail<R extends { domain?: string }>(
   return directory.find((c) => canonicalCustomerDomain(c.domain) === target) ?? null;
 }
 
-function canonicalCustomerDomain(domain: string | undefined | null): string | null {
+export function canonicalCustomerDomain(domain: string | undefined | null): string | null {
   const normalized = domain?.trim().toLowerCase();
   if (!normalized) return null;
   return CUSTOMER_DOMAIN_ALIASES[normalized] ?? normalized;
@@ -186,7 +186,13 @@ export const listCustomers = action({
   handler: async (ctx): Promise<{ records: CustomerRecord[]; generatedAt: number }> => {
     const appToken = requireAppToken();
     const records = await fetchCustomerPage(ctx, appToken, undefined, [], 0);
-    return { records: withDevCustomerFixtures(records), generatedAt: Date.now() };
+    const withFixtures = withDevCustomerFixtures(records);
+    if (withFixtures[0]?.recordId === "dev_fixture_fanpc_customer") {
+      console.log(
+        `[dev-customer-fixture] TEST ONLY injected fanpc customer domain=fenchem.com rows=${withFixtures.length}`,
+      );
+    }
+    return { records: withFixtures, generatedAt: Date.now() };
   },
 });
 

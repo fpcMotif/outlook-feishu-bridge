@@ -6,10 +6,11 @@ import { useCallback } from "react";
 import { useAction, useConvex } from "convex/react";
 
 import { api } from "../../convex/_generated/api";
-import type {
-  CustomerDirectoryState,
-  CustomerRecord,
-  CustomerSearchOptions,
+import {
+  findCustomerByEmail,
+  type CustomerDirectoryState,
+  type CustomerRecord,
+  type CustomerSearchOptions,
 } from "../components/taskpane/customers";
 import { dtime } from "../debug";
 import { useCustomerDirectory } from "./useCustomerDirectory";
@@ -17,6 +18,7 @@ import { useCustomerDirectory } from "./useCustomerDirectory";
 export interface CustomerSearch {
   directory: CustomerDirectoryState;
   search: (query: string, options?: CustomerSearchOptions) => Promise<CustomerRecord[]>;
+  matchEmail: (email: string) => Promise<CustomerRecord | null>;
   /** Fire a fresh sync (preload re-fetch or mirror kick) without blocking the caller. */
   triggerRefresh: () => void;
 }
@@ -88,6 +90,18 @@ export function useCustomerSearch(isLoggedIn: boolean): CustomerSearch {
 
   // Mode-aware refresh: preload mode re-fetches the directory; server-index
   // mode kicks the mirror so the search index is fresh on the next ranked query.
+  const matchEmail = useCallback(
+    async (email: string): Promise<CustomerRecord | null> => {
+      if (!email.trim()) return null;
+      if (SEARCH_MODE === "server-index") {
+        const result = await convex.query(api.feishu.customersMirror.matchByEmail, { email });
+        return result.customer;
+      }
+      return findCustomerByEmail(directoryHook.state.records, email);
+    },
+    [convex, directoryHook.state.records],
+  );
+
   const triggerRefresh = useCallback(() => {
     if (SEARCH_MODE === "server-index") {
       const started = performance.now();
@@ -114,5 +128,5 @@ export function useCustomerSearch(isLoggedIn: boolean): CustomerSearch {
   const exposedDirectory: CustomerDirectoryState =
     SEARCH_MODE === "server-index" ? { status: "ready", records: [] } : directoryHook.state;
 
-  return { directory: exposedDirectory, search, triggerRefresh };
+  return { directory: exposedDirectory, search, matchEmail, triggerRefresh };
 }

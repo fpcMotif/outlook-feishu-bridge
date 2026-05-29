@@ -52,6 +52,7 @@ export default defineSchema({
     mirroredAt: v.number(),
   })
     .index("by_recordId", ["recordId"])
+    .index("by_domain", ["domain"])
     .searchIndex("by_text", { searchField: "searchBlob", filterFields: ["ownerOpenId"] }),
 
   // Watermark row for the customer-mirror cron — one row per deployment,

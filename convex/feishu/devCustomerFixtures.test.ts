@@ -34,7 +34,7 @@ describe("dev Customer fixtures", () => {
     });
   });
 
-  it("prepends fanpc and lets the dev fixture override a live duplicate domain", () => {
+  it("prepends test fixtures and lets fanpc override a live duplicate domain", () => {
     process.env.ENABLE_DEV_CUSTOMER_FIXTURES = "true";
 
     const records = withDevCustomerFixtures([
@@ -42,13 +42,14 @@ describe("dev Customer fixtures", () => {
       { recordId: "rec_other", name: "Other", domain: "other.example", owner: null },
     ]);
 
-    expect(records.map((record) => record.name)).toEqual(["fanpc", "Other"]);
+    expect(records.map((record) => record.name)).toEqual(["fanpc", "Microsoft", "Other"]);
   });
 
-  it("finds the fanpc fixture by customer name or domain", () => {
+  it("finds dev fixtures by customer name or domain", () => {
     process.env.ENABLE_DEV_CUSTOMER_FIXTURES = "true";
 
     expect(searchDevCustomerFixtures("fanpc")).toHaveLength(1);
     expect(searchDevCustomerFixtures("fenchem.com")).toHaveLength(1);
+    expect(searchDevCustomerFixtures("microsoft.com")).toHaveLength(1);
   });
 });

@@ -42,6 +42,9 @@ vi.mock("../../hooks/useCustomerSearch", () => ({
   useCustomerSearch: () => ({
     directory: { status: "ready", records: [BAYER, STOCKMEIER] },
     search: vi.fn(() => Promise.resolve([])),
+    matchEmail: vi.fn((email: string) =>
+      Promise.resolve(email.endsWith("@bayerpharma.de") ? BAYER : null),
+    ),
     triggerRefresh: vi.fn(),
   }),
 }));

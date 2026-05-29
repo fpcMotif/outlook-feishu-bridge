@@ -1,3 +1,4 @@
+/* eslint-disable max-lines */
 // Server-indexed Customer search (ADR-0016). Mirrors the Feishu Customer Table
 // into a Convex table with a search index, so per-keystroke autocomplete in
 // the SPA can run as a ranked Convex query — no client-side preload, no
@@ -23,7 +24,11 @@ import {
 } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { callFeishu } from "./call";
-import { mapFeishuItemToCustomer, type CustomerRecord } from "./customers";
+import {
+  canonicalCustomerDomain,
+  mapFeishuItemToCustomer,
+  type CustomerRecord,
+} from "./customers";
 import {
   dedupeRowsByRecordId,
   mirrorDocToCustomer,
@@ -243,6 +248,38 @@ export const searchAndCacheMiss = action({
     return { records, backfilled: backfilledRecords.length };
   },
 });
+
+export const matchByEmail = query({
+  args: { email: v.string() },
+  handler: async (ctx, args): Promise<{ customer: CustomerRecord | null }> => {
+    const domain = canonicalCustomerDomain(emailDomain(args.email));
+    if (!domain) return { customer: null };
+    const hit = await ctx.db
+      .query("customers")
+      .withIndex("by_domain", (q) => q.eq("domain", domain))
+      .first();
+    if (hit) {
+      if (hit.recordId === "dev_fixture_fanpc_customer") {
+        console.log(
+          `[dev-customer-fixture] TEST ONLY matched fanpc customer for ${domain}`,
+        );
+      }
+      return { customer: mirrorDocToCustomer(hit) };
+    }
+    const fixture = searchDevCustomerFixtures(domain)[0] ?? null;
+    if (fixture) {
+      console.log(`[dev-customer-fixture] TEST ONLY matched in-memory fixture for ${domain}`);
+    }
+    return { customer: fixture };
+  },
+});
+
+function emailDomain(email: string): string | null {
+  const at = email.lastIndexOf("@");
+  if (at < 0 || at === email.length - 1) return null;
+  const domain = email.slice(at + 1).trim().toLowerCase();
+  return domain || null;
+}
 
 // Public ranked search query. Uses Convex's `withSearchIndex` for prefix +
 // score ranking on the `searchBlob` column. Optional `mineFor` filters to

@@ -239,6 +239,7 @@ export function RequestIntakeScreen({
   const {
     directory: customerDirectory,
     search: searchCustomers,
+    matchEmail: matchCustomerEmail,
     triggerRefresh: triggerCustomerRefresh,
   } = useCustomerSearch(isLoggedIn);
 
@@ -265,6 +266,18 @@ export function RequestIntakeScreen({
   ) {
     dispatch({ type: "customerAutoMatched", customer: autoMatch });
   }
+
+  useEffect(() => {
+    if (!isLoggedIn || state.customerTouched || state.selectedCustomer) return;
+    if (!state.clientEmail.includes("@")) return;
+    let cancelled = false;
+    void matchCustomerEmail(state.clientEmail).then((customer) => {
+      if (!cancelled && customer) dispatch({ type: "customerAutoMatched", customer });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoggedIn, matchCustomerEmail, state.clientEmail, state.customerTouched, state.selectedCustomer]);
 
   useEffect(() => {
     if (state.customerTouched || customerDirectory.status !== "ready" || autoMatch) return;

@@ -14,6 +14,15 @@ export const DEV_CUSTOMER_FIXTURES: CustomerRecord[] = [
     countryRegion: "Dev",
     owner: { openId: "ou_dev", name: "fanpc" },
   },
+  {
+    recordId: "dev_fixture_microsoft_customer",
+    name: "Microsoft",
+    domain: "microsoft.com",
+    fullName: "Microsoft dev customer",
+    accountNo: "DEV-MICROSOFT",
+    countryRegion: "Dev",
+    owner: null,
+  },
 ];
 
 export function isDevCustomerFixturesEnabled(): boolean {

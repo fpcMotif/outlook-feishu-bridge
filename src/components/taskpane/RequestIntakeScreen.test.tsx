@@ -46,6 +46,15 @@ vi.mock("../../hooks/useCustomerSearch", () => ({
   useCustomerSearch: () => ({
     directory: { status: "ready", records: [FANPC, MICROSOFT] },
     search: vi.fn(() => Promise.resolve([])),
+    matchEmail: vi.fn((email: string) =>
+      Promise.resolve(
+        email.endsWith("@fenchem.com")
+          ? FANPC
+          : email.endsWith("@microsoftonline.com") || email.endsWith("@microsoft.com")
+            ? MICROSOFT
+            : null,
+      ),
+    ),
     triggerRefresh: vi.fn(),
   }),
 }));

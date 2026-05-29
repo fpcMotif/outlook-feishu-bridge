@@ -59,7 +59,7 @@ function ClientInfo({
   onClientEmailChange: (email: string) => void;
 }) {
   return (
-    <section className="bg-card-soft rounded-xl px-3 py-2 shadow-[var(--shadow-border)]">
+    <div className="px-3 py-2">
       <div className="flex min-w-0 items-center gap-2">
         <span className="text-muted-foreground shrink-0 text-[11px] font-semibold uppercase">
           Client email
@@ -74,7 +74,7 @@ function ClientInfo({
           className="placeholder:text-muted-foreground min-h-10 min-w-0 flex-1 bg-transparent text-xs font-semibold outline-none"
         />
       </div>
-    </section>
+    </div>
   );
 }
 
@@ -246,8 +246,10 @@ export function CoworkerPicker({
         </div>
       </header>
 
-      <ClientInfo clientEmail={clientEmail} onClientEmailChange={onClientEmailChange} />
-      {customerSlot ? <div>{customerSlot}</div> : null}
+      <section className="bg-card-soft overflow-hidden rounded-xl shadow-[var(--shadow-border)]">
+        <ClientInfo clientEmail={clientEmail} onClientEmailChange={onClientEmailChange} />
+        {customerSlot ? <div className="border-border border-t">{customerSlot}</div> : null}
+      </section>
 
       <CoworkerSearchSection query={query} onQueryChange={setQuery}>
         {searching ? (

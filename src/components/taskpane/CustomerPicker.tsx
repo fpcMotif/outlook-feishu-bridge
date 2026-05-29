@@ -34,6 +34,7 @@ export interface CustomerPickerProps {
   // The signed-in Feishu user's open_id (the Initiator, ADR-0014). When
   // provided, the search panel offers a "Show mine" quick toggle.
   currentUserOpenId?: string;
+  embedded?: boolean;
   onChange: (customer: CustomerRecord | null) => void;
 }
 
@@ -42,6 +43,7 @@ export function CustomerPicker({
   emailDomain,
   selectedCustomer,
   currentUserOpenId,
+  embedded = false,
   onChange,
   searchCustomers,
   triggerRefresh,
@@ -69,6 +71,7 @@ export function CustomerPicker({
         searchCustomers={searchCustomers}
         openedAt={searchSession.openedAt}
         currentUserOpenId={currentUserOpenId}
+        embedded={embedded}
         onCancel={closeSearch}
         onSelect={(customer) => {
           onChange(customer);
@@ -79,7 +82,7 @@ export function CustomerPicker({
   }
 
   return (
-    <section className="bg-card-soft rounded-xl px-3 py-2 shadow-[var(--shadow-border)]">
+    <section className={embedded ? "px-3 py-2" : "bg-card-soft rounded-xl px-3 py-2 shadow-[var(--shadow-border)]"}>
       <div className="flex min-w-0 items-center gap-2">
         <span className="text-muted-foreground shrink-0 text-[11px] font-semibold uppercase">
           Customer
@@ -118,6 +121,7 @@ function SearchPanel({
   searchCustomers,
   openedAt,
   currentUserOpenId,
+  embedded = false,
   onCancel,
   onSelect,
 }: {
@@ -128,6 +132,7 @@ function SearchPanel({
   ) => Promise<CustomerRecord[]>;
   openedAt: number;
   currentUserOpenId?: string;
+  embedded?: boolean;
   onCancel: () => void;
   onSelect: (customer: CustomerRecord) => void;
 }) {
@@ -179,7 +184,7 @@ function SearchPanel({
   const matches = localMatches.length > 0 ? localMatches : serverMatches;
 
   return (
-    <section className="bg-card-soft rounded-xl px-3 py-2 shadow-[var(--shadow-border)]">
+    <section className={embedded ? "px-3 py-2" : "bg-card-soft rounded-xl px-3 py-2 shadow-[var(--shadow-border)]"}>
       <div className="flex items-center justify-between gap-2 pb-2">
         <span className="text-muted-foreground text-[11px] font-semibold uppercase">
           Pick a customer

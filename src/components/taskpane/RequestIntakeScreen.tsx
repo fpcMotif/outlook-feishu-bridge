@@ -446,6 +446,7 @@ export function RequestIntakeScreen({
                 emailDomain={emailDomainPart}
                 selectedCustomer={state.selectedCustomer}
                 currentUserOpenId={user?.openId}
+                embedded={true}
                 onChange={(customer) => dispatch({ type: "customerOverridden", customer })}
               />
             }

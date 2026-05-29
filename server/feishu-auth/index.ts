@@ -97,12 +97,30 @@ function escapeHtml(s: string): string {
     .replaceAll('"', "&quot;");
 }
 
+function scriptSafeJsonLiteral(value: unknown): string {
+  const json = JSON.stringify(JSON.stringify(value));
+  const u = String.fromCharCode(92) + "u";
+  const unsafe = new Set([0x3c, 0x3e, 0x26, 0x2028, 0x2029]);
+  let out = "";
+  for (const ch of json) {
+    const code = ch.codePointAt(0) ?? 0;
+    out += unsafe.has(code) ? u + code.toString(16).padStart(4, "0") : ch;
+  }
+  return out;
+}
+
+function sanitizeState(raw: string | null): string {
+  const s = raw ?? "";
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)
+    ? s
+    : "";
+}
+
 // Render the dialog result page. It loads office.js and hands `parentMessage`
 // (a JSON string) back to the taskpane via messageParent — the only supported
 // channel for a same-domain Office dialog. Always posts, so the SPA's
 // DialogMessageReceived handler fires on both success and failure.
 function dialogPage(humanMessage: string, parentMessage: object): Response {
-  const json = JSON.stringify(parentMessage);
   return new Response(
     `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Feishu Login</title>
 <script src="${OFFICE_JS}"></script>
@@ -110,7 +128,7 @@ function dialogPage(humanMessage: string, parentMessage: object): Response {
 </head><body><div class="card"><p>${escapeHtml(humanMessage)}</p></div>
 <script>
   Office.onReady(function () {
-    try { Office.context.ui.messageParent(${JSON.stringify(json)}); } catch (e) {}
+    try { Office.context.ui.messageParent(${scriptSafeJsonLiteral(parentMessage)}); } catch (e) {}
   });
 </script></body></html>`,
     { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } },
@@ -133,7 +151,7 @@ function handleStart(req: Request): Response {
 async function handleCallback(req: Request): Promise<Response> {
   const params = new URL(req.url).searchParams;
   const code = params.get("code");
-  const state = params.get("state") ?? "";
+  const state = sanitizeState(params.get("state"));
   if (!code) {
     return dialogPage("Authorization failed: missing code.", {
       source: "feishu-fallback",

@@ -248,6 +248,40 @@ describe("RequestIntakeScreen sync wiring", () => {
     ).toBeInTheDocument();
   });
 
+  it("re-arms the pending note-to-myself chip while retrying Self-Forward", async () => {
+    mockSendSelfForward.mockImplementationOnce(() =>
+      Promise.resolve({
+        ok: false,
+        step: "send",
+        code: "ErrorAccessDenied",
+        message: "Graph scopes not consented",
+      }),
+    );
+    let resolveRetry!: (value: { ok: true }) => void;
+    mockSendSelfForward.mockImplementationOnce(
+      () =>
+        new Promise<{ ok: true }>((resolve) => {
+          resolveRetry = resolve;
+        }),
+    );
+    renderScreen();
+    fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
+    fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
+      target: { value: "Need a quarterly L-Carnitine quote." },
+    });
+    fireEvent.click(await searchCoworker("Jenny Xu"));
+    fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
+
+    const retry = await screen.findByRole("button", { name: /Retry note-to-myself/i });
+    fireEvent.click(retry);
+
+    expect(await screen.findByText(/Sending Note to myself/i)).toBeInTheDocument();
+    expect(mockSendSelfForward).toHaveBeenCalledTimes(2);
+
+    resolveRetry({ ok: true });
+    expect(await screen.findByText(/Note to myself sent/i)).toBeInTheDocument();
+  });
+
   it("shows an error and not the success screen when sync rejects", async () => {
     mockSync.mockImplementationOnce(() => Promise.reject(new Error("Bitable unavailable")));
     renderScreen();

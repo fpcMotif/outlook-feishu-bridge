@@ -173,11 +173,23 @@ describe("RequestIntakeScreen request details", () => {
     renderRequestIntakeScreen(true);
     fillQuotation();
 
-    fireEvent.change(screen.getByLabelText("Email"), {
-      target: { value: "updated.client@example.com" },
+    const emailField = screen.getByLabelText("Email");
+
+    expect(emailField.tagName).toBe("TEXTAREA");
+
+    fireEvent.change(emailField, {
+      target: { value: "elise.hoffmann-research-and-development@bayerpharma.de" },
     });
 
-    expect(screen.getByDisplayValue("updated.client@example.com")).toBeInTheDocument();
+    expect(
+      screen.getByDisplayValue("elise.hoffmann-research-and-development@bayerpharma.de"),
+    ).toBeInTheDocument();
+
+    fireEvent.change(emailField, {
+      target: { value: "élise.hoffmann@bayerpharma.de" },
+    });
+
+    expect(screen.getByDisplayValue("élise.hoffmann@bayerpharma.de")).toBeInTheDocument();
   });
 
 });

@@ -22,6 +22,32 @@ export const getSessionBySessionId = internalQuery({
   },
 });
 
+export interface PublicUserSession {
+  openId: string;
+  userName?: string;
+  avatarUrl?: string;
+  isExpired: boolean;
+}
+
+export interface StoredUserSession {
+  openId: string;
+  userName?: string;
+  avatarUrl?: string;
+  expiresAt: number;
+}
+
+export function toPublicSession(
+  session: StoredUserSession,
+  now: number,
+): PublicUserSession {
+  return {
+    openId: session.openId,
+    userName: session.userName,
+    avatarUrl: session.avatarUrl,
+    isExpired: session.expiresAt <= now,
+  };
+}
+
 export const getUserSession = query({
   args: { sessionId: v.string() },
   handler: async (ctx, args) => {
@@ -30,12 +56,7 @@ export const getUserSession = query({
       .withIndex("by_sessionId", (q) => q.eq("sessionId", args.sessionId))
       .unique();
     if (!session) return null;
-    return {
-      openId: session.openId,
-      userName: session.userName,
-      avatarUrl: session.avatarUrl,
-      isExpired: session.expiresAt <= Date.now(),
-    };
+    return toPublicSession(session, Date.now());
   },
 });
 

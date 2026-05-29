@@ -27,9 +27,7 @@ export interface CustomerSearch {
 //   "preload"      -> ADR-0013 path: useCustomerDirectory + local Array.filter
 //   "server-index" -> ADR-0016 path: ranked Convex query against the mirror
 const SEARCH_MODE: "preload" | "server-index" =
-  (import.meta.env.VITE_CUSTOMER_SEARCH_MODE as string | undefined) === "server-index"
-    ? "server-index"
-    : "preload";
+  import.meta.env.VITE_CUSTOMER_SEARCH_MODE === "server-index" ? "server-index" : "preload";
 
 function filterByOwner(
   records: readonly CustomerRecord[],

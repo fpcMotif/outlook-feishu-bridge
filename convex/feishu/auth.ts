@@ -3,14 +3,27 @@ import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import { feishuFetch, FEISHU_BASE } from "./client";
 
+export interface TokenRow {
+  token: string;
+  expiresAt: number;
+}
+
+export function selectFreshToken(
+  row: TokenRow | null | undefined,
+  now: number,
+): string | null {
+  return row && row.expiresAt > now ? row.token : null;
+}
+
+export function pruneTokenRows<TId>(rows: ReadonlyArray<{ _id: TId }>): TId[] {
+  return rows.map((row) => row._id);
+}
+
 export const getCachedToken = internalQuery({
   args: {},
   handler: async (ctx) => {
     const cached = await ctx.db.query("feishuTokens").first();
-    if (cached && cached.expiresAt > Date.now()) {
-      return cached.token;
-    }
-    return null;
+    return selectFreshToken(cached, Date.now());
   },
 });
 
@@ -18,7 +31,7 @@ export const storeToken = internalMutation({
   args: { token: v.string(), expiresAt: v.number() },
   handler: async (ctx, args) => {
     const existing = await ctx.db.query("feishuTokens").take(10);
-    await Promise.all(existing.map((row) => ctx.db.delete(row._id)));
+    await Promise.all(pruneTokenRows(existing).map((id) => ctx.db.delete(id)));
     await ctx.db.insert("feishuTokens", {
       tokenType: "tenant_access_token" as const,
       token: args.token,

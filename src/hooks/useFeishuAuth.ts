@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
+import type { FeishuUser } from "../components/taskpane/feishuUser";
 
 const SESSION_KEY = "feishu_session_id";
 // Browser-held token from the box fallback login (ADR-0008). Only set when the
@@ -28,7 +29,7 @@ interface FallbackToken {
   avatarUrl: string | null;
 }
 
-function getOrCreateSessionId(): string {
+export function getOrCreateSessionId(): string {
   let sessionId = localStorage.getItem(SESSION_KEY);
   if (!sessionId) {
     sessionId = crypto.randomUUID();
@@ -38,7 +39,7 @@ function getOrCreateSessionId(): string {
 }
 
 // Returns the stored fallback token only if present and not expired.
-function readFallbackToken(): FallbackToken | null {
+export function readFallbackToken(): FallbackToken | null {
   try {
     const raw = localStorage.getItem(FALLBACK_KEY);
     if (!raw) return null;
@@ -54,8 +55,8 @@ function readFallbackToken(): FallbackToken | null {
 // OAuth Callback, which stores the token server-side. The SPA then learns of the
 // login by polling getUserSession. Unchanged behaviour.
 function openFeishuOAuth(sessionId: string) {
-  const appId = import.meta.env.VITE_FEISHU_APP_ID as string | undefined;
-  const siteUrl = import.meta.env.VITE_CONVEX_SITE_URL as string | undefined;
+  const appId = import.meta.env.VITE_FEISHU_APP_ID;
+  const siteUrl = import.meta.env.VITE_CONVEX_SITE_URL;
   if (!appId || !siteUrl) {
     console.error("VITE_FEISHU_APP_ID and VITE_CONVEX_SITE_URL must be set");
     return;
@@ -88,7 +89,7 @@ type FallbackMessage =
 // for messages that aren't ours (caller must NOT close the dialog), "error" for a
 // malformed/failed feishu-fallback message, or the validated token. State is
 // checked against sessionId (CSRF).
-function parseFallbackMessage(message: string, sessionId: string): FallbackMessage {
+export function parseFallbackMessage(message: string, sessionId: string): FallbackMessage {
   let payload: Partial<FallbackToken> & {
     source?: string;
     state?: string;
@@ -157,7 +158,18 @@ function startFallbackLogin(
   });
 }
 
-export function useFeishuAuth() {
+export interface FeishuAuthState {
+  sessionId: string;
+  isLoading: boolean;
+  isLoggedIn: boolean;
+  user: FeishuUser | null;
+  userAccessToken?: string;
+  login: () => void;
+  loginFallback: () => void;
+  logout: () => Promise<void>;
+}
+
+export function useFeishuAuth(): FeishuAuthState {
   const [sessionId] = useState(getOrCreateSessionId);
   const session = useQuery(api.feishu.userAuth.getUserSession, { sessionId });
   const logoutMutation = useMutation(api.feishu.userAuth.logoutUser);
@@ -183,7 +195,7 @@ export function useFeishuAuth() {
 
   // Convex (server-stored token) takes precedence; the fallback fills in only
   // when there's no live Convex session.
-  const user = convexLoggedIn
+  const user: FeishuUser | null = convexLoggedIn
     ? { openId: session.openId, userName: session.userName, avatarUrl: session.avatarUrl }
     : fallbackLoggedIn
       ? { openId: fallback.openId, userName: fallback.userName ?? undefined, avatarUrl: fallback.avatarUrl ?? undefined }

@@ -40,9 +40,10 @@ export function mergePreferredCustomers(
 ): CustomerRecord[] {
   const preferredIds = new Set(preferred.map((customer) => customer.recordId));
   const preferredDomains = new Set(
-    preferred
-      .map((customer) => customer.domain?.trim().toLowerCase())
-      .filter(Boolean),
+    preferred.flatMap((customer) => {
+      const domain = customer.domain?.trim().toLowerCase();
+      return domain ? [domain] : [];
+    }),
   );
   return [
     ...preferred,

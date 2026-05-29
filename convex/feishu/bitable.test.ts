@@ -1,0 +1,130 @@
+/* eslint-disable max-lines-per-function */
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const callFeishu = vi.fn();
+vi.mock("./call", () => ({
+  callFeishu: (...args: unknown[]) => callFeishu(...args),
+}));
+
+import { logServiceRecordIntake, matchClientRecordId, resolveClientRecordId } from "./bitable";
+import type { ServiceRowInput } from "./serviceRow";
+import type { ActionCtx } from "../_generated/server";
+
+const ctx = { _marker: "ctx" } as unknown as ActionCtx;
+const APP_TOKEN = "appToken123";
+const CLIENT_TABLE_ID = "tbl4TE2GV472sKzp";
+
+beforeEach(() => {
+  callFeishu.mockReset();
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe("matchClientRecordId", () => {
+  it("returns null without calling Feishu when no searchable domain exists", async () => {
+    await expect(matchClientRecordId(ctx, APP_TOKEN, undefined)).resolves.toBeNull();
+    await expect(matchClientRecordId(ctx, APP_TOKEN, "user@")).resolves.toBeNull();
+    expect(callFeishu).not.toHaveBeenCalled();
+  });
+
+  it("searches the Customer table by domain and returns the first record_id", async () => {
+    callFeishu.mockResolvedValueOnce({ items: [{ record_id: "rec_match" }] });
+
+    await expect(matchClientRecordId(ctx, APP_TOKEN, "buyer@Mail.Fenchem.COM")).resolves.toBe("rec_match");
+
+    expect(callFeishu).toHaveBeenCalledTimes(1);
+    const [passedCtx, opts] = callFeishu.mock.calls[0];
+    expect(passedCtx).toBe(ctx);
+    expect(opts.path).toBe(`/bitable/v1/apps/${APP_TOKEN}/tables/${CLIENT_TABLE_ID}/records/search`);
+    expect(opts.method).toBe("POST");
+    expect(opts.auth).toBe("tenant");
+    expect(opts.query).toEqual({ page_size: "1" });
+    expect(opts.json).toEqual({
+      filter: {
+        conjunction: "and",
+        conditions: [{ field_name: "域名", operator: "is", value: ["mail.fenchem.com"] }],
+      },
+    });
+  });
+
+  it("returns null when the search has no items", async () => {
+    callFeishu.mockResolvedValueOnce({});
+    await expect(matchClientRecordId(ctx, APP_TOKEN, "x@known.com")).resolves.toBeNull();
+  });
+});
+
+describe("resolveClientRecordId", () => {
+  it("uses the selected customer override without calling Feishu", async () => {
+    const input: ServiceRowInput = {
+      clientRecordId: "rec_override",
+      clientEmail: "buyer@known.com",
+    };
+    await expect(resolveClientRecordId(ctx, APP_TOKEN, input)).resolves.toBe("rec_override");
+    expect(callFeishu).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the domain match when no override exists", async () => {
+    callFeishu.mockResolvedValueOnce({ items: [{ record_id: "rec_domain" }] });
+    await expect(resolveClientRecordId(ctx, APP_TOKEN, { clientEmail: "buyer@known.com" })).resolves.toBe("rec_domain");
+    expect(callFeishu.mock.calls[0][1].json.filter.conditions[0].value).toEqual(["known.com"]);
+  });
+});
+
+describe("logServiceRecordIntake", () => {
+  const originalDiag = process.env.BITABLE_DIAG_LOG;
+
+  beforeEach(() => {
+    delete process.env.BITABLE_DIAG_LOG;
+  });
+
+  afterEach(() => {
+    if (originalDiag === undefined) delete process.env.BITABLE_DIAG_LOG;
+    else process.env.BITABLE_DIAG_LOG = originalDiag;
+  });
+
+  const intake: ServiceRowInput = {
+    subject: "Inquiry: bulk L-Carnitine",
+    clientEmail: "buyer@known.com",
+    clientRecordId: "rec_override",
+    dateOfOffer: 1_716_900_000_000,
+    emailConversationId: "AAQk_conv",
+    initiator: { openId: "ou_init", name: "Florian" },
+    selectedCoworkers: [{ openId: "ou_jenny", name: "Jenny" }],
+    requestSelections: [
+      { requestType: "Quotation", note: "FOB pls" },
+      { requestType: "Sample", note: "50g" },
+    ],
+  };
+  const fields = { "Email Subject": "x", "Co Worker": [{ id: "ou_jenny" }] };
+
+  it("logs a redacted summary by default", () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    logServiceRecordIntake(intake, "rec_override", fields);
+
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    const line = String(logSpy.mock.calls[0][0]);
+    expect(line).toContain("clientLinked=true");
+    expect(line).toContain("requests=2");
+    expect(line).toContain("coworkers=1");
+    expect(line).toContain("fieldKeys=[Email Subject,Co Worker]");
+    expect(line).not.toContain("buyer@known.com");
+    expect(line).not.toContain("FOB pls");
+    expect(line).not.toContain("Florian");
+  });
+
+  it("emits verbose intake only when BITABLE_DIAG_LOG=1", () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    logServiceRecordIntake(intake, "rec_override", fields);
+    expect(logSpy).toHaveBeenCalledTimes(1);
+
+    process.env.BITABLE_DIAG_LOG = "1";
+    logServiceRecordIntake(intake, "rec_override", fields);
+    expect(logSpy).toHaveBeenCalledTimes(3);
+    const diag = String(logSpy.mock.calls[2][0]);
+    expect(diag).toContain("[bitable] DIAG intake=");
+    expect(diag).toContain("buyer@known.com");
+    expect(diag).toContain("FOB pls");
+  });
+});

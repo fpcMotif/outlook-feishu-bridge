@@ -3,7 +3,8 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, type ReactNode } f
 import { Loader2 } from "lucide-react";
 
 import type { Coworker } from "./coworkers";
-import { findCustomerByEmail, type CustomerRecord } from "./customers";
+import { findCustomerByEmail } from "./customers";
+import { initialIntakeState, intakeReducer } from "./intakeReducer";
 import type { MailItemData } from "../../office/useMailItem";
 import { useCustomerSearch } from "../../hooks/useCustomerSearch";
 import { useRequestSync } from "../../hooks/useRequestSync";
@@ -18,128 +19,6 @@ import { REQUESTS } from "./requests";
 import { TaskpaneSection } from "./TaskpaneSection";
 import { SubmitDock } from "./SubmitDock";
 import { SyncScreen } from "./SyncScreen";
-
-type IntakeScreenName = "build" | "sync" | "received" | "error";
-
-// Status of the parallel Self-Forward (ADR-0017). `pending` while the chain
-// runs; `ok` once the Note-to-myself sends; `failed` on any non-2xx so the
-// ReceivedScreen renders the retry chip. `null` before the first attempt.
-type SelfForwardStatus = "pending" | "ok" | "failed" | null;
-
-interface IntakeState {
-  notes: Record<string, string>;
-  clientEmail: string;
-  mailFrom: string;
-  screen: IntakeScreenName;
-  selectedCoworker: Coworker | null;
-  // The Customer picked or auto-matched in the Customer Picker (ADR-0013).
-  // `customerTouched` flips true once the salesperson interacts with the picker
-  // — after that we stop overwriting their choice when the directory loads.
-  selectedCustomer: CustomerRecord | null;
-  customerTouched: boolean;
-  syncError: string | null;
-  selfForwardStatus: SelfForwardStatus;
-  selfForwardError: { code: string; message: string } | null;
-}
-
-type IntakeAction =
-  | { type: "mailFromChanged"; mailFrom: string }
-  | { type: "noteChanged"; id: string; value: string }
-  | { type: "clientEmailChanged"; value: string }
-  | { type: "screenChanged"; screen: IntakeScreenName }
-  | { type: "coworkerSelected"; coworker: Coworker }
-  | { type: "customerAutoMatched"; customer: CustomerRecord | null }
-  | { type: "customerOverridden"; customer: CustomerRecord | null }
-  | { type: "syncStarted" }
-  | { type: "syncSucceeded" }
-  | { type: "syncFailed"; message: string }
-  | { type: "selfForwardStarted" }
-  | { type: "selfForwardSucceeded" }
-  | { type: "selfForwardFailed"; code: string; message: string }
-  | { type: "startedOver" };
-
-function initialIntakeState(mailFrom: string): IntakeState {
-  return {
-    notes: {},
-    clientEmail: mailFrom,
-    mailFrom,
-    screen: "build",
-    selectedCoworker: null,
-    selectedCustomer: null,
-    customerTouched: false,
-    syncError: null,
-    selfForwardStatus: null,
-    selfForwardError: null,
-  };
-}
-
-function intakeReducer(state: IntakeState, action: IntakeAction): IntakeState {
-  switch (action.type) {
-    case "mailFromChanged":
-      return {
-        ...state,
-        clientEmail: action.mailFrom,
-        mailFrom: action.mailFrom,
-        selectedCustomer: null,
-        customerTouched: false,
-      };
-    case "noteChanged":
-      return { ...state, notes: { ...state.notes, [action.id]: action.value } };
-    case "clientEmailChanged":
-      // The salesperson is re-resolving the client → the previous auto-match
-      // is stale. Clear it; the next auto-match effect will re-fire.
-      return {
-        ...state,
-        clientEmail: action.value,
-        selectedCustomer: null,
-        customerTouched: false,
-      };
-    case "screenChanged":
-      return { ...state, screen: action.screen };
-    case "coworkerSelected":
-      return { ...state, selectedCoworker: action.coworker };
-    case "customerAutoMatched":
-      // Only adopt the auto-match if the salesperson hasn't already picked.
-      if (state.customerTouched) return state;
-      return { ...state, selectedCustomer: action.customer };
-    case "customerOverridden":
-      return { ...state, selectedCustomer: action.customer, customerTouched: true };
-    case "syncStarted":
-      return {
-        ...state,
-        screen: "sync",
-        syncError: null,
-        selfForwardStatus: "pending",
-        selfForwardError: null,
-      };
-    case "syncSucceeded":
-      return { ...state, screen: "received" };
-    case "syncFailed":
-      return { ...state, screen: "error", syncError: action.message };
-    case "selfForwardStarted":
-      return { ...state, selfForwardStatus: "pending", selfForwardError: null };
-    case "selfForwardSucceeded":
-      return { ...state, selfForwardStatus: "ok", selfForwardError: null };
-    case "selfForwardFailed":
-      return {
-        ...state,
-        selfForwardStatus: "failed",
-        selfForwardError: { code: action.code, message: action.message },
-      };
-    case "startedOver":
-      return {
-        ...state,
-        notes: {},
-        screen: "build",
-        selectedCoworker: null,
-        selectedCustomer: null,
-        customerTouched: false,
-        syncError: null,
-        selfForwardStatus: null,
-        selfForwardError: null,
-      };
-  }
-}
 
 function Hero() {
   return (
@@ -234,10 +113,11 @@ export function RequestIntakeScreen({
   onLogin: () => void;
   onLoginFallback: () => void;
 }) {
-  const { sync } = useRequestSync();
+  const { sync, correct } = useRequestSync();
   const { sendNote: sendSelfForwardNote } = useSelfForward();
   const [state, dispatch] = useReducer(intakeReducer, mailItem.from, initialIntakeState);
   const customerRefreshAttemptedFor = useRef<string | null>(null);
+  const generationRef = useRef(0);
 
   if (state.mailFrom !== mailItem.from) {
     dispatch({ type: "mailFromChanged", mailFrom: mailItem.from });
@@ -324,6 +204,8 @@ export function RequestIntakeScreen({
   // Initiator's own mailbox (ADR-0017). Both fire on submit; Bitable is
   // authoritative, the Self-Forward soft-fails into a retry chip.
   const fireSelfForward = useCallback(async () => {
+    const generation = generationRef.current;
+    dispatch({ type: "selfForwardStarted" });
     if (!mailItem.itemId) {
       dispatch({
         type: "selfForwardFailed",
@@ -347,10 +229,12 @@ export function RequestIntakeScreen({
       clientEmail: state.clientEmail,
       requestSelections,
     });
-    if (result.ok) {
-      dispatch({ type: "selfForwardSucceeded" });
-    } else {
-      dispatch({ type: "selfForwardFailed", code: result.code, message: result.message });
+    if (generation === generationRef.current) {
+      if (result.ok) {
+        dispatch({ type: "selfForwardSucceeded" });
+      } else {
+        dispatch({ type: "selfForwardFailed", code: result.code, message: result.message });
+      }
     }
   }, [
     sendSelfForwardNote,
@@ -362,8 +246,9 @@ export function RequestIntakeScreen({
   ]);
 
   const runSync = useCallback(() => {
+    generationRef.current += 1;
     dispatch({ type: "syncStarted" });
-    const bitable = sync({
+    const payload = {
       subject: mailItem.subject,
       from: mailItem.from,
       to: mailItem.to,
@@ -381,20 +266,25 @@ export function RequestIntakeScreen({
       initiator: user?.openId ? { openId: user.openId, name: user.userName } : undefined,
       requestSelections,
       selectedCoworkers: state.selectedCoworker ? [state.selectedCoworker] : [],
-    })
-      .then(() => dispatch({ type: "syncSucceeded" }))
+    };
+    const write = state.bitableRecordId ? correct({ recordId: state.bitableRecordId, ...payload }) : sync(payload);
+    const bitable = write
+      .then((result) => dispatch({ type: "syncSucceeded", recordId: result.recordId }))
       .catch((e: unknown) => {
         dispatch({ type: "syncFailed", message: e instanceof Error ? e.message : "Sync failed" });
       });
     // Parallel — Self-Forward never blocks the Bitable result; if it fails we
     // surface the retry chip on the ReceivedScreen.
-    void fireSelfForward();
+    if (state.selfForwardStatus !== "ok") void fireSelfForward();
     return bitable;
   }, [
     sync,
+    correct,
     mailItem,
     state.clientEmail,
     state.selectedCustomer,
+    state.bitableRecordId,
+    state.selfForwardStatus,
     user,
     requestSelections,
     state.selectedCoworker,
@@ -407,6 +297,7 @@ export function RequestIntakeScreen({
   };
 
   const startOver = () => {
+    generationRef.current += 1;
     dispatch({ type: "startedOver" });
   };
 

@@ -1,90 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { readMailBodyText } from "./mailBody";
+import {
+  extractMailData,
+  isComposeItem,
+  type MailItemData,
+  type ReadItem,
+} from "./mailItem";
 import { dlog, dload, dtime } from "../debug";
 
-export interface AttachmentInfo {
-  id: string;
-  name: string;
-  contentType: string;
-  size: number;
-  isInline: boolean;
-}
-
-export interface MailItemData {
-  subject: string;
-  from: string;
-  to: string[];
-  cc: string[];
-  /** Plain-text body via `body.getAsync(CoercionType.Text)`. */
-  body: string;
-  dateTimeCreated: Date | null;
-  internetMessageId: string;
-  /** REST/Graph id converted from the Office.js EWS item id. */
-  itemId: string;
-  conversationId: string;
-  userEmail: string;
-  attachments: AttachmentInfo[];
-}
-
-type ReadItem = Office.MessageRead & Office.ItemRead;
-
-// In compose/reply windows item.subject/to/cc are async objects (Subject,
-// Recipients) exposing getAsync, not the string/array shapes read mode gives.
-// This add-in syncs received mail only, so fail clearly instead of crashing.
-function isComposeItem(item: unknown): boolean {
-  const subject = (item as { subject?: unknown } | undefined)?.subject;
-  return (
-    typeof subject === "object" &&
-    subject !== null &&
-    typeof (subject as { getAsync?: unknown }).getAsync === "function"
-  );
-}
-
-function emailList(value: readonly Office.EmailAddressDetails[] | undefined): string[] {
-  return Array.isArray(value) ? value.map((r) => r.emailAddress) : [];
-}
-
-function convertToRestId(ewsId: string | undefined): string {
-  if (!ewsId) return "";
-  try {
-    return Office.context.mailbox.convertToRestId(
-      ewsId,
-      Office.MailboxEnums.RestVersion.v2_0,
-    );
-  } catch {
-    return ewsId;
-  }
-}
-
-function extractAttachments(item: ReadItem): AttachmentInfo[] {
-  const supported =
-    Office.context?.requirements?.isSetSupported?.("Mailbox", "1.8") ?? false;
-  if (!supported) return [];
-  return (item.attachments ?? [])
-    .map((a: Office.AttachmentDetails) => ({
-      id: a.id,
-      name: a.name,
-      contentType: a.contentType,
-      size: a.size,
-      isInline: a.isInline,
-    }));
-}
-
-function extractMailData(item: ReadItem, body: string): MailItemData {
-  return {
-    subject: item.subject ?? "",
-    from: item.from?.emailAddress ?? "",
-    to: emailList(item.to),
-    cc: emailList(item.cc),
-    body,
-    dateTimeCreated: item.dateTimeCreated ?? null,
-    internetMessageId: item.internetMessageId ?? "",
-    itemId: convertToRestId(item.itemId),
-    conversationId: item.conversationId ?? "",
-    userEmail: Office.context?.mailbox?.userProfile?.emailAddress ?? "",
-    attachments: extractAttachments(item),
-  };
-}
+export type { AttachmentInfo, MailItemData } from "./mailItem";
 
 export function useMailItem(autoRead = false) {
   const [mailItem, setMailItem] = useState<MailItemData | null>(null);
@@ -109,7 +33,7 @@ export function useMailItem(autoRead = false) {
         );
       }
       const body = await readMailBodyText();
-      const data = extractMailData(item, body);
+      const data = extractMailData(Office, item, body);
       dlog(
         `readCurrentItem: OK subject="${data.subject.slice(0, 40)}" attachments=${data.attachments.length}`,
       );

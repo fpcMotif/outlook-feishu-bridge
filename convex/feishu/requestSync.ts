@@ -39,7 +39,7 @@ const intakeArgs = {
   selectedCoworkers: v.optional(v.array(selectedCoworkerValidator)),
 };
 
-function requireExactlyOneCoworker(coworkers: SelectedCoworker[] | undefined): SelectedCoworker[] {
+export function requireExactlyOneCoworker(coworkers: SelectedCoworker[] | undefined): SelectedCoworker[] {
   if (!coworkers || coworkers.length !== 1) {
     throw new Error("Bitable Sync requires exactly one Feishu coworker");
   }
@@ -82,7 +82,18 @@ export const syncRequest = action({
       },
       { bitableRecordId: recordId },
     );
-    await ctx.runMutation(internal.emails.storeEmailRecord, record);
+    // The Bitable row is the record of record; the Email Record is a
+    // recoverable backup. If the backup write fails, return the row id so the
+    // UI retry path can correct that same row instead of creating a duplicate.
+    try {
+      await ctx.runMutation(internal.emails.storeEmailRecord, record);
+    } catch (e: unknown) {
+      console.error(
+        `[requestSync] storeEmailRecord failed; Bitable row ${recordId} stands: ${
+          e instanceof Error ? e.message : String(e)
+        }`,
+      );
+    }
     return { recordId };
   },
 });

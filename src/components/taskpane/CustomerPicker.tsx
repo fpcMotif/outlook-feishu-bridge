@@ -5,7 +5,7 @@
 
 /* eslint-disable max-lines-per-function */
 import { useMemo, useRef, useState } from "react";
-import { Building2, Plus, Search } from "lucide-react";
+import { Plus, Search, UserRound } from "lucide-react";
 
 import type {
   CustomerDirectoryState,
@@ -79,10 +79,10 @@ export function CustomerPicker({
     <section className={embedded ? "" : "bg-card-soft rounded-xl shadow-[var(--shadow-border)]"}>
       <div className="flex min-h-14 min-w-0 items-center gap-3 px-3 py-2" data-customer-row="true">
         <span
-          className="bg-background/70 text-muted-foreground flex size-8 shrink-0 items-center justify-center rounded-full"
+          className="text-muted-foreground flex size-8 shrink-0 items-center justify-center"
           aria-hidden="true"
         >
-          <Building2 className="size-4" />
+          <UserRound className="size-4" />
         </span>
         {selectedCustomer ? (
           <>
@@ -102,7 +102,7 @@ export function CustomerPicker({
             Resolving customer for {emailDomain}...
           </span>
         ) : (
-          <NoMatch emailDomain={emailDomain} onSearch={openSearch} />
+          <NoMatch onSearch={openSearch} />
         )}
       </div>
     </section>
@@ -239,11 +239,14 @@ function SearchPanel({
 // Lenient no-match (ADR-0013): tell the salesperson the auto-match found
 // nothing and reserve a placeholder for the future create-new affordance, but
 // do not block the sync. A search icon button lets them override manually.
-function NoMatch({ emailDomain, onSearch }: { emailDomain: string; onSearch: () => void }) {
+function NoMatch({ onSearch }: { onSearch: () => void }) {
   return (
     <span className="flex min-w-0 flex-1 items-center gap-1">
-      <span className="text-muted-foreground min-w-0 flex-1 whitespace-normal break-words text-xs leading-4">
-        No customer matched for {emailDomain}
+      <span
+        className="text-muted-foreground min-w-0 flex-1 whitespace-normal break-words text-xs leading-4"
+        title="No matched"
+      >
+        No matched
       </span>
       <button
         type="button"

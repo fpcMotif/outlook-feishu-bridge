@@ -103,16 +103,23 @@ function firstOwner(value: unknown): { openId: string; name: string } | null {
  * is intentionally strict (no suffix or fuzzy heuristics) — silently picking
  * the wrong Customer is worse than no match (ADR-0013).
  */
+const CUSTOMER_DOMAIN_ALIASES: Record<string, string> = {
+  "microsoftonline.com": "microsoft.com",
+};
+
 export function findCustomerByEmail<R extends { domain?: string }>(
   directory: readonly R[],
   email: string,
 ): R | null {
-  const target = emailDomain(email);
+  const target = canonicalCustomerDomain(emailDomain(email));
   if (!target) return null;
-  return (
-    directory.find((c) => typeof c.domain === "string" && c.domain.toLowerCase() === target) ??
-    null
-  );
+  return directory.find((c) => canonicalCustomerDomain(c.domain) === target) ?? null;
+}
+
+function canonicalCustomerDomain(domain: string | undefined | null): string | null {
+  const normalized = domain?.trim().toLowerCase();
+  if (!normalized) return null;
+  return CUSTOMER_DOMAIN_ALIASES[normalized] ?? normalized;
 }
 
 function emailDomain(email: string): string | null {

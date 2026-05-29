@@ -41,6 +41,7 @@ vi.mock("../hooks/useCustomerSearch", () => ({
   useCustomerSearch: () => ({
     directory: { status: "ready", records: [] },
     search: vi.fn(() => Promise.resolve([])),
+    triggerRefresh: vi.fn(),
   }),
 }));
 

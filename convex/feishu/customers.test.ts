@@ -108,3 +108,15 @@ describe("findCustomerByEmail", () => {
     expect(findCustomerByEmail(directory, "anyone@no-domain.tld")).toBeNull();
   });
 });
+
+describe("findCustomerByEmail domain aliases", () => {
+  it("maps known Microsoft sender domains to the Microsoft Customer domain", () => {
+    const microsoft: CustomerRecord = {
+      recordId: "rec_microsoft",
+      name: "Microsoft",
+      domain: "microsoft.com",
+      owner: null,
+    };
+    expect(findCustomerByEmail([microsoft], "alerts@microsoftonline.com")).toBe(microsoft);
+  });
+});

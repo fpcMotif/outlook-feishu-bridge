@@ -57,7 +57,7 @@ describe("CustomerPicker no-match states", () => {
       />,
     );
 
-    expect(screen.getByText(/no customer matched for unknown\.io/i)).toBeInTheDocument();
+    expect(screen.getByText(/no match/i)).toBeInTheDocument();
     const placeholder = screen.getByRole("button", { name: /add new customer/i });
     expect(placeholder).toBeDisabled();
   });
@@ -77,7 +77,7 @@ describe("CustomerPicker no-match states", () => {
     );
 
     expect(screen.getByText(/resolving customer/i)).toBeInTheDocument();
-    expect(screen.queryByText(/no customer matched/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/no match/i)).not.toBeInTheDocument();
   });
 
 });

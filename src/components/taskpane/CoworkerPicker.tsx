@@ -1,7 +1,7 @@
 /* eslint-disable max-lines-per-function, max-lines */
 import * as React from "react";
 import { useEffect, useMemo, useReducer, useState } from "react";
-import { Check, Mail, UserRound } from "lucide-react";
+import { AtSign, Check, UserRound } from "lucide-react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import type { Coworker } from "./coworkers";
@@ -62,21 +62,19 @@ function ClientInfo({
   return (
     <div className="flex min-h-14 min-w-0 items-center gap-3 px-3 py-2" data-client-row="true">
       <span
-        className="bg-background/70 text-muted-foreground flex size-8 shrink-0 items-center justify-center rounded-full"
+        className="text-muted-foreground flex size-8 shrink-0 items-center justify-center"
         aria-hidden="true"
       >
-        <Mail className="size-4" />
+        <AtSign className="size-4" />
       </span>
-      <textarea
+      <input
         aria-label="Email"
+        type="email"
         value={clientEmail}
         onChange={(e) => onClientEmailChange(e.target.value.replaceAll(/\s+/g, ""))}
         placeholder="email@example.com"
-        rows={2}
-        inputMode="email"
-        autoComplete="email"
         spellCheck={false}
-        className="placeholder:text-muted-foreground min-h-8 min-w-0 flex-1 resize-none bg-transparent py-1 text-xs leading-4 font-semibold break-all outline-none"
+        className="placeholder:text-muted-foreground h-8 min-w-0 flex-1 bg-transparent text-xs leading-8 font-semibold outline-none"
       />
     </div>
   );

@@ -1,5 +1,5 @@
 /* eslint-disable max-lines-per-function, max-lines */
-import { useCallback, useMemo, useReducer, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, type ReactNode } from "react";
 import { Loader2 } from "lucide-react";
 
 import type { Coworker } from "./coworkers";
@@ -226,6 +226,7 @@ export function RequestIntakeScreen({
   const { sync } = useRequestSync();
   const { sendNote: sendSelfForwardNote } = useSelfForward();
   const [state, dispatch] = useReducer(intakeReducer, mailItem.from, initialIntakeState);
+  const customerRefreshAttemptedFor = useRef<string | null>(null);
 
   if (state.mailFrom !== mailItem.from) {
     dispatch({ type: "mailFromChanged", mailFrom: mailItem.from });
@@ -240,6 +241,10 @@ export function RequestIntakeScreen({
     search: searchCustomers,
     triggerRefresh: triggerCustomerRefresh,
   } = useCustomerSearch(isLoggedIn);
+
+  const emailDomainPart = state.clientEmail.includes("@")
+    ? state.clientEmail.split("@").pop() ?? state.clientEmail
+    : state.clientEmail;
 
   // Re-run the local auto-match whenever the directory finishes loading or
   // the client email changes. The reducer guards against clobbering a user
@@ -260,6 +265,13 @@ export function RequestIntakeScreen({
   ) {
     dispatch({ type: "customerAutoMatched", customer: autoMatch });
   }
+
+  useEffect(() => {
+    if (state.customerTouched || customerDirectory.status !== "ready" || autoMatch) return;
+    if (!emailDomainPart || customerRefreshAttemptedFor.current === emailDomainPart) return;
+    customerRefreshAttemptedFor.current = emailDomainPart;
+    triggerCustomerRefresh();
+  }, [autoMatch, customerDirectory.status, emailDomainPart, state.customerTouched, triggerCustomerRefresh]);
 
   const filledRequests = useMemo(
     () =>
@@ -416,9 +428,6 @@ export function RequestIntakeScreen({
     return <LoginScreen onLogin={onLogin} onLoginFallback={onLoginFallback} />;
   }
 
-  const emailDomainPart = state.clientEmail.includes("@")
-    ? state.clientEmail.split("@").pop() ?? state.clientEmail
-    : state.clientEmail;
   const readyToSync = filledCount > 0 && selectedCount > 0;
   const submitHint = filledCount === 0 ? "Start a request above" : "Choose exactly one Feishu coworker";
   const submitFooter = readyToSync

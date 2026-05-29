@@ -46,6 +46,7 @@ vi.mock("../../hooks/useCustomerSearch", () => ({
   useCustomerSearch: () => ({
     directory: { status: "ready", records: [FANPC, MICROSOFT] },
     search: vi.fn(() => Promise.resolve([])),
+    triggerRefresh: vi.fn(),
   }),
 }));
 
@@ -174,7 +175,14 @@ describe("RequestIntakeScreen customer auto-match", () => {
     renderRequestIntakeScreen(true, "microsoft-noreply@microsoft.com");
 
     expect(screen.getByText("Microsoft")).toBeInTheDocument();
-    expect(screen.queryByText(/No customer matched/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/No match/i)).not.toBeInTheDocument();
+  });
+
+  it("auto-matches Microsoft from microsoftonline.com", () => {
+    renderRequestIntakeScreen(true, "alerts@microsoftonline.com");
+
+    expect(screen.getByText("Microsoft")).toBeInTheDocument();
+    expect(screen.queryByText(/No match/i)).not.toBeInTheDocument();
   });
 
   it("auto-matches fanpc from fanpc@fenchem.com", () => {
@@ -182,7 +190,7 @@ describe("RequestIntakeScreen customer auto-match", () => {
 
     expect(screen.getByText("fanpc")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /change/i })).toBeInTheDocument();
-    expect(screen.queryByText(/No customer matched/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/No match/i)).not.toBeInTheDocument();
   });
 });
 

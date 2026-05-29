@@ -11,7 +11,11 @@ test("browser preview keeps login separate and shows merged request routing", as
   const consoleErrors: string[] = [];
   page.on("console", (msg) => {
     const text = msg.text();
-    if (msg.type() === "error" && !text.startsWith("Failed to load resource:")) {
+    if (
+      msg.type() === "error" &&
+      !text.startsWith("Failed to load resource:") &&
+      !text.includes("ERR_NETWORK_CHANGED")
+    ) {
       consoleErrors.push(text);
     }
   });
@@ -41,7 +45,8 @@ test("browser preview keeps login separate and shows merged request routing", as
   await expect(page.getByRole("heading", { name: "Connect to Feishu" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Quotation" })).toBeVisible();
   await expect(page.getByText("Client email")).toBeVisible();
-  await expect(page.getByRole("button", { name: /Jenny Xu/ })).toBeVisible();
+  await expect(page.getByText("Search by name to choose a Feishu coworker")).toBeVisible();
+  await expect(page.getByText(/Recent & suggested/i)).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Start a request above" })).toBeDisabled();
 
   await page.getByRole("button", { name: "Quotation" }).click();
@@ -50,6 +55,7 @@ test("browser preview keeps login separate and shows merged request routing", as
   await expect(page.locator(":root")).toHaveCSS("--primary", "oklch(0.532 0.148 251.075)");
   await screenshot(page, "outlook-sales-builder.png");
 
+  await page.getByLabel("Search Feishu coworkers").fill("Jenny");
   await page.getByRole("button", { name: /Jenny Xu/ }).click();
   await expect(page.getByRole("button", { name: "Sync with Jenny Xu" })).toBeEnabled();
   await expect(page.getByRole("heading", { name: "Connect to Feishu" })).toHaveCount(0);

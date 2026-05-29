@@ -13,9 +13,20 @@ vi.mock("../../hooks/useSelfForward", () => ({
   useSelfForward: () => ({ sendNote: vi.fn(() => Promise.resolve({ ok: true })) }),
 }));
 
-vi.mock("../../hooks/useCoworkerSearch", () => ({
-  useCoworkerSearch: () => vi.fn(() => Promise.resolve([])),
-}));
+vi.mock("../../hooks/useCoworkerSearch", () => {
+  const coworkers = [
+    { openId: "ou_jenny", name: "Jenny Xu" },
+    { openId: "ou_michael", name: "Michael Chen" },
+    { openId: "ou_sales_ops", name: "Sales Ops" },
+    { openId: "ou_wei", name: "Wei Liang" },
+  ];
+  return {
+    useCoworkerSearch: () =>
+      vi.fn((query: string) =>
+        Promise.resolve(coworkers.filter((c) => c.name.toLowerCase().includes(query.toLowerCase()))),
+      ),
+  };
+});
 
 vi.mock("../../hooks/useCustomerSearch", () => ({
   useCustomerSearch: () => ({
@@ -63,6 +74,13 @@ function fillQuotation() {
   });
 }
 
+async function searchCoworker(name: string) {
+  fireEvent.change(screen.getByLabelText("Search Feishu coworkers"), {
+    target: { value: name },
+  });
+  return await screen.findByRole("button", { name: new RegExp(name, "i") });
+}
+
 beforeEach(() => {
   localStorage.clear();
 });
@@ -87,7 +105,8 @@ describe("RequestIntakeScreen login gate", () => {
     expect(screen.getByRole("button", { name: /Quotation/i })).toBeInTheDocument();
     expect(screen.getByText("Client email")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Feishu coworker" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Jenny Xu/i })).toBeInTheDocument();
+    expect(screen.getByText("Search by name to choose a Feishu coworker")).toBeInTheDocument();
+    expect(screen.queryByText(/Recent & suggested/i)).not.toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /Start a request above/i }),
     ).toBeDisabled();
@@ -113,7 +132,7 @@ describe("RequestIntakeScreen request details", () => {
     expect(screen.getByDisplayValue("m.hoffmann@bayerpharma.de")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Feishu coworker" })).toBeInTheDocument();
     expect(screen.getByDisplayValue("Need a quarterly L-Carnitine quote.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Jenny Xu/i })).toBeInTheDocument();
+    expect(screen.queryByText(/Recent & suggested/i)).not.toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /Choose exactly one Feishu coworker/i }),
     ).toBeDisabled();
@@ -132,18 +151,17 @@ describe("RequestIntakeScreen request details", () => {
 });
 
 describe("RequestIntakeScreen coworker selection", () => {
-  it("allows exactly one coworker and replaces the selection on the cards", () => {
+  it("allows exactly one coworker and replaces the selection on the cards", async () => {
     renderRequestIntakeScreen(true);
     fillQuotation();
 
-    const jenny = screen.getByRole("button", { name: /Jenny Xu/i });
+    const jenny = await searchCoworker("Jenny");
     fireEvent.click(jenny);
     expect(jenny).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: /Sync with Jenny Xu/i })).toBeInTheDocument();
 
-    const michael = screen.getByRole("button", { name: /Michael Chen/i });
+    const michael = await searchCoworker("Michael");
     fireEvent.click(michael);
-    expect(jenny).toHaveAttribute("aria-pressed", "false");
     expect(michael).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: /Sync with Michael Chen/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Remove coworker/i })).not.toBeInTheDocument();
@@ -155,7 +173,7 @@ describe("RequestIntakeScreen sync flow", () => {
     renderRequestIntakeScreen(true);
     fillQuotation();
 
-    fireEvent.click(screen.getByRole("button", { name: /Jenny Xu/i }));
+    fireEvent.click(await searchCoworker("Jenny"));
     fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
 
     expect(

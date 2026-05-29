@@ -202,6 +202,7 @@ export function RequestIntakeScreen({
   sessionId,
   user,
   userAccessToken,
+  usePreviewCoworkers = false,
   onLogin,
   onLoginFallback,
 }: {
@@ -216,6 +217,7 @@ export function RequestIntakeScreen({
   // dev-preview / browser path can render the screen without a real session.
   user?: { openId: string; userName?: string; avatarUrl?: string };
   userAccessToken?: string;
+  usePreviewCoworkers?: boolean;
   onLogin: () => void;
   onLoginFallback: () => void;
 }) {
@@ -448,6 +450,7 @@ export function RequestIntakeScreen({
             userAccessToken={userAccessToken}
             selectedOpenId={selectedOpenId}
             onSelect={selectCoworker}
+            usePreviewCoworkers={usePreviewCoworkers}
           />
         </div>
       </div>

@@ -24,9 +24,18 @@ vi.mock("../hooks/useSelfForward", () => ({
   useSelfForward: () => ({ sendNote: vi.fn(() => Promise.resolve({ ok: true })) }),
 }));
 
-vi.mock("../hooks/useCoworkerSearch", () => ({
-  useCoworkerSearch: () => vi.fn(() => Promise.resolve([])),
-}));
+vi.mock("../hooks/useCoworkerSearch", () => {
+  const coworkers = [
+    { openId: "ou_jenny", name: "Jenny Xu" },
+    { openId: "ou_michael", name: "Michael Chen" },
+  ];
+  return {
+    useCoworkerSearch: () =>
+      vi.fn((query: string) =>
+        Promise.resolve(coworkers.filter((c) => c.name.toLowerCase().includes(query.toLowerCase()))),
+      ),
+  };
+});
 
 vi.mock("../hooks/useCustomerSearch", () => ({
   useCustomerSearch: () => ({
@@ -65,6 +74,13 @@ function unlockRequestBuilder() {
   fireEvent.click(screen.getByRole("button", { name: /Continue with Feishu/i }));
 }
 
+async function searchCoworker(name: string) {
+  fireEvent.change(screen.getByLabelText("Search Feishu coworkers"), {
+    target: { value: name },
+  });
+  return await screen.findByRole("button", { name: new RegExp(name, "i") });
+}
+
 beforeEach(() => {
   localStorage.clear();
   window.history.replaceState({}, "", "/");
@@ -85,7 +101,8 @@ describe("TaskPane browser preview auth flow", () => {
     expect(screen.queryByText("Connect to Feishu")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Quotation/i })).toBeInTheDocument();
     expect(screen.getByText("Client email")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Jenny Xu/i })).toBeInTheDocument();
+    expect(screen.getByText("Search by name to choose a Feishu coworker")).toBeInTheDocument();
+    expect(screen.queryByText(/Recent & suggested/i)).not.toBeInTheDocument();
   });
 
   it("does not duplicate the host app title after login", () => {
@@ -98,10 +115,13 @@ describe("TaskPane browser preview auth flow", () => {
     expect(screen.getByRole("button", { name: /Feishu profile/i })).toBeInTheDocument();
   });
 
-  it("opens an anchored account menu and signs out", () => {
+  it("renders the account menu in the sticky profile header and signs out", () => {
     renderPreview();
 
     unlockRequestBuilder();
+    const profileHeader = screen.getByRole("banner", { name: /Feishu account controls/i });
+    expect(profileHeader).toHaveClass("sticky", "top-0");
+
     fireEvent.click(screen.getByRole("button", { name: /Feishu profile/i }));
 
     const accountMenu = screen.getByRole("dialog", { name: /Feishu account/i });
@@ -125,7 +145,7 @@ describe("TaskPane browser preview request flow", () => {
       target: { value: "Need a quarterly L-Carnitine quote." },
     });
     expect(screen.getByDisplayValue("m.hoffmann@bayerpharma.de")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Jenny Xu/i }));
+    fireEvent.click(await searchCoworker("Jenny"));
     fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
 
     expect(
@@ -138,7 +158,7 @@ describe("TaskPane browser preview request flow", () => {
     ).toBeInTheDocument();
   });
 
-  it("auto-hides the profile avatar while the success screen scrolls", async () => {
+  it("keeps the profile header visible instead of auto-hiding on scroll", async () => {
     renderPreview();
 
     unlockRequestBuilder();
@@ -146,15 +166,15 @@ describe("TaskPane browser preview request flow", () => {
     fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
       target: { value: "Need a quarterly L-Carnitine quote." },
     });
-    fireEvent.click(screen.getByRole("button", { name: /Jenny Xu/i }));
+    fireEvent.click(await searchCoworker("Jenny"));
     fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
 
     expect(await screen.findByRole("heading", { name: /Synced to Feishu/i })).toBeInTheDocument();
-    const profileShell = screen.getByRole("button", { name: /Feishu profile/i }).closest("[data-profile-shell]");
-    expect(profileShell).toHaveAttribute("data-autohidden", "false");
+    const profileHeader = screen.getByRole("banner", { name: /Feishu account controls/i });
 
     fireEvent.wheel(screen.getByRole("main"));
 
-    expect(profileShell).toHaveAttribute("data-autohidden", "true");
+    expect(profileHeader).toBeVisible();
+    expect(profileHeader).toHaveClass("sticky", "top-0");
   });
 });

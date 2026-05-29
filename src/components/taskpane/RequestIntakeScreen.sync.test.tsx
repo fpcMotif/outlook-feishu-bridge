@@ -14,9 +14,18 @@ const mockSendSelfForward = vi.fn(
 vi.mock("../../hooks/useSelfForward", () => ({
   useSelfForward: () => ({ sendNote: mockSendSelfForward }),
 }));
-vi.mock("../../hooks/useCoworkerSearch", () => ({
-  useCoworkerSearch: () => vi.fn(() => Promise.resolve([])),
-}));
+vi.mock("../../hooks/useCoworkerSearch", () => {
+  const coworkers = [
+    { openId: "ou_jenny", name: "Jenny Xu" },
+    { openId: "ou_michael", name: "Michael Chen" },
+  ];
+  return {
+    useCoworkerSearch: () =>
+      vi.fn((query: string) =>
+        Promise.resolve(coworkers.filter((c) => c.name.toLowerCase().includes(query.toLowerCase()))),
+      ),
+  };
+});
 const BAYER = {
   recordId: "rec_bayer",
   name: "Bayer Pharma",
@@ -68,6 +77,13 @@ function renderScreen(
   );
 }
 
+async function searchCoworker(name: string) {
+  fireEvent.change(screen.getByLabelText("Search Feishu coworkers"), {
+    target: { value: name },
+  });
+  return await screen.findByRole("button", { name: new RegExp(name, "i") });
+}
+
 describe("RequestIntakeScreen sync wiring", () => {
   beforeEach(() => {
     mockSync.mockClear();
@@ -83,7 +99,7 @@ describe("RequestIntakeScreen sync wiring", () => {
     fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
       target: { value: "Need a quarterly L-Carnitine quote." },
     });
-    fireEvent.click(screen.getByRole("button", { name: /Jenny Xu/i }));
+    fireEvent.click(await searchCoworker("Jenny"));
     fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
 
     await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(1));
@@ -108,7 +124,7 @@ describe("RequestIntakeScreen sync wiring", () => {
     fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
       target: { value: "Need a quarterly L-Carnitine quote." },
     });
-    fireEvent.click(screen.getByRole("button", { name: /Jenny Xu/i }));
+    fireEvent.click(await searchCoworker("Jenny"));
     fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
 
     await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(1));
@@ -132,7 +148,7 @@ describe("RequestIntakeScreen sync wiring", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: /STOCKMEIER Chemie/i }));
 
-    fireEvent.click(screen.getByRole("button", { name: /Jenny Xu/i }));
+    fireEvent.click(await searchCoworker("Jenny"));
     fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
 
     await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(1));
@@ -150,7 +166,7 @@ describe("RequestIntakeScreen sync wiring", () => {
     fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
       target: { value: "Need a quarterly L-Carnitine quote." },
     });
-    fireEvent.click(screen.getByRole("button", { name: /Jenny Xu/i }));
+    fireEvent.click(await searchCoworker("Jenny"));
     fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
 
     await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(1));
@@ -167,7 +183,7 @@ describe("RequestIntakeScreen sync wiring", () => {
     fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
       target: { value: "Need a quarterly L-Carnitine quote." },
     });
-    fireEvent.click(screen.getByRole("button", { name: /Jenny Xu/i }));
+    fireEvent.click(await searchCoworker("Jenny"));
     fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
 
     await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(1));
@@ -184,7 +200,7 @@ describe("RequestIntakeScreen sync wiring", () => {
     fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
       target: { value: "Need a quarterly L-Carnitine quote." },
     });
-    fireEvent.click(screen.getByRole("button", { name: /Jenny Xu/i }));
+    fireEvent.click(await searchCoworker("Jenny"));
     fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
 
     await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(1));
@@ -217,7 +233,7 @@ describe("RequestIntakeScreen sync wiring", () => {
     fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
       target: { value: "Need a quarterly L-Carnitine quote." },
     });
-    fireEvent.click(screen.getByRole("button", { name: /Jenny Xu/i }));
+    fireEvent.click(await searchCoworker("Jenny"));
     fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
 
     expect(
@@ -235,7 +251,7 @@ describe("RequestIntakeScreen sync wiring", () => {
     fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
       target: { value: "Need a quarterly L-Carnitine quote." },
     });
-    fireEvent.click(screen.getByRole("button", { name: /Jenny Xu/i }));
+    fireEvent.click(await searchCoworker("Jenny"));
     fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
 
     expect(await screen.findByRole("heading", { name: /Sync failed/i })).toBeInTheDocument();

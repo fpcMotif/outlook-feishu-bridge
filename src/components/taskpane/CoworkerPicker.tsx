@@ -164,6 +164,7 @@ export function CoworkerPicker({
   userAccessToken,
   selectedOpenId,
   onSelect,
+  usePreviewCoworkers = false,
 }: {
   clientEmail: string;
   onClientEmailChange: (email: string) => void;
@@ -172,6 +173,7 @@ export function CoworkerPicker({
   userAccessToken?: string;
   selectedOpenId?: string;
   onSelect: (coworker: Coworker) => void;
+  usePreviewCoworkers?: boolean;
 }) {
   const search = useCoworkerSearch(sessionId, userAccessToken);
   const [query, setQuery] = useState("");
@@ -188,6 +190,13 @@ export function CoworkerPicker({
       dispatchResults([]);
       return;
     }
+    const previewMatches = PREVIEW_COWORKERS.filter((c) =>
+      c.name.toLowerCase().includes(q.toLowerCase()),
+    );
+    if (usePreviewCoworkers) {
+      dispatchResults(previewMatches);
+      return;
+    }
     let cancelled = false;
     const timer = window.setTimeout(() => {
       search(q)
@@ -195,18 +204,14 @@ export function CoworkerPicker({
           if (!cancelled) dispatchResults(found);
         })
         .catch(() => {
-          if (!cancelled) {
-            dispatchResults(
-              PREVIEW_COWORKERS.filter((c) => c.name.toLowerCase().includes(q.toLowerCase())),
-            );
-          }
+          if (!cancelled) dispatchResults(previewMatches);
         });
     }, SEARCH_DEBOUNCE_MS);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [q, search]);
+  }, [q, search, usePreviewCoworkers]);
 
   const directoryById = useMemo(() => {
     const map = new Map<string, Coworker>();
@@ -215,11 +220,9 @@ export function CoworkerPicker({
   }, [recents, results]);
 
   const searching = q.length > 0;
-  const suggested = PREVIEW_COWORKERS.slice(0, 4).filter(
-    (coworker) => !recents.some((recent) => recent.openId === coworker.openId),
-  );
-  const list = searching ? results : [...recents, ...suggested].slice(0, 6);
-  const listLabel = searching ? "Results" : recents.length > 0 ? "Recent & suggested" : "Suggested";
+  const selectedCoworker = selectedOpenId ? directoryById.get(selectedOpenId) : undefined;
+  const list = searching ? results : selectedCoworker ? [selectedCoworker] : [];
+  const listLabel = searching ? "Results" : selectedCoworker ? "Current coworker" : "";
 
   const handleSelect = (coworker: Coworker) => {
     const next = [coworker, ...loadRecents().filter((c) => c.openId !== coworker.openId)].slice(0, 6);
@@ -254,9 +257,11 @@ export function CoworkerPicker({
         onFocusChange={setFocused}
       />
 
-      <div className="text-muted-foreground mt-4 mb-2 px-1 text-[11px] font-semibold tracking-wide uppercase">
-        {listLabel}
-      </div>
+      {listLabel ? (
+        <div className="text-muted-foreground mt-4 mb-2 px-1 text-[11px] font-semibold tracking-wide uppercase">
+          {listLabel}
+        </div>
+      ) : null}
       <div className="space-y-2">
         {list.length > 0 ? (
           list.map((coworker) => (
@@ -269,7 +274,7 @@ export function CoworkerPicker({
           ))
         ) : (
           <p className="text-muted-foreground px-1 py-2 text-sm">
-            {searching ? `No coworkers match "${query}"` : "Search for a Feishu coworker"}
+            {searching ? `No coworkers match "${query}"` : "Search by name to choose a Feishu coworker"}
           </p>
         )}
       </div>

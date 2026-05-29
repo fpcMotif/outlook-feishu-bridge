@@ -152,10 +152,24 @@ function Hero() {
       <p className="text-foreground/70 mt-2 max-w-[32ch] text-sm leading-relaxed">
         Route it to the right coworker in seconds.
       </p>
-      <div className="mt-3">
-        <SectionLabel>New request</SectionLabel>
-      </div>
     </header>
+  );
+}
+
+function NewRequestSection({
+  values,
+  onChange,
+}: {
+  values: Record<string, string>;
+  onChange: (id: string, value: string) => void;
+}) {
+  return (
+    <section aria-labelledby="new-request-title" className="space-y-3">
+      <header className="px-1">
+        <SectionLabel id="new-request-title">New request</SectionLabel>
+      </header>
+      <RequestCards values={values} onChange={onChange} />
+    </section>
   );
 }
 
@@ -454,7 +468,7 @@ export function RequestIntakeScreen({
         {profileSlot}
         <Hero />
         <div className="space-y-5">
-          <RequestCards
+          <NewRequestSection
             values={state.notes}
             onChange={(id, value) => dispatch({ type: "noteChanged", id, value })}
           />

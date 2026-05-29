@@ -18,7 +18,7 @@ import { REQUESTS } from "./requests";
 import { SubmitDock } from "./SubmitDock";
 import { SyncScreen } from "./SyncScreen";
 
-type IntakeScreenName = "build" | "coworker" | "sync" | "received" | "error";
+type IntakeScreenName = "build" | "sync" | "received" | "error";
 
 // Status of the parallel Self-Forward (ADR-0017). `pending` while the chain
 // runs; `ok` once the Note-to-myself sends; `failed` on any non-2xx so the
@@ -361,12 +361,7 @@ export function RequestIntakeScreen({
   ]);
 
   const handleSubmit = () => {
-    if (state.screen === "build") {
-      if (filledCount === 0) return;
-      dispatch({ type: "screenChanged", screen: "coworker" });
-      return;
-    }
-    if (selectedCount === 0) return;
+    if (filledCount === 0 || selectedCount === 0) return;
     runSync();
   };
 
@@ -404,7 +399,7 @@ export function RequestIntakeScreen({
         </p>
         <div className="flex gap-2">
           <Button onClick={runSync}>Try again</Button>
-          <Button variant="secondary" onClick={() => dispatch({ type: "screenChanged", screen: "coworker" })}>
+          <Button variant="secondary" onClick={() => dispatch({ type: "screenChanged", screen: "build" })}>
             Back
           </Button>
         </div>
@@ -417,64 +412,53 @@ export function RequestIntakeScreen({
     return <LoginScreen onLogin={onLogin} onLoginFallback={onLoginFallback} />;
   }
 
-  if (state.screen === "coworker") {
-    const emailDomainPart = state.clientEmail.includes("@")
-      ? state.clientEmail.split("@").pop() ?? state.clientEmail
-      : state.clientEmail;
-    return (
-      <>
-        <CoworkerPicker
-          clientEmail={state.clientEmail}
-          onClientEmailChange={(value) => dispatch({ type: "clientEmailChanged", value })}
-          customerSlot={
-            <CustomerPicker
-              directory={customerDirectory}
-              searchCustomers={searchCustomers}
-              triggerRefresh={triggerCustomerRefresh}
-              emailDomain={emailDomainPart}
-              selectedCustomer={state.selectedCustomer}
-              currentUserOpenId={user?.openId}
-              onChange={(customer) => dispatch({ type: "customerOverridden", customer })}
-            />
-          }
-          sessionId={sessionId}
-          userAccessToken={userAccessToken}
-          selectedOpenId={selectedOpenId}
-          onSelect={selectCoworker}
-          onBack={() => dispatch({ type: "screenChanged", screen: "build" })}
-        />
-        <SubmitDock
-          count={selectedCount}
-          canSubmit={selectedCount > 0}
-          sending={false}
-          hint="Choose exactly one Feishu coworker"
-          label={state.selectedCoworker ? `Sync with ${state.selectedCoworker.name}` : undefined}
-          footer={`${filledCount} request${filledCount > 1 ? "s" : ""} + 1 coworker ready for Bitable + Convex sync`}
-          onSubmit={handleSubmit}
-        />
-      </>
-    );
-  }
+  const emailDomainPart = state.clientEmail.includes("@")
+    ? state.clientEmail.split("@").pop() ?? state.clientEmail
+    : state.clientEmail;
+  const readyToSync = filledCount > 0 && selectedCount > 0;
+  const submitHint = filledCount === 0 ? "Start a request above" : "Choose exactly one Feishu coworker";
+  const submitFooter = readyToSync
+    ? `${filledCount} request${filledCount > 1 ? "s" : ""} + 1 coworker ready for Bitable + Convex sync`
+    : "Request details, client, and coworker stay on one screen";
 
   return (
     <>
-      <div className="no-scrollbar flex-1 overflow-y-auto px-5 pt-1 pb-2">
+      <div className="no-scrollbar flex-1 overflow-y-auto px-5 pt-1 pb-24">
         <Hero />
-        <div className="space-y-3">
+        <div className="space-y-5">
           <RequestCards
             values={state.notes}
             onChange={(id, value) => dispatch({ type: "noteChanged", id, value })}
+          />
+          <CoworkerPicker
+            clientEmail={state.clientEmail}
+            onClientEmailChange={(value) => dispatch({ type: "clientEmailChanged", value })}
+            customerSlot={
+              <CustomerPicker
+                directory={customerDirectory}
+                searchCustomers={searchCustomers}
+                triggerRefresh={triggerCustomerRefresh}
+                emailDomain={emailDomainPart}
+                selectedCustomer={state.selectedCustomer}
+                currentUserOpenId={user?.openId}
+                onChange={(customer) => dispatch({ type: "customerOverridden", customer })}
+              />
+            }
+            sessionId={sessionId}
+            userAccessToken={userAccessToken}
+            selectedOpenId={selectedOpenId}
+            onSelect={selectCoworker}
           />
         </div>
       </div>
 
       <SubmitDock
-        count={filledCount}
-        canSubmit={filledCount > 0}
+        count={readyToSync ? filledCount : 0}
+        canSubmit={readyToSync}
         sending={false}
-        hint="Start a request above"
-        label={filledCount > 0 ? "Continue" : undefined}
-        footer="Request Types & Details"
+        hint={submitHint}
+        label={readyToSync && state.selectedCoworker ? `Sync with ${state.selectedCoworker.name}` : undefined}
+        footer={submitFooter}
         onSubmit={handleSubmit}
       />
     </>

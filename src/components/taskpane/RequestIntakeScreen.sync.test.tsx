@@ -80,10 +80,9 @@ describe("RequestIntakeScreen sync wiring", () => {
   it("calls sync once with the request, coworker, and client email on submit", async () => {
     renderScreen();
     fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
-    fireEvent.change(screen.getByRole("textbox"), {
+    fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
       target: { value: "Need a quarterly L-Carnitine quote." },
     });
-    fireEvent.click(screen.getByRole("button", { name: /^Continue$/i }));
     fireEvent.click(screen.getByRole("button", { name: /Jenny Xu/i }));
     fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
 
@@ -106,10 +105,9 @@ describe("RequestIntakeScreen sync wiring", () => {
   it("passes the auto-matched Customer through to sync when the directory has a domain hit", async () => {
     renderScreen();
     fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
-    fireEvent.change(screen.getByRole("textbox"), {
+    fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
       target: { value: "Need a quarterly L-Carnitine quote." },
     });
-    fireEvent.click(screen.getByRole("button", { name: /^Continue$/i }));
     fireEvent.click(screen.getByRole("button", { name: /Jenny Xu/i }));
     fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
 
@@ -124,10 +122,9 @@ describe("RequestIntakeScreen sync wiring", () => {
   it("uses the user's Customer override instead of the auto-match when one is picked", async () => {
     renderScreen();
     fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
-    fireEvent.change(screen.getByRole("textbox"), {
+    fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
       target: { value: "Need a quarterly L-Carnitine quote." },
     });
-    fireEvent.click(screen.getByRole("button", { name: /^Continue$/i }));
 
     fireEvent.click(screen.getByRole("button", { name: /change/i }));
     fireEvent.change(screen.getByRole("searchbox", { name: /search customers/i }), {
@@ -150,10 +147,9 @@ describe("RequestIntakeScreen sync wiring", () => {
   it("passes the Mail Item conversationId on sync", async () => {
     renderScreen();
     fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
-    fireEvent.change(screen.getByRole("textbox"), {
+    fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
       target: { value: "Need a quarterly L-Carnitine quote." },
     });
-    fireEvent.click(screen.getByRole("button", { name: /^Continue$/i }));
     fireEvent.click(screen.getByRole("button", { name: /Jenny Xu/i }));
     fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
 
@@ -168,10 +164,9 @@ describe("RequestIntakeScreen sync wiring", () => {
   it("passes the signed-in user as the Initiator on sync", async () => {
     renderScreen({ openId: "ou_jenny_initiator", userName: "Jenny Xu" });
     fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
-    fireEvent.change(screen.getByRole("textbox"), {
+    fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
       target: { value: "Need a quarterly L-Carnitine quote." },
     });
-    fireEvent.click(screen.getByRole("button", { name: /^Continue$/i }));
     fireEvent.click(screen.getByRole("button", { name: /Jenny Xu/i }));
     fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
 
@@ -186,10 +181,9 @@ describe("RequestIntakeScreen sync wiring", () => {
   it("fires the Self-Forward `sendNote` alongside `sync` on submit", async () => {
     renderScreen();
     fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
-    fireEvent.change(screen.getByRole("textbox"), {
+    fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
       target: { value: "Need a quarterly L-Carnitine quote." },
     });
-    fireEvent.click(screen.getByRole("button", { name: /^Continue$/i }));
     fireEvent.click(screen.getByRole("button", { name: /Jenny Xu/i }));
     fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
 
@@ -220,10 +214,9 @@ describe("RequestIntakeScreen sync wiring", () => {
     );
     renderScreen();
     fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
-    fireEvent.change(screen.getByRole("textbox"), {
+    fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
       target: { value: "Need a quarterly L-Carnitine quote." },
     });
-    fireEvent.click(screen.getByRole("button", { name: /^Continue$/i }));
     fireEvent.click(screen.getByRole("button", { name: /Jenny Xu/i }));
     fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
 
@@ -239,10 +232,9 @@ describe("RequestIntakeScreen sync wiring", () => {
     mockSync.mockImplementationOnce(() => Promise.reject(new Error("Bitable unavailable")));
     renderScreen();
     fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
-    fireEvent.change(screen.getByRole("textbox"), {
+    fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
       target: { value: "Need a quarterly L-Carnitine quote." },
     });
-    fireEvent.click(screen.getByRole("button", { name: /^Continue$/i }));
     fireEvent.click(screen.getByRole("button", { name: /Jenny Xu/i }));
     fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
 

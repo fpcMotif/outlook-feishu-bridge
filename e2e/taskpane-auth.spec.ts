@@ -7,7 +7,7 @@ async function screenshot(page: Page, name: string) {
   await page.screenshot({ path: path.join(dir, name), fullPage: false });
 }
 
-test("browser preview keeps login separate and completes a request", async ({ page }) => {
+test("browser preview keeps login separate and shows merged request routing", async ({ page }) => {
   const consoleErrors: string[] = [];
   page.on("console", (msg) => {
     const text = msg.text();
@@ -30,33 +30,29 @@ test("browser preview keeps login separate and completes a request", async ({ pa
 
   await page.goto("/");
   await expect(page).toHaveTitle("feishu-sync");
-  await expect(page.getByText("Connect your Feishu account")).toBeVisible({
+  await expect(page.getByRole("heading", { name: "Connect to Feishu" })).toBeVisible({
     timeout: 12_000,
   });
   await expect(page.getByRole("button", { name: "Quotation" })).toHaveCount(0);
   await screenshot(page, "outlook-sales-login.png");
 
-  await page.getByRole("button", { name: "Log in to Feishu" }).click();
+  await page.getByRole("button", { name: "Continue with Feishu" }).click();
 
-  await expect(page.getByText("Connect your Feishu account")).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Connect to Feishu" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Quotation" })).toBeVisible();
+  await expect(page.getByText("Client email")).toBeVisible();
+  await expect(page.getByRole("button", { name: /Jenny Xu/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Start a request above" })).toBeDisabled();
+
   await page.getByRole("button", { name: "Quotation" }).click();
-  await page.getByRole("textbox").fill("Need a quarterly L-Carnitine quote.");
-  await expect(page.getByRole("button", { name: "Continue to Act II" })).toBeEnabled();
-  await expect(page.locator(":root")).toHaveCSS("--primary", "#0f6cbd");
+  await page.getByPlaceholder(/Describe your requirements/i).fill("Need a quarterly L-Carnitine quote.");
+  await expect(page.getByRole("button", { name: "Choose exactly one Feishu coworker" })).toBeDisabled();
+  await expect(page.locator(":root")).toHaveCSS("--primary", "oklch(0.532 0.148 251.075)");
   await screenshot(page, "outlook-sales-builder.png");
 
-  await page.getByRole("button", { name: "Continue to Act II" }).click();
-  await expect(page.getByText("Act II")).toBeVisible();
-  await expect(page.getByRole("button", { name: /Jenny Xu/ })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Choose a Feishu coworker" })).toBeDisabled();
-  await screenshot(page, "outlook-sales-act-ii.png");
-
   await page.getByRole("button", { name: /Jenny Xu/ }).click();
-  await page.getByRole("button", { name: "Submit to 1 coworker" }).click();
-
-  await expect(page.getByText("Forwarded to Feishu")).toBeVisible();
-  await expect(page.getByText("Connect your Feishu account")).toHaveCount(0);
-  await screenshot(page, "outlook-sales-received.png");
+  await expect(page.getByRole("button", { name: "Sync with Jenny Xu" })).toBeEnabled();
+  await expect(page.getByRole("heading", { name: "Connect to Feishu" })).toHaveCount(0);
+  await screenshot(page, "outlook-sales-merged-routing.png");
   expect(consoleErrors).toEqual([]);
 });

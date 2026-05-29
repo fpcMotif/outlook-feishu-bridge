@@ -1,7 +1,7 @@
 /* eslint-disable max-lines-per-function */
 import * as React from "react";
 import { useEffect, useMemo, useReducer, useState } from "react";
-import { ArrowLeft, Check, Search, UserRound, X } from "lucide-react";
+import { Check, Search, UserRound, X } from "lucide-react";
 
 import type { Coworker } from "./coworkers";
 import { useCoworkerSearch } from "../../hooks/useCoworkerSearch";
@@ -121,9 +121,9 @@ function CoworkerSearchSection({
       className="bg-card mt-3 rounded-[18px] p-2 shadow-[var(--shadow-floating)]"
     >
       <div className="flex items-center px-2 pt-1 pb-2">
-        <h1 id="coworker-search-title" className="text-sm font-bold">
+        <h2 id="coworker-search-title" className="text-sm font-bold">
           Feishu coworker
-        </h1>
+        </h2>
       </div>
       <div
         className={
@@ -164,7 +164,6 @@ export function CoworkerPicker({
   userAccessToken,
   selectedOpenId,
   onSelect,
-  onBack,
 }: {
   clientEmail: string;
   onClientEmailChange: (email: string) => void;
@@ -173,7 +172,6 @@ export function CoworkerPicker({
   userAccessToken?: string;
   selectedOpenId?: string;
   onSelect: (coworker: Coworker) => void;
-  onBack: () => void;
 }) {
   const search = useCoworkerSearch(sessionId, userAccessToken);
   const [query, setQuery] = useState("");
@@ -235,24 +233,19 @@ export function CoworkerPicker({
   };
 
   return (
-    <div className="no-scrollbar flex-1 overflow-y-auto px-5 pt-3 pb-2">
-      <button
-        type="button"
-        onClick={onBack}
-        className="text-muted-foreground hover:text-primary mb-3 inline-flex min-h-10 items-center gap-2 text-xs font-semibold transition-[color] duration-150"
-      >
-        <ArrowLeft className="size-4" />
-        Back
-      </button>
-      <header className="px-1 pb-2">
-        <div className="text-accent-foreground mb-1.5 flex items-center gap-2 text-[11px] font-semibold uppercase">
+    <section aria-labelledby="client-coworker-title" className="space-y-3">
+      <header className="px-1">
+        <div
+          id="client-coworker-title"
+          className="text-accent-foreground flex items-center gap-2 text-[11px] font-semibold uppercase"
+        >
           <span className="bg-muted-foreground inline-block h-px w-3.5" />
           Client &amp; coworker
         </div>
       </header>
 
       <ClientInfo clientEmail={clientEmail} onClientEmailChange={onClientEmailChange} />
-      {customerSlot ? <div className="mt-3">{customerSlot}</div> : null}
+      {customerSlot ? <div>{customerSlot}</div> : null}
 
       <CoworkerSearchSection
         query={query}
@@ -280,6 +273,6 @@ export function CoworkerPicker({
           </p>
         )}
       </div>
-    </div>
+    </section>
   );
 }

@@ -56,12 +56,11 @@ function renderRequestIntakeScreen(
   );
 }
 
-function fillQuotationAndContinue() {
+function fillQuotation() {
   fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
-  fireEvent.change(screen.getByRole("textbox"), {
+  fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
     target: { value: "Need a quarterly L-Carnitine quote." },
   });
-  fireEvent.click(screen.getByRole("button", { name: /^Continue$/i }));
 }
 
 beforeEach(() => {
@@ -81,14 +80,17 @@ describe("RequestIntakeScreen login gate", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("shows the request builder without the login prompt after sign-in", () => {
+  it("shows request details and client/coworker controls together after sign-in", () => {
     renderRequestIntakeScreen(true);
 
     expect(screen.queryByText("Connect to Feishu")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Quotation/i })).toBeInTheDocument();
+    expect(screen.getByText("Client email")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Feishu coworker" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Jenny Xu/i })).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /Start a request above/i }),
-    ).toBeInTheDocument();
+    ).toBeDisabled();
   });
 });
 
@@ -96,24 +98,21 @@ describe("RequestIntakeScreen request details", () => {
   it("marks filled request cards as selected", () => {
     renderRequestIntakeScreen(true);
 
-    fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
-    fireEvent.change(screen.getByRole("textbox"), {
-      target: { value: "Need a quarterly L-Carnitine quote." },
-    });
+    fillQuotation();
 
     expect(screen.getByText("Selected")).toBeInTheDocument();
     expect(screen.queryByText("Ready")).not.toBeInTheDocument();
   });
 
-  it("moves filled requests into Act II coworker selection before submit", () => {
+  it("keeps request details and client/coworker selection on one screen before submit", () => {
     renderRequestIntakeScreen(true);
-    fillQuotationAndContinue();
+    fillQuotation();
 
     expect(screen.getByText("Client & coworker")).toBeInTheDocument();
     expect(screen.getByText("Client email")).toBeInTheDocument();
     expect(screen.getByDisplayValue("m.hoffmann@bayerpharma.de")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Feishu coworker" })).toBeInTheDocument();
-    expect(screen.queryByText("Need a quarterly L-Carnitine quote.")).not.toBeInTheDocument();
+    expect(screen.getByDisplayValue("Need a quarterly L-Carnitine quote.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Jenny Xu/i })).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /Choose exactly one Feishu coworker/i }),
@@ -122,7 +121,7 @@ describe("RequestIntakeScreen request details", () => {
 
   it("lets users confirm and update the retrieved client email", () => {
     renderRequestIntakeScreen(true);
-    fillQuotationAndContinue();
+    fillQuotation();
 
     fireEvent.change(screen.getByLabelText("Client email"), {
       target: { value: "updated.client@example.com" },
@@ -130,13 +129,12 @@ describe("RequestIntakeScreen request details", () => {
 
     expect(screen.getByDisplayValue("updated.client@example.com")).toBeInTheDocument();
   });
-
 });
 
 describe("RequestIntakeScreen coworker selection", () => {
   it("allows exactly one coworker and replaces the selection on the cards", () => {
     renderRequestIntakeScreen(true);
-    fillQuotationAndContinue();
+    fillQuotation();
 
     const jenny = screen.getByRole("button", { name: /Jenny Xu/i });
     fireEvent.click(jenny);
@@ -155,7 +153,7 @@ describe("RequestIntakeScreen coworker selection", () => {
 describe("RequestIntakeScreen sync flow", () => {
   it("shows Act IV while syncing, then the success screen once sync resolves", async () => {
     renderRequestIntakeScreen(true);
-    fillQuotationAndContinue();
+    fillQuotation();
 
     fireEvent.click(screen.getByRole("button", { name: /Jenny Xu/i }));
     fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));

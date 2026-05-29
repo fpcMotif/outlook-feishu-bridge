@@ -84,6 +84,8 @@ describe("TaskPane browser preview auth flow", () => {
 
     expect(screen.queryByText("Connect to Feishu")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Quotation/i })).toBeInTheDocument();
+    expect(screen.getByText("Client email")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Jenny Xu/i })).toBeInTheDocument();
   });
 
   it("does not duplicate the host app title after login", () => {
@@ -118,10 +120,9 @@ describe("TaskPane browser preview request flow", () => {
 
     unlockRequestBuilder();
     fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
-    fireEvent.change(screen.getByRole("textbox"), {
+    fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
       target: { value: "Need a quarterly L-Carnitine quote." },
     });
-    fireEvent.click(screen.getByRole("button", { name: /^Continue$/i }));
     expect(screen.getByDisplayValue("m.hoffmann@bayerpharma.de")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Jenny Xu/i }));
     fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));

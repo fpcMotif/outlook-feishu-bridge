@@ -63,7 +63,7 @@ export function FeishuProfile({ user, onLogout }: { user: FeishuUser; onLogout: 
         <dialog
           open
           aria-label="Feishu account"
-          className="bg-popover text-popover-foreground profile-pop absolute top-full right-0 z-50 mt-2 w-64 max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-xl border-0 p-0 shadow-[var(--shadow-floating)] backdrop:bg-transparent"
+          className="bg-popover text-popover-foreground profile-pop absolute top-full right-0 left-auto z-50 m-0 mt-2 w-64 max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-xl border-0 p-0 shadow-[var(--shadow-floating)] backdrop:bg-transparent"
         >
           <div className="px-3.5 pt-3 pb-2.5">
             <div className="min-w-0">

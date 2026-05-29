@@ -1,5 +1,5 @@
 /* eslint-disable max-lines-per-function */
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, MailOpen } from "lucide-react";
 
 import { dload } from "../debug";
@@ -75,6 +75,8 @@ export function TaskPane({ host }: { host: string | null }) {
   const { mailItem, loading, error, readCurrentItem } = useMailItem(Boolean(host && host !== "browser"));
   const feishuAuth = useFeishuAuth();
   const [devLoggedIn, setDevLoggedIn] = useState(false);
+  const [profileAutoHidden, setProfileAutoHidden] = useState(false);
+  const profileRestoreTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Real Outlook sets host "Outlook"; anything else in dev (host null or
   // "browser") means no mailbox, so preview a sample item and simulate submit.
@@ -98,13 +100,41 @@ export function TaskPane({ host }: { host: string | null }) {
   const handleLoginFallback = devPreview ? () => setDevLoggedIn(true) : feishuAuth.loginFallback;
   const handleLogout = devPreview ? () => setDevLoggedIn(false) : feishuAuth.logout;
 
+  const clearProfileRestoreTimer = useCallback(() => {
+    const timer = profileRestoreTimer.current;
+    if (!timer) return;
+    clearTimeout(timer);
+    profileRestoreTimer.current = null;
+  }, []);
+
+  useEffect(() => clearProfileRestoreTimer, [clearProfileRestoreTimer]);
+
+  const hideProfileWhileScrolling = () => {
+    if (!isLoggedIn) return;
+    setProfileAutoHidden(true);
+    clearProfileRestoreTimer();
+    profileRestoreTimer.current = setTimeout(() => setProfileAutoHidden(false), 900);
+  };
+
   return (
-    <div className="bg-background relative flex h-screen w-full flex-col overflow-hidden">
+    <div
+      className="bg-background relative flex h-screen w-full flex-col overflow-hidden"
+      onScrollCapture={hideProfileWhileScrolling}
+      onWheelCapture={hideProfileWhileScrolling}
+      onTouchMoveCapture={hideProfileWhileScrolling}
+    >
       {host !== null && !feishuAuth.isLoading ? (
         <BootReadyMilestone host={host} isLoggedIn={feishuAuth.isLoggedIn} />
       ) : null}
       {isLoggedIn && user ? (
-        <div className="absolute top-2 right-2 z-40">
+        <div
+          className={
+            "absolute top-2 right-2 z-40 transition-[opacity,transform] duration-150 ease-[var(--ease-out-strong)] " +
+            (profileAutoHidden ? "pointer-events-none translate-y-1 opacity-0" : "opacity-100")
+          }
+          data-profile-shell="true"
+          data-autohidden={profileAutoHidden}
+        >
           <FeishuProfile user={user} onLogout={handleLogout} />
         </div>
       ) : null}

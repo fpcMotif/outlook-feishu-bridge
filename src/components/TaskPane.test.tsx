@@ -106,6 +106,7 @@ describe("TaskPane browser preview auth flow", () => {
 
     const accountMenu = screen.getByRole("dialog", { name: /Feishu account/i });
     expect(accountMenu.tagName).toBe("DIALOG");
+    expect(accountMenu).toHaveClass("m-0", "left-auto");
     expect(screen.getAllByText("JX")).toHaveLength(1);
     expect(accountMenu).toHaveTextContent("Connected");
     fireEvent.click(screen.getByRole("button", { name: /Sign out of Feishu/i }));
@@ -135,5 +136,25 @@ describe("TaskPane browser preview request flow", () => {
     expect(
       await screen.findByRole("heading", { name: /Synced to Feishu/i }),
     ).toBeInTheDocument();
+  });
+
+  it("auto-hides the profile avatar while the success screen scrolls", async () => {
+    renderPreview();
+
+    unlockRequestBuilder();
+    fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
+    fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
+      target: { value: "Need a quarterly L-Carnitine quote." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Jenny Xu/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
+
+    expect(await screen.findByRole("heading", { name: /Synced to Feishu/i })).toBeInTheDocument();
+    const profileShell = screen.getByRole("button", { name: /Feishu profile/i }).closest("[data-profile-shell]");
+    expect(profileShell).toHaveAttribute("data-autohidden", "false");
+
+    fireEvent.wheel(screen.getByRole("main"));
+
+    expect(profileShell).toHaveAttribute("data-autohidden", "true");
   });
 });

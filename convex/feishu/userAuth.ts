@@ -12,6 +12,10 @@ import { feishuFetch, FEISHU_BASE } from "./client";
 
 // ── Queries ──────────────────────────────────────────────────────────
 
+// Registered Convex query/mutation handlers (below) need a live runtime; the
+// pure projection toPublicSession and the fake-ctx-testable token helpers
+// (exchangeCodeForUserToken / getUserAccessToken) are unit-tested (ADR-0018).
+/* v8 ignore start */
 export const getSessionBySessionId = internalQuery({
   args: { sessionId: v.string() },
   handler: async (ctx, args) => {
@@ -21,7 +25,42 @@ export const getSessionBySessionId = internalQuery({
       .unique();
   },
 });
+/* v8 ignore stop */
 
+/** Public projection of a stored user session (no tokens leaked to the SPA). */
+export interface PublicUserSession {
+  openId: string;
+  userName?: string;
+  avatarUrl?: string;
+  isExpired: boolean;
+}
+
+/** Minimal shape {@link toPublicSession} reads from a stored session row. */
+export interface StoredUserSession {
+  openId: string;
+  userName?: string;
+  avatarUrl?: string;
+  expiresAt: number;
+}
+
+/**
+ * Pure projection used by {@link getUserSession}: strip the tokens and surface
+ * only the public profile plus an `isExpired` flag computed against `now`
+ * ({@code expiresAt <= now} is expired). Extracted so the rule is testable.
+ */
+export function toPublicSession(
+  session: StoredUserSession,
+  now: number,
+): PublicUserSession {
+  return {
+    openId: session.openId,
+    userName: session.userName,
+    avatarUrl: session.avatarUrl,
+    isExpired: session.expiresAt <= now,
+  };
+}
+
+/* v8 ignore start */
 export const getUserSession = query({
   args: { sessionId: v.string() },
   handler: async (ctx, args) => {
@@ -30,12 +69,7 @@ export const getUserSession = query({
       .withIndex("by_sessionId", (q) => q.eq("sessionId", args.sessionId))
       .unique();
     if (!session) return null;
-    return {
-      openId: session.openId,
-      userName: session.userName,
-      avatarUrl: session.avatarUrl,
-      isExpired: session.expiresAt <= Date.now(),
-    };
+    return toPublicSession(session, Date.now());
   },
 });
 
@@ -86,6 +120,7 @@ export const logoutUser = mutation({
     }
   },
 });
+/* v8 ignore stop */
 
 // ── Helper: get a valid user access token ────────────────────────────
 

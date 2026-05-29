@@ -1,7 +1,14 @@
+/* eslint-disable max-lines */
 import { internalAction, type ActionCtx } from "../_generated/server";
 import { v } from "convex/values";
 import { callFeishu } from "./call";
 import { buildServiceFields, type ServiceRowInput } from "./serviceRow";
+import { emailDomain } from "./customers";
+import {
+  requestSelectionValidator,
+  selectedCoworkerValidator,
+  initiatorValidator,
+} from "../emailRecord";
 
 // Bitable record writes for the sales "Service" table. Endpoints + field-value
 // formats come from the official Feishu docs (the ONLY source of truth):
@@ -24,16 +31,9 @@ import { buildServiceFields, type ServiceRowInput } from "./serviceRow";
 const CLIENT_TABLE_ID = "tbl4TE2GV472sKzp";
 const CLIENT_DOMAIN_FIELD = "域名";
 
-const requestSelectionValidator = v.object({ requestType: v.string(), note: v.string() });
-const coworkerValidator = v.object({
-  openId: v.string(),
-  name: v.string(),
-  avatarUrl: v.optional(v.string()),
-});
-const initiatorValidator = v.object({
-  openId: v.string(),
-  name: v.optional(v.string()),
-});
+// Intake validators come from emailRecord.ts — the documented "one source of
+// truth" (ADR-0018). bitable.ts used to fork its own identical copies, which
+// could silently drift; it now imports them.
 
 // Shared write args. The client is the email sender; if `clientRecordId` is
 // passed (the salesperson's override picked from the Customer Picker, ADR-0013)
@@ -48,10 +48,15 @@ const serviceRowArgs = {
   clientRecordId: v.optional(v.string()),
   dateOfOffer: v.optional(v.number()),
   requestSelections: v.optional(v.array(requestSelectionValidator)),
-  selectedCoworkers: v.optional(v.array(coworkerValidator)),
+  selectedCoworkers: v.optional(v.array(selectedCoworkerValidator)),
   initiator: v.optional(initiatorValidator),
+  // ADR-0017: Outlook `item.conversationId` lands in the Service row's
+  // `Email Conversation ID` column as the Bitable→Outlook join key.
+  emailConversationId: v.optional(v.string()),
 };
 
+/* v8 ignore start */
+// env-config guard, reached only through the ctx-action handlers below (ADR-0018).
 function requireBitableEnv() {
   const appToken = process.env.FEISHU_BITABLE_APP_TOKEN;
   const tableId = process.env.FEISHU_BITABLE_TABLE_ID;
@@ -60,18 +65,12 @@ function requireBitableEnv() {
   }
   return { appToken, tableId };
 }
-
-function emailDomain(email: string): string | null {
-  const at = email.lastIndexOf("@");
-  if (at < 0) return null;
-  const domain = email.slice(at + 1).trim().toLowerCase();
-  return domain || null;
-}
+/* v8 ignore stop */
 
 // READ-ONLY. Resolve a customer record_id by the email's domain (域名), or null.
 // Lenient by design: no domain / no match -> null (Client left unlinked, the email
 // stays on the Convex Email Record). Richer rules are on-going dev. ADR-0012.
-async function matchClientRecordId(
+export async function matchClientRecordId(
   ctx: ActionCtx,
   appToken: string,
   email: string | undefined,
@@ -98,7 +97,7 @@ async function matchClientRecordId(
 // in the Customer Picker (ADR-0013); fall back to the email-domain match
 // against the Customer Table (ADR-0012). Both paths are read-only on the
 // Customer Table; both may return null and that is OK (lenient by design).
-async function resolveClientRecordId(
+export async function resolveClientRecordId(
   ctx: ActionCtx,
   appToken: string,
   input: ServiceRowInput,
@@ -107,6 +106,44 @@ async function resolveClientRecordId(
   return await matchClientRecordId(ctx, appToken, input.clientEmail);
 }
 
+// Intake logging for the Bitable create. By default we emit only a REDACTED
+// summary — counts, field keys, and lengths — never the customer email, the
+// salesperson/coworker identities, or the free-text notes, which are PII that
+// used to land in Convex logs in plaintext on every create (ADR-0018). The full
+// intake + resolved-fields dump (for a Feishu 1255001 post-mortem) is gated
+// behind BITABLE_DIAG_LOG=1, mirroring the m365 chain's deliberate redaction.
+export function logServiceRecordIntake(
+  args: ServiceRowInput,
+  resolvedClientRecordId: string | null,
+  fields: Record<string, unknown>,
+): void {
+  console.log(
+    `[bitable] createServiceRecord clientLinked=${Boolean(resolvedClientRecordId)} ` +
+      `requests=${args.requestSelections?.length ?? 0} coworkers=${args.selectedCoworkers?.length ?? 0} ` +
+      `hasInitiator=${Boolean(args.initiator)} subjectLen=${args.subject?.length ?? 0} ` +
+      `convIdLen=${args.emailConversationId?.length ?? 0} fieldKeys=[${Object.keys(fields).join(",")}]`,
+  );
+  if (process.env.BITABLE_DIAG_LOG === "1") {
+    console.log(
+      `[bitable] DIAG intake=${JSON.stringify({
+        subject: args.subject,
+        clientEmail: args.clientEmail,
+        clientRecordId: args.clientRecordId,
+        resolvedClientRecordId,
+        dateOfOffer: args.dateOfOffer,
+        emailConversationId: args.emailConversationId,
+        initiator: args.initiator,
+        coworkers: args.selectedCoworkers,
+        requestSelections: args.requestSelections,
+      })} fields=${JSON.stringify(fields)}`,
+    );
+  }
+}
+
+// The Convex ctx-action HANDLERS below need a live runtime (convex-test, opted
+// out per ADR-0018); their pure logic — resolveClientRecordId, matchClientRecordId,
+// logServiceRecordIntake, buildServiceFields — is unit-tested directly.
+/* v8 ignore start */
 // CREATE a new Service row. Never touches an existing row.
 export const createServiceRecord = internalAction({
   args: serviceRowArgs,
@@ -114,6 +151,7 @@ export const createServiceRecord = internalAction({
     const { appToken, tableId } = requireBitableEnv();
     const clientRecordId = await resolveClientRecordId(ctx, appToken, args);
     const fields = buildServiceFields(args, clientRecordId);
+    logServiceRecordIntake(args, clientRecordId, fields);
     const data = await callFeishu<{ record?: { record_id: string } }>(ctx, {
       path: `/bitable/v1/apps/${appToken}/tables/${tableId}/records`,
       method: "POST",
@@ -152,7 +190,7 @@ export const correctServiceRecord = internalAction({
 export const listFields = internalAction({
   args: { tableId: v.optional(v.string()) },
   handler: async (ctx, args): Promise<{
-    fields: { name: string; type: number; ui: string; primary: boolean; property: unknown }[];
+    fields: { id: string; name: string; type: number; ui: string; primary: boolean; property: unknown }[];
   }> => {
     const appToken = process.env.FEISHU_BITABLE_APP_TOKEN;
     const tableId = args.tableId ?? process.env.FEISHU_BITABLE_TABLE_ID;
@@ -161,6 +199,7 @@ export const listFields = internalAction({
     }
     const data = await callFeishu<{
       items?: {
+        field_id?: string;
         field_name: string;
         type: number;
         ui_type?: string;
@@ -176,6 +215,7 @@ export const listFields = internalAction({
     });
     return {
       fields: (data.items ?? []).map((f) => ({
+        id: f.field_id ?? "",
         name: f.field_name,
         type: f.type,
         ui: f.ui_type ?? "",
@@ -185,3 +225,4 @@ export const listFields = internalAction({
     };
   },
 });
+/* v8 ignore stop */

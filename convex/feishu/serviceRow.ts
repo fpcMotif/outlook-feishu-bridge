@@ -33,6 +33,26 @@ export interface ServiceRowInput {
   requestSelections?: { requestType: string; note: string }[];
   selectedCoworkers?: { openId: string; name: string; avatarUrl?: string }[];
   initiator?: { openId: string; name?: string };
+  // Outlook `item.conversationId` — the salesperson-mailbox-local thread id for
+  // the original client email. Lands in the Service row's `Email Conversation ID`
+  // Text column as the join key Bitable→Outlook (ADR-0017). Distinct from the
+  // Self-Forward copy's conversationId, which is not written.
+  emailConversationId?: string;
+}
+
+// Returns the set of Bitable column names listed in DIAG_SKIP_FIELDS (comma-
+// separated). Used to binary-search which field is tripping the live
+// 1255001 InternalError on the Bitable create — flip the env var without
+// redeploying since Convex actions read env at call time.
+function readSkipSet(): Set<string> {
+  return new Set(
+    (process.env.DIAG_SKIP_FIELDS ?? "")
+      .split(",")
+      .flatMap((s) => {
+        const field = s.trim();
+        return field ? [field] : [];
+      }),
+  );
 }
 
 /**
@@ -46,27 +66,40 @@ export function buildServiceFields(
   clientRecordId: string | null,
 ): Record<string, unknown> {
   const fields: Record<string, unknown> = {};
+  const skip = readSkipSet();
+  if (skip.size > 0) console.log(`[bitable] DIAG_SKIP_FIELDS active: ${[...skip].join("|")}`);
 
   const types = (input.requestSelections ?? [])
     .map((r) => REQUEST_TYPE_OPTION[r.requestType])
     .filter((t): t is string => t !== undefined);
-  if (types.length > 0) fields["Request Type"] = types;
+  if (types.length > 0 && !skip.has("Request Type")) fields["Request Type"] = types;
   for (const r of input.requestSelections ?? []) {
     const noteField = NOTE_FIELD[r.requestType];
-    if (noteField && r.note.trim()) fields[noteField] = r.note;
+    if (noteField && r.note.trim() && !skip.has(noteField)) fields[noteField] = r.note;
   }
 
   if (!input.selectedCoworkers || input.selectedCoworkers.length !== 1) {
     throw new Error("Bitable Service row requires exactly one Feishu coworker");
   }
-  fields["Co Worker"] = input.selectedCoworkers.map((c) => ({ id: c.openId }));
+  if (!skip.has("Co Worker")) {
+    fields["Co Worker"] = input.selectedCoworkers.map((c) => ({ id: c.openId }));
+  }
 
-  if (input.dateOfOffer !== undefined) fields["Date of Offer"] = input.dateOfOffer;
-  if (clientRecordId) fields["Client"] = [clientRecordId];
+  if (input.dateOfOffer !== undefined && !skip.has("Date of Offer")) fields["Date of Offer"] = input.dateOfOffer;
+  if (clientRecordId && !skip.has("Client")) fields["Client"] = [clientRecordId];
 
   // ADR-0014 additions:
-  if (input.subject && input.subject.trim()) fields["Email Subject"] = input.subject;
-  if (input.initiator?.openId) fields["Sales"] = [{ id: input.initiator.openId }];
+  if (input.subject && input.subject.trim() && !skip.has("Email Subject")) fields["Email Subject"] = input.subject;
+  if (input.initiator?.openId && !skip.has("Sales")) fields["Sales"] = [{ id: input.initiator.openId }];
+
+  // ADR-0017: Outlook conversationId as the Bitable→Outlook join key.
+  if (
+    input.emailConversationId &&
+    input.emailConversationId.trim() &&
+    !skip.has("Email Conversation ID")
+  ) {
+    fields["Email Conversation ID"] = input.emailConversationId;
+  }
 
   return fields;
 }

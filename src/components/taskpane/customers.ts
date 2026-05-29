@@ -38,7 +38,7 @@ export function findCustomerByEmail<R extends { domain?: string }>(
   );
 }
 
-function emailDomain(email: string): string | null {
+export function emailDomain(email: string): string | null {
   const at = email.lastIndexOf("@");
   if (at < 0 || at === email.length - 1) return null;
   const domain = email.slice(at + 1).trim().toLowerCase();

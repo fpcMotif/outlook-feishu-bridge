@@ -9,6 +9,10 @@ vi.mock("../../hooks/useRequestSync", () => ({
   }),
 }));
 
+vi.mock("../../hooks/useSelfForward", () => ({
+  useSelfForward: () => ({ sendNote: vi.fn(() => Promise.resolve({ ok: true })) }),
+}));
+
 vi.mock("../../hooks/useCoworkerSearch", () => ({
   useCoworkerSearch: () => vi.fn(() => Promise.resolve([])),
 }));
@@ -34,7 +38,6 @@ const SAMPLE: MailItemData = {
   itemId: "item-1",
   conversationId: "conv-1",
   userEmail: "jenny.xu@fenchem.com",
-  attachments: [],
 };
 
 function renderRequestIntakeScreen(

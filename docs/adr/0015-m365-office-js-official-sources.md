@@ -10,7 +10,7 @@ The taskpane lives inside Outlook and reads the open mail item through Office.js
   - **MS Learn — Office.js API reference**: https://learn.microsoft.com/javascript/api/outlook/
   - **OfficeDev / office-js** (canonical type definitions): https://github.com/OfficeDev/office-js (the `office-js` npm package and its `office.d.ts`)
   - **OfficeDev / Office-Add-in-samples** (known-good pattern reference): https://github.com/OfficeDev/Office-Add-in-samples
-  - **Microsoft Graph docs** (if/when we add Graph calls — Graph is not used today): https://learn.microsoft.com/graph + https://github.com/microsoftgraph/microsoft-graph-docs
+  - **Microsoft Graph docs** (now used by ADR-0017's Self-Forward path; any future Graph expansion gets the same official-doc gate): https://learn.microsoft.com/graph + https://github.com/microsoftgraph/microsoft-graph-docs
 - **Disallowed:** any third-party Office wrapper, community fork, or "easier" SDK. Same standing rule as Feishu.
 - **Cite the doc URL in the ADR or inline comment** whenever a new Office.js property, method, or enum is introduced — the citation is what makes the choice auditable.
 - **Read first, write second.** Office.js DOM types diverge from raw browser DOM in subtle ways (e.g. `Office.MailboxEnums` is undefined at module load — already a CONTEXT.md gotcha). Read the doc before adding the call.
@@ -34,7 +34,7 @@ This is what [`src/office/useMailItem.ts`](../../src/office/useMailItem.ts) + [`
 | Compose detection | `item.subject` is a `Subject` object (has `.getAsync`) in compose mode | https://learn.microsoft.com/javascript/api/outlook/office.subject |
 
 **What we deliberately do NOT use** (and the rule for adding any of them):
-- Microsoft Graph (`https://graph.microsoft.com`) — not called today; if we add it (e.g. for the future "auto-forward to a common inbox" workflow planned for the **Email Conversation ID** column — see [ADR-0014](0014-write-initiator-and-subject-to-service-row.md)) it needs its own ADR citing https://learn.microsoft.com/graph + Graph's permission model.
+- Microsoft Graph (`https://graph.microsoft.com`) — allowed only through ADR-scoped paths. ADR-0017 currently permits the server-side **Self-Forward** chain and defines **Email Conversation ID** as the original Mail Item conversation key, not a future shared-inbox thread key.
 - Office.js add-in *commands* / ribbon entries — none today; the add-in is taskpane-only.
 - `item.notificationMessages` / `Office.MailboxEnums.ItemNotificationMessageType` — the planned Outlook-category tag isn't built yet ([ADR-0010](0010-pivot-to-bitable-intake.md)); it would land here.
 
@@ -48,7 +48,7 @@ This is what [`src/office/useMailItem.ts`](../../src/office/useMailItem.ts) + [`
 
 - **Office.js code carries the same citation discipline as Feishu code.** When you read the file, every non-obvious Office.js call is either cited in the table above or has its own inline link. Adding new ones means updating this table.
 - **Mail Item is now a glossary term.** CONTEXT.md defines it; prefer it over "the mail" / "the message" / "the email" (the **Email Record** is the persisted derivative, the **Mail Item** is the live Office.js handle).
-- **Graph stays off-limits until an ADR opens the door.** If the auto-forward feature ([ADR-0014](0014-write-initiator-and-subject-to-service-row.md), out-of-scope today) needs Graph's `forward` action, it gets ADR-0016 first — including the new scope (`Mail.Send`) and the auth model.
+- **Graph stays off-limits except where an ADR opens the door.** [ADR-0017](0017-graph-self-forward-note-to-myself.md) opened the current door: Self-Forward uses Convex Backend app-only `POST /users/{selfEmail}/messages/{originalMessageId}/forward` with Microsoft Graph application `Mail.Send`. The old "ADR-0016" / common-inbox auto-forward wording is retired; ADR-0016 is the unrelated customer-search-modes ADR.
 - **Plain-text body extraction is fixed.** `body.getAsync(Office.CoercionType.Text)` already returns the text-only body — attachments and inline images are stripped at the Office.js layer, not by us. This is the answer to "extract main email body, only text part no attachment nor picture" (the user's wording for this iteration). It is what we already do.
 
 ## References

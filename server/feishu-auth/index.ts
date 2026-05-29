@@ -97,12 +97,45 @@ function escapeHtml(s: string): string {
     .replaceAll('"', "&quot;");
 }
 
+// Embed a value as a JS string literal that is safe inside an inline <script>.
+// JSON.stringify alone does NOT escape `<`, `>` or `/`, so a `state` carrying
+// `</script><script>…` would terminate the inline script and execute attacker
+// JS in this same-origin page — which sits on the token hand-back path (reflected
+// XSS). We JSON-encode twice (the SPA still receives the identical JSON string,
+// since the SPA JSON.parses messageParent's payload), then \u-escape the
+// characters that can break out of a <script>. The escapes are valid JS and
+// evaluate back to the original characters at runtime, so the message is
+// unchanged — only the on-page representation is made inert.
+function scriptSafeJsonLiteral(value: unknown): string {
+  // Re-encode the message as a JS expression that is inert inside an inline
+  // <script>: JSON-encode twice (the SPA JSON.parses messageParent payload, so
+  // it still receives the identical message) and emit < > & U+2028 U+2029 as
+  // \uXXXX escapes so a `state` carrying </script> cannot terminate the
+  // script element. (built with fromCharCode to avoid literal-backslash bugs.)
+  const json = JSON.stringify(JSON.stringify(value));
+  const u = String.fromCharCode(92) + "u"; // a backslash followed by u
+  const unsafe = new Set([0x3c, 0x3e, 0x26, 0x2028, 0x2029]);
+  let out = "";
+  for (const ch of json) {
+    const code = ch.codePointAt(0) ?? 0;
+    out += unsafe.has(code) ? u + code.toString(16).padStart(4, "0") : ch;
+  }
+  return out;
+}
+
+// The SPA's `state` is a crypto.randomUUID() session id (useFeishuAuth.ts). Only
+// reflect it back when it matches that shape; anything else is dropped to "" so a
+// crafted /callback URL cannot use the reflected `state` as an injection vector.
+function sanitizeState(raw: string | null): string {
+  const s = raw ?? "";
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s) ? s : "";
+}
+
 // Render the dialog result page. It loads office.js and hands `parentMessage`
 // (a JSON string) back to the taskpane via messageParent — the only supported
 // channel for a same-domain Office dialog. Always posts, so the SPA's
 // DialogMessageReceived handler fires on both success and failure.
 function dialogPage(humanMessage: string, parentMessage: object): Response {
-  const json = JSON.stringify(parentMessage);
   return new Response(
     `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Feishu Login</title>
 <script src="${OFFICE_JS}"></script>
@@ -110,7 +143,7 @@ function dialogPage(humanMessage: string, parentMessage: object): Response {
 </head><body><div class="card"><p>${escapeHtml(humanMessage)}</p></div>
 <script>
   Office.onReady(function () {
-    try { Office.context.ui.messageParent(${JSON.stringify(json)}); } catch (e) {}
+    try { Office.context.ui.messageParent(${scriptSafeJsonLiteral(parentMessage)}); } catch (e) {}
   });
 </script></body></html>`,
     { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } },
@@ -133,7 +166,7 @@ function handleStart(req: Request): Response {
 async function handleCallback(req: Request): Promise<Response> {
   const params = new URL(req.url).searchParams;
   const code = params.get("code");
-  const state = params.get("state") ?? "";
+  const state = sanitizeState(params.get("state"));
   if (!code) {
     return dialogPage("Authorization failed: missing code.", {
       source: "feishu-fallback",

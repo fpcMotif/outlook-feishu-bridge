@@ -24,6 +24,3 @@ export function readMailBody(coercion: Office.CoercionType): Promise<string> {
 
 export const readMailBodyText = (): Promise<string> =>
   readMailBody(Office.CoercionType.Text);
-
-export const readMailBodyHtml = (): Promise<string> =>
-  readMailBody(Office.CoercionType.Html);

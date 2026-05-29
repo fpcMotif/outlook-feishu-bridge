@@ -1,4 +1,4 @@
-import { Check } from "lucide-react";
+import { Check, MailWarning } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -10,6 +10,11 @@ interface Step {
   sub: string;
   state: StepState;
 }
+
+// ADR-0017: the parallel Self-Forward ("Note to myself") landed in the
+// Initiator's own mailbox — or didn't. `null` means we didn't try (dev preview
+// without Office.js); the chip is hidden in that case.
+type SelfForwardStatus = "pending" | "ok" | "failed" | null;
 
 function StepRow({ step, last }: { step: Step; last: boolean }) {
   return (
@@ -63,12 +68,59 @@ function buildSteps(coworkerCount: number): Step[] {
   ];
 }
 
+function SelfForwardChip({
+  status,
+  onRetry,
+}: {
+  status: SelfForwardStatus;
+  onRetry?: () => void;
+}) {
+  if (status === null) return null;
+  if (status === "ok") {
+    return (
+      <div className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs text-primary">
+        <Check className="size-3.5" />
+        Note to myself sent
+      </div>
+    );
+  }
+  if (status === "pending") {
+    return (
+      <div className="text-muted-foreground mt-3 inline-flex items-center gap-1.5 rounded-full bg-muted px-3 py-1 text-xs">
+        Sending Note to myself…
+      </div>
+    );
+  }
+  return (
+    <div className="mt-3 flex flex-col items-center gap-1.5">
+      <div className="text-destructive inline-flex items-center gap-1.5 rounded-full bg-destructive/10 px-3 py-1 text-xs">
+        <MailWarning className="size-3.5" />
+        Note-to-myself failed
+      </div>
+      {onRetry ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 px-2 text-xs"
+          onClick={onRetry}
+        >
+          Retry note-to-myself
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
 export function ReceivedScreen({
   coworkerCount,
   onSyncAnother,
+  selfForwardStatus = null,
+  onRetrySelfForward,
 }: {
   coworkerCount: number;
   onSyncAnother: () => void;
+  selfForwardStatus?: SelfForwardStatus;
+  onRetrySelfForward?: () => void;
 }) {
   const steps = buildSteps(coworkerCount);
 
@@ -80,6 +132,8 @@ export function ReceivedScreen({
       <p className="text-muted-foreground mt-1.5 max-w-[34ch] text-center text-sm leading-relaxed text-pretty">
         The request is synced to Bitable, backed up in Convex, and ready for the selected coworker.
       </p>
+
+      <SelfForwardChip status={selfForwardStatus} onRetry={onRetrySelfForward} />
 
       <div className="mt-9 w-full max-w-[320px]">
         {steps.map((s, i) => (

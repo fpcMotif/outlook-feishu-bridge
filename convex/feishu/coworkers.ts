@@ -6,7 +6,7 @@ import { callFeishu } from "./call";
 // user carries open_id, name, an `avatar` object of sized URLs, and
 // department_ids. `user_id` is only returned with contact:user.employee_id:readonly,
 // which we don't request — Bitable Sync assigns Coworkers by open_id. See ADR-0003.
-interface FeishuUser {
+export interface FeishuUser {
   open_id: string;
   name: string;
   avatar?: {
@@ -18,6 +18,34 @@ interface FeishuUser {
   department_ids?: string[];
 }
 
+// The slim Coworker projection the SPA renders in the Bitable-Sync coworker
+// picker. Pure — no I/O — so the open_id/name/avatar mapping is unit-tested in
+// isolation (mirrors customers.ts's exported `mapFeishuItemToCustomer`).
+export interface Coworker {
+  openId: string;
+  name: string;
+  avatarUrl?: string;
+}
+
+// Project one Search-Users hit to the slim {@link Coworker}. Bitable Sync
+// assigns Coworkers by open_id; only the 72px avatar is surfaced in the picker.
+export function mapFeishuUserToCoworker(u: FeishuUser): Coworker {
+  return {
+    openId: u.open_id,
+    name: u.name,
+    avatarUrl: u.avatar?.avatar_72,
+  };
+}
+
+// Map a Search-Users response payload to the Coworker list, tolerating an
+// absent `users` array (no hits) per the official GET /search/v1/user shape.
+export function mapCoworkers(data: { users?: FeishuUser[] }): Coworker[] {
+  return (data.users ?? []).map((u) => mapFeishuUserToCoworker(u));
+}
+
+// The action HANDLER needs a live runtime (convex-test, opted out per ADR-0018);
+// its pure projection (mapCoworkers / mapFeishuUserToCoworker) is unit-tested.
+/* v8 ignore start */
 export const searchCoworkers = action({
   args: {
     sessionId: v.string(),
@@ -37,10 +65,7 @@ export const searchCoworkers = action({
       label: "Coworker search",
     });
 
-    return (data.users ?? []).map((u) => ({
-      openId: u.open_id,
-      name: u.name,
-      avatarUrl: u.avatar?.avatar_72,
-    }));
+    return mapCoworkers(data);
   },
 });
+/* v8 ignore stop */

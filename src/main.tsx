@@ -16,11 +16,11 @@ import "./index.css";
 initDebug();
 initSentry();
 
-const convex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL as string);
+const convex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL);
 // Expose the Convex client on window so the DebugPanel can show WebSocket
 // state; the leading underscores are Convex's contract for this attachment.
 // eslint-disable-next-line no-underscore-dangle
-(window as unknown as { __convex?: unknown }).__convex = convex;
+window.__convex = convex;
 
 const root = document.querySelector("#root");
 if (!root) throw new Error("Root element not found");

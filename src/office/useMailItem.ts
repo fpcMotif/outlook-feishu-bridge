@@ -1,89 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { readMailBodyText } from "./mailBody";
+import {
+  extractMailData,
+  isComposeItem,
+  type MailItemData,
+  type ReadItem,
+} from "./mailItem";
 import { dlog, dload, dtime } from "../debug";
 
-export interface AttachmentInfo {
-  id: string;
-  name: string;
-  contentType: string;
-  size: number;
-  isInline: boolean;
-}
-
-export interface MailItemData {
-  subject: string;
-  from: string;
-  to: string[];
-  cc: string[];
-  body: string;
-  dateTimeCreated: Date | null;
-  internetMessageId: string;
-  itemId: string;
-  conversationId: string;
-  userEmail: string;
-  attachments: AttachmentInfo[];
-}
-
-type ReadItem = Office.MessageRead & Office.ItemRead;
-
-// In compose/reply windows item.subject/to/cc are async objects (Subject,
-// Recipients) exposing getAsync — NOT the string/array shapes read mode gives.
-// This add-in syncs *received* mail, so we detect compose and fail with a
-// clear message instead of crashing on `.map`/`.slice`.
-function isComposeItem(item: unknown): boolean {
-  const subject = (item as { subject?: unknown } | undefined)?.subject;
-  return (
-    typeof subject === "object" &&
-    subject !== null &&
-    typeof (subject as { getAsync?: unknown }).getAsync === "function"
-  );
-}
-
-function emailList(value: readonly Office.EmailAddressDetails[] | undefined): string[] {
-  return Array.isArray(value) ? value.map((r) => r.emailAddress) : [];
-}
-
-function convertToRestId(ewsId: string | undefined): string {
-  if (!ewsId) return "";
-  try {
-    return Office.context.mailbox.convertToRestId(
-      ewsId,
-      Office.MailboxEnums.RestVersion.v2_0,
-    );
-  } catch {
-    return ewsId;
-  }
-}
-
-function extractAttachments(item: ReadItem): AttachmentInfo[] {
-  const supported =
-    Office.context?.requirements?.isSetSupported?.("Mailbox", "1.8") ?? false;
-  if (!supported) return [];
-  return (item.attachments ?? [])
-    .map((a: Office.AttachmentDetails) => ({
-      id: a.id,
-      name: a.name,
-      contentType: a.contentType,
-      size: a.size,
-      isInline: a.isInline,
-    }));
-}
-
-function extractMailData(item: ReadItem, body: string): MailItemData {
-  return {
-    subject: item.subject ?? "",
-    from: item.from?.emailAddress ?? "",
-    to: emailList(item.to),
-    cc: emailList(item.cc),
-    body,
-    dateTimeCreated: item.dateTimeCreated ?? null,
-    internetMessageId: item.internetMessageId ?? "",
-    itemId: convertToRestId(item.itemId),
-    conversationId: item.conversationId ?? "",
-    userEmail: Office.context?.mailbox?.userProfile?.emailAddress ?? "",
-    attachments: extractAttachments(item),
-  };
-}
+// MailItemData and the pure Office→data mappers live in ./mailItem (ADR-0018);
+// re-exported here so existing `import { MailItemData } from "./useMailItem"`
+// callers keep working.
+export type { MailItemData } from "./mailItem";
 
 export function useMailItem(autoRead = false) {
   const [mailItem, setMailItem] = useState<MailItemData | null>(null);
@@ -103,13 +31,15 @@ export function useMailItem(autoRead = false) {
         throw new Error("No mail item selected (not inside Outlook, or no message open)");
       }
       if (isComposeItem(item)) {
-        throw new Error("Feishu Bridge syncs received emails — open a received message in the reading pane (not a compose/reply window), then try again.");
+        throw new Error(
+          "feishu-sync works with received emails - open a received message in the reading pane (not a compose/reply window), then try again.",
+        );
       }
       const body = await readMailBodyText();
-      const data = extractMailData(item, body);
-      dlog(`readCurrentItem: OK subject="${data.subject.slice(0, 40)}" attachments=${data.attachments.length}`);
+      const data = extractMailData(Office, item, body);
+      dlog(`readCurrentItem: OK subject="${data.subject.slice(0, 40)}"`);
       dtime("read mail (body + metadata)", tRead);
-      dload("mail readable — load cycle done");
+      dload("mail readable - load cycle done");
       setMailItem(data);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unknown error";

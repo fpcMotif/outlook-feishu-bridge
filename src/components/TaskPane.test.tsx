@@ -20,6 +20,10 @@ vi.mock("../hooks/useRequestSync", () => ({
   }),
 }));
 
+vi.mock("../hooks/useSelfForward", () => ({
+  useSelfForward: () => ({ sendNote: vi.fn(() => Promise.resolve({ ok: true })) }),
+}));
+
 vi.mock("../hooks/useCoworkerSearch", () => ({
   useCoworkerSearch: () => vi.fn(() => Promise.resolve([])),
 }));
@@ -99,7 +103,7 @@ describe("TaskPane browser preview auth flow", () => {
     fireEvent.click(screen.getByRole("button", { name: /Feishu profile/i }));
 
     const accountMenu = screen.getByRole("dialog", { name: /Feishu account/i });
-    expect(accountMenu.tagName).toBe("DIV");
+    expect(accountMenu.tagName).toBe("DIALOG");
     expect(screen.getAllByText("JX")).toHaveLength(1);
     expect(accountMenu).toHaveTextContent("Connected");
     fireEvent.click(screen.getByRole("button", { name: /Sign out of Feishu/i }));

@@ -1,11 +1,15 @@
 /* eslint-disable max-lines-per-function, max-lines */
-import { useCallback, useMemo, useReducer } from "react";
+import { useCallback, useMemo, useReducer, useRef } from "react";
+import { Loader2 } from "lucide-react";
 
 import type { Coworker } from "./coworkers";
-import { findCustomerByEmail, type CustomerRecord } from "./customers";
+import { emailDomain, findCustomerByEmail } from "./customers";
+import { initialIntakeState, intakeReducer } from "./intakeReducer";
+import type { FeishuUser } from "./feishuUser";
 import type { MailItemData } from "../../office/useMailItem";
 import { useCustomerSearch } from "../../hooks/useCustomerSearch";
 import { useRequestSync } from "../../hooks/useRequestSync";
+import { useSelfForward, type SelfForwardResult } from "../../hooks/useSelfForward";
 import { Button } from "../ui/button";
 import { CoworkerPicker } from "./CoworkerPicker";
 import { ConnectCard } from "./ConnectCard";
@@ -15,98 +19,6 @@ import { RequestCards } from "./RequestCards";
 import { REQUESTS } from "./requests";
 import { SubmitDock } from "./SubmitDock";
 import { SyncScreen } from "./SyncScreen";
-
-type IntakeScreenName = "build" | "coworker" | "sync" | "received" | "error";
-
-interface IntakeState {
-  notes: Record<string, string>;
-  clientEmail: string;
-  mailFrom: string;
-  screen: IntakeScreenName;
-  selectedCoworker: Coworker | null;
-  // The Customer picked or auto-matched in the Customer Picker (ADR-0013).
-  // `customerTouched` flips true once the salesperson interacts with the picker
-  // — after that we stop overwriting their choice when the directory loads.
-  selectedCustomer: CustomerRecord | null;
-  customerTouched: boolean;
-  syncError: string | null;
-}
-
-type IntakeAction =
-  | { type: "mailFromChanged"; mailFrom: string }
-  | { type: "noteChanged"; id: string; value: string }
-  | { type: "clientEmailChanged"; value: string }
-  | { type: "screenChanged"; screen: IntakeScreenName }
-  | { type: "coworkerSelected"; coworker: Coworker }
-  | { type: "customerAutoMatched"; customer: CustomerRecord | null }
-  | { type: "customerOverridden"; customer: CustomerRecord | null }
-  | { type: "syncStarted" }
-  | { type: "syncSucceeded" }
-  | { type: "syncFailed"; message: string }
-  | { type: "startedOver" };
-
-function initialIntakeState(mailFrom: string): IntakeState {
-  return {
-    notes: {},
-    clientEmail: mailFrom,
-    mailFrom,
-    screen: "build",
-    selectedCoworker: null,
-    selectedCustomer: null,
-    customerTouched: false,
-    syncError: null,
-  };
-}
-
-function intakeReducer(state: IntakeState, action: IntakeAction): IntakeState {
-  switch (action.type) {
-    case "mailFromChanged":
-      return {
-        ...state,
-        clientEmail: action.mailFrom,
-        mailFrom: action.mailFrom,
-        selectedCustomer: null,
-        customerTouched: false,
-      };
-    case "noteChanged":
-      return { ...state, notes: { ...state.notes, [action.id]: action.value } };
-    case "clientEmailChanged":
-      // The salesperson is re-resolving the client → the previous auto-match
-      // is stale. Clear it; the next auto-match effect will re-fire.
-      return {
-        ...state,
-        clientEmail: action.value,
-        selectedCustomer: null,
-        customerTouched: false,
-      };
-    case "screenChanged":
-      return { ...state, screen: action.screen };
-    case "coworkerSelected":
-      return { ...state, selectedCoworker: action.coworker };
-    case "customerAutoMatched":
-      // Only adopt the auto-match if the salesperson hasn't already picked.
-      if (state.customerTouched) return state;
-      return { ...state, selectedCustomer: action.customer };
-    case "customerOverridden":
-      return { ...state, selectedCustomer: action.customer, customerTouched: true };
-    case "syncStarted":
-      return { ...state, screen: "sync", syncError: null };
-    case "syncSucceeded":
-      return { ...state, screen: "received" };
-    case "syncFailed":
-      return { ...state, screen: "error", syncError: action.message };
-    case "startedOver":
-      return {
-        ...state,
-        notes: {},
-        screen: "build",
-        selectedCoworker: null,
-        selectedCustomer: null,
-        customerTouched: false,
-        syncError: null,
-      };
-  }
-}
 
 function Hero() {
   return (
@@ -155,8 +67,78 @@ function LoginScreen({
   );
 }
 
+function AuthResolvingScreen() {
+  return (
+    <div className="flex min-h-0 flex-1 items-center justify-center">
+      <Loader2 className="text-muted-foreground size-6 animate-spin" aria-label="Checking Feishu session" />
+    </div>
+  );
+}
+
+// Terminal error screen for a failed Bitable write. "Try again" re-runs the sync
+// (which corrects-in-place once a row exists, ADR-0018); "Back" returns to the
+// coworker step.
+function SyncErrorScreen({
+  message,
+  onRetry,
+  onBack,
+}: {
+  message: string | null;
+  onRetry: () => void;
+  onBack: () => void;
+}) {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 px-8 text-center">
+      <h1 className="font-serif text-2xl">Sync failed</h1>
+      <p className="text-muted-foreground max-w-[34ch] text-sm leading-relaxed">
+        {message ?? "Could not sync to Feishu Bitable."}
+      </p>
+      <div className="flex gap-2">
+        <Button onClick={onRetry}>Try again</Button>
+        <Button variant="secondary" onClick={onBack}>
+          Back
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// The opening "build" step: the request cards + the continue dock.
+function RequestBuildStep({
+  notes,
+  onNoteChange,
+  filledCount,
+  onSubmit,
+}: {
+  notes: Record<string, string>;
+  onNoteChange: (id: string, value: string) => void;
+  filledCount: number;
+  onSubmit: () => void;
+}) {
+  return (
+    <>
+      <div className="no-scrollbar flex-1 overflow-y-auto px-5 pt-1 pb-2">
+        <Hero />
+        <div className="space-y-3">
+          <RequestCards values={notes} onChange={onNoteChange} />
+        </div>
+      </div>
+      <SubmitDock
+        count={filledCount}
+        canSubmit={filledCount > 0}
+        sending={false}
+        hint="Start a request above"
+        label={filledCount > 0 ? "Continue" : undefined}
+        footer="Request Types & Details"
+        onSubmit={onSubmit}
+      />
+    </>
+  );
+}
+
 export function RequestIntakeScreen({
   isLoggedIn,
+  isAuthLoading = false,
   mailItem,
   sessionId,
   user,
@@ -165,17 +147,26 @@ export function RequestIntakeScreen({
   onLoginFallback,
 }: {
   isLoggedIn: boolean;
+  // True only while the Convex session query is still in flight AND we don't
+  // already have a logged-in signal (real Feishu session or dev preview user).
+  // Used to suppress the LoginScreen flash on returning users with cached creds.
+  isAuthLoading?: boolean;
   mailItem: MailItemData;
   sessionId: string;
   // The signed-in Feishu user (the Initiator, ADR-0014). Optional because the
   // dev-preview / browser path can render the screen without a real session.
-  user?: { openId: string; userName?: string; avatarUrl?: string };
+  user?: FeishuUser;
   userAccessToken?: string;
   onLogin: () => void;
   onLoginFallback: () => void;
 }) {
-  const { sync } = useRequestSync();
+  const { sync, correct } = useRequestSync();
+  const { sendNote: sendSelfForwardNote } = useSelfForward();
   const [state, dispatch] = useReducer(intakeReducer, mailItem.from, initialIntakeState);
+  // Monotonic flow id: bumped on each sync and on Start Over so a Self-Forward
+  // resolving late from a previous flow can detect it is stale and skip its
+  // dispatch instead of clobbering a freshly-reset chip (ADR-0018).
+  const generationRef = useRef(0);
 
   if (state.mailFrom !== mailItem.from) {
     dispatch({ type: "mailFromChanged", mailFrom: mailItem.from });
@@ -219,6 +210,11 @@ export function RequestIntakeScreen({
       }),
     [state.notes],
   );
+  const requestSelections = useMemo(
+    () => filledRequests.map((r) => ({ requestType: r.title, note: r.note })),
+    [filledRequests],
+  );
+  const selectedCustomerName = state.selectedCustomer?.name;
   const filledCount = filledRequests.length;
   const selectedCount = state.selectedCoworker ? 1 : 0;
   const selectedOpenId = state.selectedCoworker?.openId;
@@ -227,11 +223,65 @@ export function RequestIntakeScreen({
     dispatch({ type: "coworkerSelected", coworker });
   };
 
-  // First write: hand the intake to the Bitable sync. Email subject/body ride to
-  // the Convex Email Record only; the Bitable row gets the structured request.
+  // Sync = (a) the Bitable write that creates the Service row + the Convex
+  // Email Record, AND (b) the Self-Forward "Note to myself" copy into the
+  // Initiator's own mailbox (ADR-0017). Both fire on submit; Bitable is
+  // authoritative, the Self-Forward soft-fails into a retry chip.
+  const fireSelfForward = useCallback(async () => {
+    if (!mailItem.itemId) {
+      dispatch({
+        type: "selfForwardFailed",
+        code: "no_item_id",
+        message: "Mail Item id is unavailable (dev preview / browser host).",
+      });
+      return;
+    }
+    if (!mailItem.userEmail) {
+      dispatch({
+        type: "selfForwardFailed",
+        code: "no_self_email",
+        message: "Outlook user email is unavailable (dev preview / browser host).",
+      });
+      return;
+    }
+    // Capture the flow generation before awaiting; a late resolution from a
+    // previous flow must not dispatch onto a fresh one (bug fix, ADR-0018).
+    const generation = generationRef.current;
+    // Activate the in-flight 'pending' chip so a retry shows "Sending Note to
+    // myself…" feedback instead of staying on the failed state for the whole
+    // network round-trip (previously this reducer branch was never dispatched).
+    dispatch({ type: "selfForwardStarted" });
+    const result: SelfForwardResult = await sendSelfForwardNote({
+      originalMessageId: mailItem.itemId,
+      selfEmail: mailItem.userEmail,
+      customerName: selectedCustomerName,
+      clientEmail: state.clientEmail,
+      requestSelections,
+    });
+    // Ignore a resolution from a superseded flow — Start Over or a new sync bumped
+    // the generation while this forward was in flight (bug fix, ADR-0018).
+    if (generation === generationRef.current) {
+      if (result.ok) {
+        dispatch({ type: "selfForwardSucceeded" });
+      } else {
+        dispatch({ type: "selfForwardFailed", code: result.code, message: result.message });
+      }
+    }
+  }, [
+    sendSelfForwardNote,
+    mailItem.itemId,
+    mailItem.userEmail,
+    selectedCustomerName,
+    state.clientEmail,
+    requestSelections,
+  ]);
+
   const runSync = useCallback(() => {
+    // New flow generation — invalidates any Self-Forward still in flight from a
+    // prior attempt so its late resolution cannot land on this flow (ADR-0018).
+    generationRef.current += 1;
     dispatch({ type: "syncStarted" });
-    sync({
+    const payload = {
       subject: mailItem.subject,
       from: mailItem.from,
       to: mailItem.to,
@@ -247,14 +297,38 @@ export function RequestIntakeScreen({
         ? { recordId: state.selectedCustomer.recordId, name: state.selectedCustomer.name }
         : undefined,
       initiator: user?.openId ? { openId: user.openId, name: user.userName } : undefined,
-      requestSelections: filledRequests.map((r) => ({ requestType: r.title, note: r.note })),
+      requestSelections,
       selectedCoworkers: state.selectedCoworker ? [state.selectedCoworker] : [],
-    })
-      .then(() => dispatch({ type: "syncSucceeded" }))
+    };
+    // Once this flow already created a row, a retry CORRECTS that row in place
+    // (ADR-0012) rather than calling create again and orphaning a duplicate
+    // Service row (the no-touch rule, bug fix ADR-0018).
+    const write = state.bitableRecordId
+      ? correct({ recordId: state.bitableRecordId, ...payload })
+      : sync(payload);
+    const bitable = write
+      .then((res) => dispatch({ type: "syncSucceeded", recordId: res.recordId }))
       .catch((e: unknown) => {
         dispatch({ type: "syncFailed", message: e instanceof Error ? e.message : "Sync failed" });
       });
-  }, [sync, mailItem, state.clientEmail, state.selectedCustomer, user, filledRequests, state.selectedCoworker]);
+    // Parallel — Self-Forward never blocks the Bitable result. Don't re-send a
+    // Note-to-myself that already succeeded on a previous attempt (the Graph
+    // forward is non-idempotent; the ReceivedScreen chip is the re-fire path).
+    if (state.selfForwardStatus !== "ok") void fireSelfForward();
+    return bitable;
+  }, [
+    sync,
+    correct,
+    mailItem,
+    state.clientEmail,
+    state.selectedCustomer,
+    state.bitableRecordId,
+    state.selfForwardStatus,
+    user,
+    requestSelections,
+    state.selectedCoworker,
+    fireSelfForward,
+  ]);
 
   const handleSubmit = () => {
     if (state.screen === "build") {
@@ -267,11 +341,21 @@ export function RequestIntakeScreen({
   };
 
   const startOver = () => {
+    // Bump the generation so a Self-Forward still resolving from the finished
+    // flow cannot flip the fresh build screen's chip (ADR-0018).
+    generationRef.current += 1;
     dispatch({ type: "startedOver" });
   };
 
   if (state.screen === "received") {
-    return <ReceivedScreen coworkerCount={selectedCount} onSyncAnother={startOver} />;
+    return (
+      <ReceivedScreen
+        coworkerCount={selectedCount}
+        onSyncAnother={startOver}
+        selfForwardStatus={state.selfForwardStatus}
+        onRetrySelfForward={fireSelfForward}
+      />
+    );
   }
 
   if (state.screen === "sync") {
@@ -286,29 +370,21 @@ export function RequestIntakeScreen({
 
   if (state.screen === "error") {
     return (
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 px-8 text-center">
-        <h1 className="font-serif text-2xl">Sync failed</h1>
-        <p className="text-muted-foreground max-w-[34ch] text-sm leading-relaxed">
-          {state.syncError ?? "Could not sync to Feishu Bitable."}
-        </p>
-        <div className="flex gap-2">
-          <Button onClick={runSync}>Try again</Button>
-          <Button variant="secondary" onClick={() => dispatch({ type: "screenChanged", screen: "coworker" })}>
-            Back
-          </Button>
-        </div>
-      </div>
+      <SyncErrorScreen
+        message={state.syncError}
+        onRetry={runSync}
+        onBack={() => dispatch({ type: "screenChanged", screen: "coworker" })}
+      />
     );
   }
 
   if (!isLoggedIn) {
+    if (isAuthLoading) return <AuthResolvingScreen />;
     return <LoginScreen onLogin={onLogin} onLoginFallback={onLoginFallback} />;
   }
 
   if (state.screen === "coworker") {
-    const emailDomainPart = state.clientEmail.includes("@")
-      ? state.clientEmail.split("@").pop() ?? state.clientEmail
-      : state.clientEmail;
+    const emailDomainPart = emailDomain(state.clientEmail) ?? state.clientEmail;
     return (
       <>
         <CoworkerPicker
@@ -345,26 +421,11 @@ export function RequestIntakeScreen({
   }
 
   return (
-    <>
-      <div className="no-scrollbar flex-1 overflow-y-auto px-5 pt-1 pb-2">
-        <Hero />
-        <div className="space-y-3">
-          <RequestCards
-            values={state.notes}
-            onChange={(id, value) => dispatch({ type: "noteChanged", id, value })}
-          />
-        </div>
-      </div>
-
-      <SubmitDock
-        count={filledCount}
-        canSubmit={filledCount > 0}
-        sending={false}
-        hint="Start a request above"
-        label={filledCount > 0 ? "Continue" : undefined}
-        footer="Request Types & Details"
-        onSubmit={handleSubmit}
-      />
-    </>
+    <RequestBuildStep
+      notes={state.notes}
+      onNoteChange={(id, value) => dispatch({ type: "noteChanged", id, value })}
+      filledCount={filledCount}
+      onSubmit={handleSubmit}
+    />
   );
 }

@@ -1,4 +1,4 @@
-# Outlook → Feishu Bridge
+# feishu-sync
 
 An Outlook add-in for **sales-request intake**: it turns a client's inbound email into one structured row in a **Feishu Bitable** — categorized as **Requests** (Quotation / Sample / R&D Support) with notes and assigned to a Feishu **Coworker** — and keeps a recoverable **Email Record** in Convex. The Vite **SPA** runs in the Outlook taskpane; backend logic and data live in Convex. Forwarding an email *copy* into Feishu chat or via bot webhook — and the email-PDF / attachment / Feishu-Doc machinery — is **retired** ([ADR-0010](docs/adr/0010-pivot-to-bitable-intake.md)).
 
@@ -40,8 +40,16 @@ _Avoid_: conflating it with the primary Convex **OAuth Callback** — two regist
 `open.feishu.cn`. Both an outbound API target — the **Bitable** write, called from Convex actions in `convex/feishu/*.ts` — and the OAuth identity provider (issues the redirect to **OAuth Callback**). Outbound calls go directly from Convex.
 
 **Bitable Sync**:
-The click→Feishu path the **SPA** orchestrates: read the open Outlook email, let the user record one or more **Requests**, assign exactly one **Coworker**, then Convex writes the **Bitable** row (tenant token) and stores the **Email Record**. One email → one row; nothing is messaged to anyone. The backend links a **Customer** when the sender domain matches the read-only **Customer Table**; the user can edit the email used for that match. If the user catches an error during the sync, that **just-created** row is updated in place (a `PUT` — [ADR-0012](docs/adr/0012-bitable-record-api.md)); the add-in never modifies any other or pre-existing Bitable row, and never modifies the **Customer Table** at all. An Outlook category tag is planned but deferred. (Replaces the retired multi-target "Forward pipeline" — [ADR-0010](docs/adr/0010-pivot-to-bitable-intake.md).)
-_Avoid_: "forward" / "the forward pipeline" (we no longer forward an email copy — we extract a structured request), "send to chat".
+The click→Feishu path the **SPA** orchestrates: read the open Outlook email, let the user record one or more **Requests**, assign exactly one **Coworker**, then Convex writes the **Bitable** row (tenant token) and stores the **Email Record**. One email → one row; nothing is messaged to anyone. The backend links a **Customer** when the sender domain matches the read-only **Customer Table**; the user can edit the email used for that match. If the user catches an error during the sync, that **just-created** row is updated in place (a `PUT` — [ADR-0012](docs/adr/0012-bitable-record-api.md)); the add-in never modifies any other or pre-existing Bitable row, and never modifies the **Customer Table** at all. In parallel, the sync also fires the **Self-Forward** (see below) — a native Outlook-format copy to the Initiator's own mailbox; failure there does not roll back the Bitable row. An Outlook category tag is planned but deferred. (Replaces the retired multi-target "Forward pipeline" — [ADR-0010](docs/adr/0010-pivot-to-bitable-intake.md).)
+_Avoid_: bare "forward" / "the forward pipeline" (the retired multi-target Feishu-chat / bot / PDF / Doc dispatch — distinct from the new single-target **Self-Forward**), "send to chat".
+
+**Self-Forward**:
+The single Microsoft-Graph-driven native forward of the synced **Mail Item** delivered to the **Initiator**'s *own* mailbox per **Bitable Sync**. It uses Outlook's normal forwarded-message format, not a synthetic copied body ([ADR-0017](docs/adr/0017-graph-self-forward-note-to-myself.md)). One copy per sync; never sent to anyone except the salesperson themself. Soft-fail: if Graph fails, the Bitable row stands and the UI surfaces a small `Note-to-myself failed - retry` chip. Not related to the retired multi-target **Forward pipeline** - different transport (Graph vs Feishu), different target (own mailbox vs fan-out), different purpose (personal recall vs delivery).
+_Avoid_: "forward" alone (overloaded with the retired pipeline), "auto-forward to a common inbox" (the early ADR-0014 framing; per-rep self-forward replaced it in ADR-0017), "BCC myself" (it's a forward, not a BCC).
+
+**Email Conversation ID**:
+A Text column on the **Bitable** Service Table carrying Outlook's `item.conversationId` for the synced **Mail Item** ([ADR-0017](docs/adr/0017-graph-self-forward-note-to-myself.md)). Serves as the join key from the Bitable row back to the salesperson's mailbox view of the original client thread — mailbox-local, distinct per Initiator. **Not** the conversationId of the **Self-Forward** copy (which lives in the Initiator's own inbox under a separate thread).
+_Avoid_: "thread id" (overloaded — there are now *two* conversation ids per sync, the original and the Self-Forward's; this column carries the *original* only), "Feishu chat id" (different system entirely).
 
 **Request**:
 A single categorized ask captured from the client email — one of **Quotation**, **Sample**, or **R&D Support** — with a free-text note ([RequestCards.tsx](src/components/taskpane/RequestCards.tsx)). One email can carry several; they become the Request Types / Request Notes columns of the **Bitable** row.
@@ -72,7 +80,7 @@ The Convex-persisted copy of a synced request — a recoverable backup / workflo
 _Avoid_: "the email" (it's a derived record, not the original mail), "the PDF" (no PDF is produced anymore).
 
 **Mail Item**:
-The Outlook message the salesperson has open in the reading pane, accessed inside the **SPA** through Office.js as `Office.context.mailbox.item` (typed as `Office.MessageRead & Office.ItemRead`). The taskpane reads `subject`, `from`, `to`, `cc`, `dateTimeCreated`, `internetMessageId`, `itemId`, `conversationId`, and the **plain-text body** via `body.getAsync(Office.CoercionType.Text)`. Compose/reply mail items (which expose `subject` as a `Subject` object with `.getAsync`) are detected and rejected — this add-in only syncs received mail.
+The Outlook message the salesperson has open in the reading pane, accessed inside the **SPA** through Office.js as `Office.context.mailbox.item` (typed as `Office.MessageRead & Office.ItemRead`). The taskpane reads `subject`, `from`, `to`, `cc`, `dateTimeCreated`, `internetMessageId`, `itemId`, `conversationId`, and the **plain-text body** via `body.getAsync(Office.CoercionType.Text)`. For **Self-Forward**, the Office item id is converted to the REST/Graph id used by Microsoft Graph's native forward action. Compose/reply mail items (which expose `subject` as a `Subject` object with `.getAsync`) are detected and rejected - this add-in only syncs received mail.
 _Avoid_: "the mail", "the message" (overloaded), "the email" (the **Email Record** is the *persisted* derivative, the Mail Item is the *live* Office.js handle).
 
 **User-identity call / tenant-identity call**:
@@ -86,6 +94,7 @@ _Avoid_: "the Feishu token" — there are two, user vs tenant.
 - The **SPA** runs **Bitable Sync**: it calls the **Convex Backend** directly (WebSocket queries/mutations on `*.convex.cloud`, HTTP actions on `*.convex.site`).
 - The **Convex Backend** makes the **tenant-identity** **Bitable** write to the **Feishu Open Platform**, then stores the **Email Record**.
 - The **SPA** makes a **user-identity call** only to search **Coworkers**; login flows through the primary **OAuth Callback**, or the ECS **Fallback OAuth Callback** when Convex actions are down ([ADR-0008](docs/adr/0008-fallback-login-via-box.md)).
+- The **SPA** also sends the current **Mail Item**'s REST/Graph message id and Outlook user email to the **Convex Backend**, which acquires an app-only Microsoft Graph token with `client_credentials` and sends the **Self-Forward** through native `POST /users/{selfEmail}/messages/{originalMessageId}/forward` ([ADR-0017](docs/adr/0017-graph-self-forward-note-to-myself.md)). Secrets (`M365_CLIENT_ID` / `M365_CLIENT_SECRET` / `M365_TENANT_ID`) live in Convex env, alongside the Feishu secrets.
 - The **ECS Host** *may later* reverse-proxy to the **Convex Backend** as a CN-resident fallback — not built today.
 
 ## Example dialogue

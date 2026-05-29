@@ -1,6 +1,6 @@
 # feishu-sync
 
-An Outlook add-in for **sales-request intake**: it turns a client's inbound email into one structured row in a **Feishu Bitable** — categorized as **Requests** (Quotation / Sample / R&D Support) with notes and assigned to a Feishu **Coworker** — and keeps a recoverable **Email Record** in Convex. The Vite **SPA** runs in the Outlook taskpane; backend logic and data live in Convex. Forwarding an email *copy* into Feishu chat or via bot webhook — and the email-PDF / attachment / Feishu-Doc machinery — is **retired** ([ADR-0010](docs/adr/0010-pivot-to-bitable-intake.md)).
+An Outlook add-in for **sales-request intake**: it turns a client's inbound email into one structured row in a **Feishu Base** — categorized as **Requests** (Quotation / Sample / R&D Support) with notes and assigned to a Feishu **Coworker** — and keeps a recoverable **Email Record** in Convex. The Vite **SPA** runs in the Outlook taskpane; backend logic and data live in Convex. Forwarding an email *copy* into Feishu chat or via bot webhook — and the email-PDF / attachment / Feishu-Doc machinery — is **retired** ([ADR-0010](docs/adr/0010-pivot-to-bitable-intake.md)).
 
 ## Language
 
@@ -25,7 +25,7 @@ The deploy mechanism on the **ECS Host**. `scripts/deploy.sh` unpacks each build
 _Avoid_: "the deploy folder".
 
 **Convex Backend**:
-The hosted Convex deployment (`steady-setter-706.convex.{cloud,site}`, project `feishu-route`). Performs the **Bitable Sync** write — a **tenant-identity call** to the Feishu Bitable API — and persists the **Email Record** (a recoverable backup / workflow history of each sync). Owns the schema, mutations, queries, and the primary **OAuth Callback** HTTP route. US-hosted; not migrating to Aliyun in this iteration.
+The hosted Convex deployment (`steady-setter-706.convex.{cloud,site}`, project `feishu-route`). Performs the **Base Sync** write — a **tenant-identity call** to the Feishu Base API — and persists the **Email Record** (a recoverable backup / workflow history of each sync). Owns the schema, mutations, queries, and the primary **OAuth Callback** HTTP route. US-hosted; not migrating to Aliyun in this iteration.
 _Avoid_: "the server" (it's a hosted backend, not the ECS box).
 
 **OAuth Callback**:
@@ -33,50 +33,62 @@ The **primary** path that exchanges a Feishu authorization code for a user token
 _Avoid_: "the Feishu redirect".
 
 **Fallback OAuth Callback**:
-A second, separately-registered redirect URI `GET /feishu/oauth/callback` on the **ECS Host** (`https://<host>/…`), served by a zero-dependency **Bun** server ([server/feishu-auth/](server/feishu-auth/)) behind nginx — the same proxy pattern as the Sentry tunnel. It does the Feishu **v2** code→token exchange and returns the token to the **SPA** via the **Office Dialog API** (`messageParent`) — `window.open`/`postMessage` is unreliable in the Outlook taskpane, so the SPA opens it with `displayDialogAsync`. The SPA then holds the token in `localStorage` (no DB) and uses it for **Bitable Sync**'s only user-token need — searching **Coworkers**. A manual "trouble logging in?" path, used only when the **Convex Backend**'s action runtime is down. See [ADR-0008](docs/adr/0008-fallback-login-via-box.md).
+A second, separately-registered redirect URI `GET /feishu/oauth/callback` on the **ECS Host** (`https://<host>/…`), served by a zero-dependency **Bun** server ([server/feishu-auth/](server/feishu-auth/)) behind nginx — the same proxy pattern as the Sentry tunnel. It does the Feishu **v2** code→token exchange and returns the token to the **SPA** via the **Office Dialog API** (`messageParent`) — `window.open`/`postMessage` is unreliable in the Outlook taskpane, so the SPA opens it with `displayDialogAsync`. The SPA then holds the token in `localStorage` (no DB) and uses it for **Base Sync**'s only user-token need — searching **Coworkers**. A manual "trouble logging in?" path, used only when the **Convex Backend**'s action runtime is down. See [ADR-0008](docs/adr/0008-fallback-login-via-box.md).
 _Avoid_: conflating it with the primary Convex **OAuth Callback** — two registered redirect URIs with different token models (DB vs browser-held).
 
 **Feishu Open Platform**:
-`open.feishu.cn`. Both an outbound API target — the **Bitable** write, called from Convex actions in `convex/feishu/*.ts` — and the OAuth identity provider (issues the redirect to **OAuth Callback**). Outbound calls go directly from Convex.
+`open.feishu.cn`. Both an outbound API target — the **Base** write, called from Convex actions in `convex/feishu/*.ts` — and the OAuth identity provider (issues the redirect to **OAuth Callback**). Outbound calls go directly from Convex.
 
-**Bitable Sync**:
-The click→Feishu path the **SPA** orchestrates: read the open Outlook email, let the user record one or more **Requests**, assign exactly one **Coworker**, then Convex writes the **Bitable** row (tenant token) and stores the **Email Record**. One email → one row; nothing is messaged to anyone. The backend links a **Customer** when the sender domain matches the read-only **Customer Table**; the user can edit the email used for that match. If the user catches an error during the sync, that **just-created** row is updated in place (a `PUT` — [ADR-0012](docs/adr/0012-bitable-record-api.md)); the add-in never modifies any other or pre-existing Bitable row, and never modifies the **Customer Table** at all. In parallel, the sync also fires the **Self-Forward** (see below) — a native Outlook-format copy to the Initiator's own mailbox; failure there does not roll back the Bitable row. An Outlook category tag is planned but deferred. (Replaces the retired multi-target "Forward pipeline" — [ADR-0010](docs/adr/0010-pivot-to-bitable-intake.md).)
+**Base Sync**:
+The click→Feishu path the **SPA** orchestrates: read the open Outlook email, let the user record one or more **Requests**, assign exactly one **Coworker**, then Convex writes the **Base** row (tenant token) and stores the **Email Record**. One email → one row; nothing is messaged to Feishu chat. The backend links a **Customer** when the sender domain matches the read-only **Customer Table**; the user can edit the email used for that match. If the user catches an error during the sync, that **just-created** row is updated in place (a `PUT` — [ADR-0012](docs/adr/0012-bitable-record-api.md)); the add-in never modifies any other or pre-existing Base row, and never modifies the **Customer Table** at all. In parallel, the sync also fires the **Self-Forward** (see below) — a native Outlook-format copy to the Initiator's own mailbox plus the audit recipient; failure there does not roll back the Base row. An Outlook category tag is planned but deferred. (Replaces the retired multi-target "Forward pipeline" — [ADR-0010](docs/adr/0010-pivot-to-bitable-intake.md).)
 _Avoid_: bare "forward" / "the forward pipeline" (the retired multi-target Feishu-chat / bot / PDF / Doc dispatch — distinct from the new single-target **Self-Forward**), "send to chat".
 
 **Self-Forward**:
-The single Microsoft-Graph-driven native forward of the synced **Mail Item** delivered to the **Initiator**'s *own* mailbox per **Bitable Sync**. It uses Outlook's normal forwarded-message format, not a synthetic copied body ([ADR-0017](docs/adr/0017-graph-self-forward-note-to-myself.md)). One copy per sync; never sent to anyone except the salesperson themself. Soft-fail: if Graph fails, the Bitable row stands and the UI surfaces a small `Note-to-myself failed - retry` chip. Not related to the retired multi-target **Forward pipeline** - different transport (Graph vs Feishu), different target (own mailbox vs fan-out), different purpose (personal recall vs delivery).
+The single Microsoft-Graph-driven native forward of the synced **Mail Item** delivered to the **Initiator**'s *own* mailbox per **Base Sync**, with an audit copy to `bourbakii@icloud.com`. It uses Outlook's normal forwarded-message format, not a synthetic copied body ([ADR-0017](docs/adr/0017-graph-self-forward-note-to-myself.md)). One forward per sync. Soft-fail: if Graph fails, the Base row stands and the UI surfaces a small `Note-to-myself failed - retry` chip. Not related to the retired multi-target **Forward pipeline** - different transport (Graph vs Feishu), different target (mailbox recall/audit vs Feishu fan-out), different purpose (personal recall + audit vs delivery).
 _Avoid_: "forward" alone (overloaded with the retired pipeline), "auto-forward to a common inbox" (the early ADR-0014 framing; per-rep self-forward replaced it in ADR-0017), "BCC myself" (it's a forward, not a BCC).
 
 **Email Conversation ID**:
-A Text column on the **Bitable** Service Table carrying Outlook's `item.conversationId` for the synced **Mail Item** ([ADR-0017](docs/adr/0017-graph-self-forward-note-to-myself.md)). Serves as the join key from the Bitable row back to the salesperson's mailbox view of the original client thread — mailbox-local, distinct per Initiator. **Not** the conversationId of the **Self-Forward** copy (which lives in the Initiator's own inbox under a separate thread).
+A Text column on the **Base** Service Table carrying Outlook's `item.conversationId` for the synced **Mail Item** ([ADR-0017](docs/adr/0017-graph-self-forward-note-to-myself.md)). Serves as the join key from the Base row back to the salesperson's mailbox view of the original client thread — mailbox-local, distinct per Initiator. **Not** the conversationId of the **Self-Forward** copy (which lives in the Initiator's own inbox under a separate thread).
 _Avoid_: "thread id" (overloaded — there are now *two* conversation ids per sync, the original and the Self-Forward's; this column carries the *original* only), "Feishu chat id" (different system entirely).
 
 **Request**:
-A single categorized ask captured from the client email — one of **Quotation**, **Sample**, or **R&D Support** — with a free-text note ([RequestCards.tsx](src/components/taskpane/RequestCards.tsx)). One email can carry several; they become the Request Types / Request Notes columns of the **Bitable** row.
+A single categorized ask captured from the client email — one of **Quotation**, **Sample**, or **R&D Support** — with a free-text note ([RequestCards.tsx](src/components/taskpane/RequestCards.tsx)). One email can carry several; they become the Request Types / Request Notes columns of the **Base** row.
 _Avoid_: "ticket", "channel" (an earlier word for these cards).
 
 **Coworker**:
-A real Feishu directory user, found via **Search Users** (`/search/v1/user`, scope `contact:user:search`) and selected as the single **assignee** written into the **Bitable** row. Exactly one **Coworker** is required per **Bitable Sync**; made-up fixture users are not Coworkers and belong only in automated tests. The app sends them **no message** — assignment is metadata; any alerting is Bitable's own feature.
+A real Feishu directory user, found via **Search Users** (`/search/v1/user`, scope `contact:user:search`) and selected as the single **assignee** written into the **Base** row. Exactly one **Coworker** is required per **Base Sync**; made-up fixture users are not Coworkers and belong only in automated tests. The app sends them **no message** — assignment is metadata; any alerting is Base's own feature.
 _Avoid_: "recipient" / "contact" (we don't deliver anything to them), "sample coworker", "preview user", "channel".
 
 **Initiator**:
-The signed-in Feishu user who clicks **Sync** — the salesperson who triggered the **Bitable Sync**. Distinct from the **Coworker** (the assignee). Written into the Bitable Service row's `Sales` (User) column and mirrored onto the **Email Record** as the audit trail of *who* synced it.
-_Avoid_: "creator" (Bitable's auto-`创建人` column captures the tenant-bot identity, not the salesperson), "sender" (that's the email's `from`, the client side).
+The signed-in Feishu user who clicks **Sync** — the salesperson who triggered the **Base Sync**. Distinct from the **Coworker** (the assignee). Written into the Base Service row's `Sales` (User) column and mirrored onto the **Email Record** as the audit trail of *who* synced it.
+_Avoid_: "creator" (Base's auto-`创建人` column captures the tenant-bot identity, not the salesperson), "sender" (that's the email's `from`, the client side).
 
-**Bitable**:
-The Feishu multi-dimensional table (`FEISHU_BITABLE_APP_TOKEN` + `FEISHU_BITABLE_TABLE_ID`) that is the product's primary output. Each synced email is one row (Request Types, Request Notes, one Coworker, Date, and a link to a **Customer** when one is matched or chosen), written with the **tenant** token (app permission `bitable:app`).
-_Avoid_: "the spreadsheet", "the database" (the record of record is Bitable; Convex holds a backup).
+**Base**:
+The Feishu Base container identified by `FEISHU_BITABLE_APP_TOKEN`; its Service table (`FEISHU_BITABLE_TABLE_ID`) is the product's primary output. Each synced email is one Service row (Request Types, Request Notes, one Coworker, Date, and a link to a **Customer** when one is matched or chosen), written with the **tenant** token (app permission `bitable:app`). `bitable` remains only in literal Feishu API paths, env vars, and code identifiers.
+_Avoid_: "the spreadsheet", "the database" (the record of record is the Base Service row; Convex holds a backup), the old product name in product-facing prose.
 
 **Customer**:
-A row in the **Customer Table** representing one business the company sells to — the entity the Bitable Service row's `Client` DuplexLink points at. Identified primarily by a name (primary field) and an email **`域名`** (domain) field used for auto-match.
+A row in the **Customer Table** representing one business the company sells to — the entity the Base Service row's `Client` DuplexLink points at. Identified primarily by a name (primary field) and an email **`域名`** (domain) field used for auto-match.
 _Avoid_: "client" (overloaded with `clientEmail` + the legacy `Client` column name), "buyer", "account".
 
 **Customer Table**:
-The sibling Feishu Bitable table `tbl4TE2GV472sKzp` in the same Base as the **Bitable** Service table — the directory of every **Customer** the company sells to. The add-in only **reads** it; per the HARD RULE it never modifies, creates, or deletes a Customer row.
-_Avoid_: "client table", "customer base" (overloaded — the *Bitable Base* is the parent container, not this table).
+The sibling Feishu Base table `tbl4TE2GV472sKzp` in the same **Base** container as the Service table — the directory of every **Customer** the company sells to. The add-in only **reads** it; per the HARD RULE it never modifies, creates, or deletes a Customer row.
+_Avoid_: "client table", "customer base" (overloaded — the **Base** is the parent container, not this table).
+
+**Customer Mirror**:
+The Convex-held read model of the **Customer Table** used for server-indexed Customer search. Refreshed by a weekly **Mirror Refresh** (a full re-page of the Customer Table) plus on-demand `kick` and per-search cache-miss backfill. It is a projected search read model, never the source of truth; the Feishu **Customer Table** stays authoritative and the mirror only ever **reads** it (HARD RULE).
+_Avoid_: "customer database" (sounds authoritative), "Base copy" (it is a projected search read model, not a full Base clone).
+
+**Mirror Refresh**:
+One full pass of the **Customer Mirror** sync (`customersMirror.fullSync`): page through the entire **Customer Table** until Feishu reports `has_more = false`, upserting each page, then stamp the **Mirror Watermark**. Bounded only by Feishu's own documented limits (≤500 rows/page, 20 requests/sec, ≤20,000 rows/table — [ADR-0016](docs/adr/0016-customer-search-modes-and-observability.md)), never by a local page cap.
+_Avoid_: "mirror sync" (ambiguous with cache-miss backfill, which is incremental, not a full pass).
+
+**Mirror Watermark**:
+The single audit row stamped at the end of each **Mirror Refresh** that records whether the mirror is **complete and fresh** — when it last ran, pages and rows seen, Feishu's reported `total`, inserted/updated counts, and the stop reason. A shortfall (rows seen < `total`) or a non-clean stop reason marks the refresh failed, so an incomplete mirror is visible rather than silent.
+_Avoid_: "sync log" (it is a single latest-state row, not an append-only history).
 
 **Email Record**:
-The Convex-persisted copy of a synced request — a recoverable backup / workflow history of what was written to **Bitable** (email metadata, a body preview, the chosen **Requests** + the single **Coworker**, and the resulting `bitableRecordId`). The full email body is never stored — only a ≤500-char preview.
+The Convex-persisted copy of a synced request — a recoverable backup / workflow history of what was written to **Base** (email metadata, a body preview, the chosen **Requests** + the single **Coworker**, and the resulting `bitableRecordId`). The full email body is never stored — only a ≤500-char preview.
 _Avoid_: "the email" (it's a derived record, not the original mail), "the PDF" (no PDF is produced anymore).
 
 **Mail Item**:
@@ -84,27 +96,28 @@ The Outlook message the salesperson has open in the reading pane, accessed insid
 _Avoid_: "the mail", "the message" (overloaded), "the email" (the **Email Record** is the *persisted* derivative, the Mail Item is the *live* Office.js handle).
 
 **User-identity call / tenant-identity call**:
-The two Feishu token types. A **user-identity call** uses the signed-in person's user access token and is now used for exactly one thing — **searching the directory for Coworkers** (`/search/v1/user`). A **tenant-identity call** uses the app token and does the **Bitable** write.
+The two Feishu token types. A **user-identity call** uses the signed-in person's user access token and is now used for exactly one thing — **searching the directory for Coworkers** (`/search/v1/user`). A **tenant-identity call** uses the app token and does the **Base** write.
 _Avoid_: "the Feishu token" — there are two, user vs tenant.
 
 ## Relationships
 
 - The **Outlook Manifest** points `SourceLocation` at whichever host serves the **SPA** (`https://<ECS Host>/addin/` for CN users, the **Global Host** root for everyone else).
 - The **ECS Host** serves the **SPA** at `/addin/` (CN); the **Global Host** (Cloudflare Pages) serves the same **SPA** at root `/` to non-CN users, using the primary **OAuth Callback** only ([ADR-0009](docs/adr/0009-cloudflare-global-host-dual-deploy.md)).
-- The **SPA** runs **Bitable Sync**: it calls the **Convex Backend** directly (WebSocket queries/mutations on `*.convex.cloud`, HTTP actions on `*.convex.site`).
-- The **Convex Backend** makes the **tenant-identity** **Bitable** write to the **Feishu Open Platform**, then stores the **Email Record**.
+- The **SPA** runs **Base Sync**: it calls the **Convex Backend** directly (WebSocket queries/mutations on `*.convex.cloud`, HTTP actions on `*.convex.site`).
+- The **Convex Backend** makes the **tenant-identity** **Base** write to the **Feishu Open Platform**, then stores the **Email Record**.
+- The **Convex Backend** also keeps the **Customer Mirror** in sync with the **Customer Table** via a weekly **Mirror Refresh** (tenant-identity, read-only), recording each run's completeness in the **Mirror Watermark** ([ADR-0016](docs/adr/0016-customer-search-modes-and-observability.md)).
 - The **SPA** makes a **user-identity call** only to search **Coworkers**; login flows through the primary **OAuth Callback**, or the ECS **Fallback OAuth Callback** when Convex actions are down ([ADR-0008](docs/adr/0008-fallback-login-via-box.md)).
-- The **SPA** also sends the current **Mail Item**'s REST/Graph message id and Outlook user email to the **Convex Backend**, which acquires an app-only Microsoft Graph token with `client_credentials` and sends the **Self-Forward** through native `POST /users/{selfEmail}/messages/{originalMessageId}/forward` ([ADR-0017](docs/adr/0017-graph-self-forward-note-to-myself.md)). Secrets (`M365_CLIENT_ID` / `M365_CLIENT_SECRET` / `M365_TENANT_ID`) live in Convex env, alongside the Feishu secrets.
+- The **SPA** also sends the current **Mail Item**'s REST/Graph message id and Outlook user email to the **Convex Backend**, which acquires an app-only Microsoft Graph token with `client_credentials` and sends the **Self-Forward** through native `POST /users/{selfEmail}/messages/{originalMessageId}/forward` to the initiator plus the fixed audit copy recipient ([ADR-0017](docs/adr/0017-graph-self-forward-note-to-myself.md)). Secrets (`M365_CLIENT_ID` / `M365_CLIENT_SECRET` / `M365_TENANT_ID`) live in Convex env, alongside the Feishu secrets.
 - The **ECS Host** *may later* reverse-proxy to the **Convex Backend** as a CN-resident fallback — not built today.
 
 ## Example dialogue
 
 > **New engineer:** "So we forward the email into a Feishu chat?"
-> **Domain expert:** "Not anymore. We do **sales-request intake**. The salesperson opens the client's email, tags it as one or more **Requests** — Quotation, Sample, R&D Support — with a note each, picks exactly one **Coworker** who should own it, and we write **one row** to the **Bitable**. That's the product."
+> **Domain expert:** "Not anymore. We do **sales-request intake**. The salesperson opens the client's email, tags it as one or more **Requests** — Quotation, Sample, R&D Support — with a note each, picks exactly one **Coworker** who should own it, and we write **one row** to the **Base**. That's the product."
 > **New engineer:** "Does the coworker get pinged?"
-> **Domain expert:** "No. The coworker is the **assignee** — a field in the row. We send no chat message; that whole path is retired ([ADR-0010](docs/adr/0010-pivot-to-bitable-intake.md)). If Bitable notifies on assignment, that's Bitable's doing, not ours."
+> **Domain expert:** "No. The coworker is the **assignee** — a field in the row. We send no chat message; that whole path is retired ([ADR-0010](docs/adr/0010-pivot-to-bitable-intake.md)). If Base notifies on assignment, that's Base's doing, not ours."
 > **New engineer:** "What's Convex for, then?"
-> **Domain expert:** "Two jobs. It makes the **tenant-token** **Bitable** write, and it keeps an **Email Record** — a recoverable backup of what we synced. Bitable is the record of record; Convex is the safety net + workflow history."
+> **Domain expert:** "Two jobs. It makes the **tenant-token** **Base** write, and it keeps an **Email Record** — a recoverable backup of what we synced. Base is the record of record; Convex is the safety net + workflow history."
 > **New engineer:** "And the email PDF / attachments?"
 > **Domain expert:** "Gone. We capture a body **preview** as a field; we don't render a PDF or upload attachments anymore ([ADR-0010](docs/adr/0010-pivot-to-bitable-intake.md))."
 
@@ -114,7 +127,7 @@ _Avoid_: "the Feishu token" — there are two, user vs tenant.
 - "Convex" sometimes refers to the SaaS company, sometimes to our specific deployment. We say **Convex Backend** when we mean ours.
 - The SPA base path is **host-specific**: `/addin/` on the **ECS Host**, `/` on the **Global Host** ([ADR-0009](docs/adr/0009-cloudflare-global-host-dual-deploy.md)). A mismatch — an ECS manifest pointing at root, or a `/addin/` build deployed to the Global Host's root — 404s on assets.
 - `/search/v1/user` reads as legacy but is **current** — it's the official Search Users API (GET, keyword in the `query` URL param, scope `contact:user:search`); there is no `contact/v3` search ([ADR-0003](docs/adr/0003-feishu-user-scopes-and-search-v1.md)). It is still used — by **Coworker** search, whose user-visible results must come only from real Feishu directory users.
-- **Bitable Sync** scopes: a user token needs `contact:user:search` + `offline_access` only; the chat scopes `im:chat:readonly` / `im:message` were **dropped** with the pivot ([ADR-0010](docs/adr/0010-pivot-to-bitable-intake.md)). The **Bitable** write itself is tenant-token (app permission `bitable:app`), not a user scope. Changing the user scope set forces every user to log out and re-authorize.
-- **The UI is wired to Bitable Sync.** The redesigned taskpane ([RequestIntakeScreen.tsx](src/components/taskpane/RequestIntakeScreen.tsx) → [SyncScreen.tsx](src/components/taskpane/SyncScreen.tsx)) calls `requestSync.syncRequest`; "Synced to Feishu" means the Bitable write and Convex **Email Record** action resolved.
-- **"Forward" is retired language.** The multi-target Forward pipeline has been removed from live code. Prefer **Bitable Sync** in prose.
-- **"Client" survives only as the literal Bitable column name and the temporary `clientEmail` argument.** The Service row in the live Bitable has a DuplexLink column literally named `Client`; renaming that is a Base-side schema change that has to be done in Feishu, not from the SPA, and the value string must match exactly or the write fails. Everywhere else, prose should say **Customer**.
+- **Base Sync** scopes: a user token needs `contact:user:search` + `offline_access` only; the chat scopes `im:chat:readonly` / `im:message` were **dropped** with the pivot ([ADR-0010](docs/adr/0010-pivot-to-bitable-intake.md)). The **Base** write itself is tenant-token (app permission `bitable:app`), not a user scope. Changing the user scope set forces every user to log out and re-authorize.
+- **The UI is wired to Base Sync.** The redesigned taskpane ([RequestIntakeScreen.tsx](src/components/taskpane/RequestIntakeScreen.tsx) → [SyncScreen.tsx](src/components/taskpane/SyncScreen.tsx)) calls `requestSync.syncRequest`; "Synced to Feishu" means the Base write and Convex **Email Record** action resolved.
+- **"Forward" is retired language.** The multi-target Forward pipeline has been removed from live code. Prefer **Base Sync** in prose.
+- **"Client" survives only as the literal Base column name and the temporary `clientEmail` argument.** The Service row in the live Base has a DuplexLink column literally named `Client`; renaming that is a Base-side schema change that has to be done in Feishu, not from the SPA, and the value string must match exactly or the write fails. Everywhere else, prose should say **Customer**.

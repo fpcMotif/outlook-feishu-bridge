@@ -30,7 +30,7 @@ export interface SelfForwardEnv {
 export interface SelfForwardInput {
   /** REST/Graph message id converted from Office.js itemId with convertToRestId. */
   originalMessageId: string;
-  /** Outlook user's mailbox; it is both the sending mailbox and only recipient. */
+  /** Outlook user's mailbox; it is the sending mailbox and primary recipient. */
   selfEmail: string;
   /** Customer picked in the Customer Picker — surfaced in the forward preamble. */
   customerName?: string;

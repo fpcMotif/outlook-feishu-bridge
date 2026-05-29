@@ -60,7 +60,7 @@ export function dtime(label: string, startMs: number): number {
 // Load-cycle stopwatch. performance.now() is ms since the taskpane document
 // started loading — i.e. roughly since the add-in icon was clicked (Outlook
 // navigates the pane to our URL then). Use this to profile boot → Office.js
-// init → mail readable, the phase BEFORE Bitable Sync.
+// init → mail readable, the phase BEFORE Base Sync.
 export function dload(label: string): void {
   const line = `⏱ ${label}: ${Math.round(performance.now())}ms since pane load`;
   emit("log", line);

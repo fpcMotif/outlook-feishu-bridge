@@ -15,6 +15,7 @@ const STOCKMEIER_ITEM = {
   record_id: "rec27inYHPqxyZ",
   fields: {
     "Account Name": [{ text: "STOCKMEIER Chemie GmbH & Co. KG", type: "text" }],
+    "Record Id": [{ text: "recFromVisibleColumn", type: "text" }],
     "Country and Regio": "Germany 德国",
     Owner: [
       {
@@ -29,10 +30,18 @@ const STOCKMEIER_ITEM = {
 };
 
 describe("mapFeishuItemToCustomer", () => {
-  it("flattens Account Name rich-text into a plain string + carries record_id as recordId", () => {
+  it("flattens Account Name rich-text and carries Customer Info `Record Id` as recordId", () => {
     const customer = mapFeishuItemToCustomer(STOCKMEIER_ITEM);
-    expect(customer.recordId).toBe("rec27inYHPqxyZ");
+    expect(customer.recordId).toBe("recFromVisibleColumn");
     expect(customer.name).toBe("STOCKMEIER Chemie GmbH & Co. KG");
+  });
+
+  it("falls back to API record_id when Customer Info `Record Id` is absent", () => {
+    const customer = mapFeishuItemToCustomer({
+      record_id: "rec27inYHPqxOw",
+      fields: { "Account Name": [{ text: "tricogen", type: "text" }] },
+    });
+    expect(customer.recordId).toBe("rec27inYHPqxOw");
   });
 
   // Many Customer rows in the live table carry only Account Name (the dirty

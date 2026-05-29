@@ -110,13 +110,14 @@ async function searchCoworker(name: string) {
 beforeEach(() => {
   localStorage.clear();
   customerDirectoryRecords = [FANPC, MICROSOFT];
+  vi.restoreAllMocks();
 });
 
 describe("RequestIntakeScreen login gate", () => {
   it("keeps the Feishu login surface separate from the request builder", () => {
     renderRequestIntakeScreen(false);
 
-    expect(screen.getByText("Connect to Feishu")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Continue with Feishu/i })).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /Quotation/i }),
     ).not.toBeInTheDocument();
@@ -128,7 +129,7 @@ describe("RequestIntakeScreen login gate", () => {
   it("shows request details and client/coworker controls together after sign-in", () => {
     renderRequestIntakeScreen(true);
 
-    expect(screen.queryByText("Connect to Feishu")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Continue with Feishu/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Quotation/i })).toBeInTheDocument();
     expect(screen.getByLabelText("Email")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Feishu coworker" })).toBeInTheDocument();
@@ -192,6 +193,23 @@ describe("RequestIntakeScreen request details", () => {
     expect(screen.getByDisplayValue("élise.hoffmann@bayerpharma.de")).toBeInTheDocument();
   });
 
+  it("opens the mocked create-customer page in a new browser tab", () => {
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    renderRequestIntakeScreen(true);
+
+    fireEvent.click(screen.getByRole("button", { name: /search customer/i }));
+    fireEvent.change(screen.getByRole("searchbox", { name: /search customers/i }), {
+      target: { value: "fff" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /create customer task "fff"/i }));
+
+    expect(open).toHaveBeenCalledWith(
+      "https://example.com/?task=create-customer&name=fff",
+      "_blank",
+      "noopener,noreferrer",
+    );
+  });
+
 });
 
 describe("RequestIntakeScreen customer auto-match", () => {
@@ -252,7 +270,7 @@ describe("RequestIntakeScreen sync flow", () => {
     fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
 
     expect(
-      screen.getByRole("heading", { name: /Syncing to Feishu Bitable/i }),
+      screen.getByRole("heading", { name: /Syncing to Feishu Base/i }),
     ).toBeInTheDocument();
     expect(screen.getByRole("progressbar", { name: /Sync progress/i })).toBeInTheDocument();
 

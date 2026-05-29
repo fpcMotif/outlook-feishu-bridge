@@ -1,8 +1,8 @@
-# Bitable record writes use the official Feishu Bitable v1 record API (create + update)
+# Base record writes use the official Feishu Base v1 record API (create + update)
 
-> **Status: accepted.** Extends [ADR-0010](0010-pivot-to-bitable-intake.md) (Bitable intake) and [ADR-0011](0011-feishu-permission-set.md) (permissions). Every endpoint, field format, and permission below is taken from the **official Feishu Open Platform** docs (cited inline) — the *only* source of truth for this integration. No third-party wrappers.
+> **Status: accepted.** Extends [ADR-0010](0010-pivot-to-bitable-intake.md) (Base intake) and [ADR-0011](0011-feishu-permission-set.md) (permissions). Every endpoint, field format, and permission below is taken from the **official Feishu Open Platform** docs (cited inline) — the *only* source of truth for this integration. No third-party wrappers.
 
-Bitable Sync writes one row per synced email, with exactly one selected Feishu **Coworker**, and — per the spec — must support an **immediate correction-update** of *that just-created row* (when the user spots an error during the sync). The add-in does **not** edit any other or pre-existing row. Both create and that correction-update use the official *Bitable v1 → app-table-record* API.
+Base Sync writes one row per synced email, with exactly one selected Feishu **Coworker**, and — per the spec — must support an **immediate correction-update** of *that just-created row* (when the user spots an error during the sync). The add-in does **not** edit any other or pre-existing row. Both create and that correction-update use the official *Base v1 → app-table-record* API.
 
 ## The verified contract
 
@@ -39,7 +39,7 @@ Bitable Sync writes one row per synced email, with exactly one selected Feishu *
 1. Take the client email (the email sender) and extract the domain (`name@acme.de` → `acme.de`).
 2. **Search** the customer table where `域名` `is` that domain (read-only).
 3. **Match** → set `Client` = `[clientRecordId]`.
-4. **No match** → leave `Client` unlinked; the client's email is still retained on the Convex **Email Record** (email detail lives only in Convex, never in Bitable). Intentionally lenient — richer domain-matching rules will be supplied later, so the matcher must stay easy to extend.
+4. **No match** → leave `Client` unlinked; the client's email is still retained on the Convex **Email Record** (email detail lives only in Convex, never in Base). Intentionally lenient — richer domain-matching rules will be supplied later, so the matcher must stay easy to extend.
 
 The add-in **only reads** (searches) the customer table — it never creates or edits a customer row, and never touches a pre-existing row in any table.
 

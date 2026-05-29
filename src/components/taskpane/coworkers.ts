@@ -1,4 +1,4 @@
-// Domain type for the single Feishu assignee written to the Bitable row.
+// Domain type for the single Feishu assignee written to the Base row.
 export interface Coworker {
   openId: string;
   name: string;

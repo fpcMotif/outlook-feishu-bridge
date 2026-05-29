@@ -3,8 +3,7 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-  --font-sans: "Geist Sans", "Inter Tight", system-ui, sans-serif;
-  --font-serif: "Instrument Serif", "Newsreader", "Times New Roman", serif;
+  --font-sans: system-ui, "Segoe UI", Arial, sans-serif;
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -43,6 +42,7 @@
   --ease-in-out-strong: cubic-bezier(0.77, 0, 0.175, 1);
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
   --background: oklch(0.983 0.002 67.803);
+  --login-background: oklch(0.956 0.041 247.915);
   --foreground: oklch(0.224 0.003 196.939);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.224 0.003 196.939);
@@ -213,50 +213,6 @@
     filter: blur(0);
   }
 }
-@keyframes sync-packet-drift {
-  0%,
-  100% {
-    transform: translate(-50%, -50%);
-  }
-  50% {
-    transform: translate(-50%, calc(-50% - 4px));
-  }
-}
-@keyframes sync-fold-card {
-  0%,
-  10% {
-    opacity: 1;
-    transform: translate3d(0, 0, 0) rotateX(0deg) rotateY(0deg) scale(1);
-  }
-  38% {
-    transform: translate3d(34px, -2px, 0) rotateX(8deg) rotateY(-12deg) scale(0.88);
-  }
-  72%,
-  100% {
-    opacity: 0.92;
-    transform: translate3d(112px, 0, 0) rotateX(0deg) rotateY(-58deg) scale(0.48);
-  }
-}
-@keyframes sync-fold-panel-left {
-  0%,
-  18% {
-    transform: rotateY(0deg);
-  }
-  64%,
-  100% {
-    transform: rotateY(58deg);
-  }
-}
-@keyframes sync-fold-panel-right {
-  0%,
-  18% {
-    transform: rotateY(0deg);
-  }
-  64%,
-  100% {
-    transform: rotateY(-58deg);
-  }
-}
 @keyframes sync-orb-pulse {
   0% {
     opacity: 0.22;
@@ -271,40 +227,45 @@
   animation: sync-enter 0.28s var(--ease-out-strong) both;
   animation-delay: var(--enter-delay, 0ms);
 }
-.sync-packet-shell {
-  left: var(--sync-progress);
-  transition:
-    left 220ms var(--ease-out-strong),
-    opacity 160ms var(--ease-out-strong);
-}
-.sync-packet-card {
-  animation: sync-packet-drift 1.8s var(--ease-in-out-strong) infinite;
-  will-change: transform;
-}
-.sync-fold-stage {
-  perspective: 900px;
-}
-.sync-fold-card {
-  transform-style: preserve-3d;
-  transform-origin: center;
-  animation: sync-fold-card var(--sync-duration, 3600ms) var(--ease-in-out-strong) both;
-  will-change: transform, opacity;
-}
-.sync-fold-panel {
-  backface-visibility: hidden;
-  transform-style: preserve-3d;
-}
-.sync-fold-panel-left {
-  transform-origin: right center;
-  animation: sync-fold-panel-left var(--sync-duration, 3600ms) var(--ease-in-out-strong) both;
-}
-.sync-fold-panel-right {
-  transform-origin: left center;
-  animation: sync-fold-panel-right var(--sync-duration, 3600ms) var(--ease-in-out-strong) both;
-}
 .sync-orb-pulse {
   background: color-mix(in oklch, var(--primary) 24%, transparent);
   animation: sync-orb-pulse 1.7s var(--ease-out-strong) infinite;
+}
+@keyframes sync-arc-color-sweep {
+  0%,
+  22%,
+  100% {
+    stop-color: #1473c7;
+    stop-opacity: 0.9;
+  }
+  42% {
+    stop-color: #2fc4ff;
+    stop-opacity: 1;
+  }
+  62% {
+    stop-color: #0f6cbd;
+    stop-opacity: 0.95;
+  }
+}
+.sync-arc-stop {
+  stop-color: #1473c7;
+  stop-opacity: 0.95;
+  animation: sync-arc-color-sweep 1.55s linear infinite;
+}
+.sync-arc-stop-1 {
+  animation-delay: 0ms;
+}
+.sync-arc-stop-2 {
+  animation-delay: 160ms;
+}
+.sync-arc-stop-3 {
+  animation-delay: 320ms;
+}
+.sync-arc-stop-4 {
+  animation-delay: 480ms;
+}
+.sync-arc-stop-5 {
+  animation-delay: 640ms;
 }
 
 /* Profile popover enter: subtle scale + fade from the top-right. */
@@ -325,12 +286,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .sync-enter,
-  .sync-fold-card,
-  .sync-fold-panel-left,
-  .sync-fold-panel-right,
-  .sync-packet-shell,
-  .sync-packet-card,
   .sync-orb-pulse,
+  .sync-arc-stop,
   .animate-pulse-dot,
   .animate-pulse-ring,
   .animate-pop-in,

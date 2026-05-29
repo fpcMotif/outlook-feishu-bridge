@@ -52,4 +52,11 @@ describe("dev Customer fixtures", () => {
     expect(searchDevCustomerFixtures("fenchem.com")).toHaveLength(1);
     expect(searchDevCustomerFixtures("microsoft.com")).toHaveLength(1);
   });
+
+  it("does not enable fixtures on the prod deployment", () => {
+    process.env.CONVEX_DEPLOYMENT = "prod:steady-setter-706";
+    delete process.env.ENABLE_DEV_CUSTOMER_FIXTURES;
+
+    expect(isDevCustomerFixturesEnabled()).toBe(false);
+  });
 });

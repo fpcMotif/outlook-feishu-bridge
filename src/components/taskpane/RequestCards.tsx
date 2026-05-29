@@ -29,7 +29,7 @@ export function RequestCards({
             <AccordionTrigger className="min-h-14 px-5 py-[18px]">
               <span className="flex items-center gap-2.5">
                 <span className="size-2 shrink-0 rounded-full" style={{ background: r.dot }} />
-                <span className="font-serif text-[22px] leading-none">{r.title}</span>
+                <span className="text-[22px] leading-none">{r.title}</span>
                 {filled ? (
                   <Badge variant="sage" className="group-data-[state=open]:hidden">
                     Selected

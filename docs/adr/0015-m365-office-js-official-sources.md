@@ -1,6 +1,6 @@
 # M365 / Office.js: official sources only — and the current Mail Item surface
 
-> **Status: accepted.** Parallels the standing rule that Feishu code cites `open.feishu.cn` + `github.com/larksuite/oapi-sdk-go` only (see ADR-0012's "Why official-only" footer). Establishes the same bar for everything we ingest from Outlook via Office.js. Touches [ADR-0010](0010-pivot-to-bitable-intake.md) (defines what we read from the **Mail Item**) and [ADR-0014](0014-write-initiator-and-subject-to-service-row.md) (which Mail-Item fields ride into the Bitable Service row).
+> **Status: accepted.** Parallels the standing rule that Feishu code cites `open.feishu.cn` + `github.com/larksuite/oapi-sdk-go` only (see ADR-0012's "Why official-only" footer). Establishes the same bar for everything we ingest from Outlook via Office.js. Touches [ADR-0010](0010-pivot-to-bitable-intake.md) (defines what we read from the **Mail Item**) and [ADR-0014](0014-write-initiator-and-subject-to-service-row.md) (which Mail-Item fields ride into the Base Service row).
 
 The taskpane lives inside Outlook and reads the open mail item through Office.js. The risk profile is exactly the same as for Feishu: signatures drift, third-party wrappers lag and silently mis-shape payloads, and the runtime differs across Outlook variants (web / Win32 / Mac / mobile). To match the rigor we already apply on the Feishu side, every M365 API call we make must be traceable to an official Microsoft source.
 

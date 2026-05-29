@@ -45,7 +45,7 @@ describe("CustomerPicker no-match states", () => {
   // Lenient no-match (ADR-0013): when the email domain doesn't resolve to a
   // Customer the picker says so without blocking the sync. A disabled "+ Add
   // new customer" placeholder reserves the slot for the future create-new
-  // path (Bitable create vs Feishu form — see ADR-0013 future work).
+  // path (Base create vs Feishu form — see ADR-0013 future work).
   it("shows a no-match message and the disabled 'Add new customer' placeholder when nothing is selected and directory is ready", () => {
     render(
       <CustomerPicker
@@ -156,6 +156,32 @@ describe("CustomerPicker server fallback", () => {
 
     expect(await screen.findByRole("button", { name: /Novo Nordisk/i })).toBeInTheDocument();
     expect(searchCustomers).toHaveBeenCalledWith("novo", undefined);
+  });
+
+  it("offers a create-customer task action when search has no customer matches", () => {
+    const onCreateCustomer = vi.fn();
+    render(
+      <CustomerPicker
+        directory={{ status: "ready", records: [] }}
+        searchCustomers={vi.fn(() => Promise.resolve([]))}
+        emailDomain="unknown.io"
+        selectedCustomer={null}
+        onChange={vi.fn()}
+        onCreateCustomer={onCreateCustomer}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /search customer/i }));
+    fireEvent.change(screen.getByRole("searchbox", { name: /search customers/i }), {
+      target: { value: "ddddd" },
+    });
+
+    expect(
+      screen.getByRole("button", { name: /create customer task "ddddd"/i }),
+    ).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: /create customer task "ddddd"/i }));
+
+    expect(onCreateCustomer).toHaveBeenCalledWith("ddddd");
   });
 
   it("passes the Initiator owner filter to server search when Show mine is enabled", async () => {

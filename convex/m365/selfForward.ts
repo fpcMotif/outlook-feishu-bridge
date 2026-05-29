@@ -82,7 +82,7 @@ export const sendSelfForwardNote = action({
   args: {
     /** REST/Graph message id converted from Office.js `itemId`. */
     originalMessageId: v.string(),
-    /** Outlook user's mailbox; this is the sending mailbox and only recipient. */
+    /** Outlook user's mailbox; this is the sending mailbox and primary recipient. */
     selfEmail: v.string(),
     /** Customer picked in the Customer Picker (ADR-0013). Optional. */
     customerName: v.optional(v.string()),

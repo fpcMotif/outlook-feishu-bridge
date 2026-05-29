@@ -25,12 +25,27 @@ export const DEV_CUSTOMER_FIXTURES: CustomerRecord[] = [
   },
 ];
 
+// Dev-fixture record ids are stand-ins (e.g. "dev_fixture_fanpc_customer"),
+// NOT real Customer-Table records. Writing one into the Service row's `Client`
+// DuplexLink produces a dangling "?????" link in Bitable (the id resolves to
+// nothing — Feishu 1254043 RecordIdNotFound). Callers use this to drop them
+// before a write. Always returns false for real `rec…` ids.
+const DEV_FIXTURE_RECORD_IDS: ReadonlySet<string> = new Set(
+  DEV_CUSTOMER_FIXTURES.map((customer) => customer.recordId),
+);
+
+export function isDevFixtureRecordId(recordId: string | undefined | null): boolean {
+  if (!recordId) return false;
+  return DEV_FIXTURE_RECORD_IDS.has(recordId);
+}
+
 export function isDevCustomerFixturesEnabled(): boolean {
+  // Gate fixtures to DEV only. Matching the bare deployment name (e.g.
+  // "steady-setter-706") used to enable them on prod too (prod:steady-setter-706),
+  // injecting phantom rows into the prod Customer Mirror — see ADR-0016.
   const deployment = process.env.CONVEX_DEPLOYMENT ?? "";
   return (
-    process.env.ENABLE_DEV_CUSTOMER_FIXTURES === "true" ||
-    deployment.startsWith("dev:") ||
-    deployment.includes("steady-setter-706")
+    process.env.ENABLE_DEV_CUSTOMER_FIXTURES === "true" || deployment.startsWith("dev:")
   );
 }
 

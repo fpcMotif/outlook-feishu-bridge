@@ -12,7 +12,8 @@ interface Step {
 }
 
 // ADR-0017: the parallel Self-Forward ("Note to myself") landed in the
-// Initiator's own mailbox — or didn't. `null` means we didn't try (dev preview
+// Initiator's own mailbox plus audit recipient — or didn't. `null` means we
+// didn't try (dev preview
 // without Office.js); the chip is hidden in that case.
 type SelfForwardStatus = "pending" | "ok" | "failed" | null;
 
@@ -57,7 +58,7 @@ function buildSteps(coworkerCount: number): Step[] {
   return [
     { title: "Submitted", sub: "Just now", state: "done" },
     {
-      title: "Bitable row created",
+      title: "Base row created",
       sub:
         coworkerCount > 0
           ? `${coworkerCount} coworker${coworkerCount > 1 ? "s" : ""} attached`
@@ -76,14 +77,7 @@ function SelfForwardChip({
   onRetry?: () => void;
 }) {
   if (status === null) return null;
-  if (status === "ok") {
-    return (
-      <div className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs text-primary">
-        <Check className="size-3.5" />
-        Note to myself sent
-      </div>
-    );
-  }
+  if (status === "ok") return null;
   if (status === "pending") {
     return (
       <div className="text-muted-foreground mt-3 inline-flex items-center gap-1.5 rounded-full bg-muted px-3 py-1 text-xs">
@@ -113,12 +107,10 @@ function SelfForwardChip({
 
 export function ReceivedScreen({
   coworkerCount,
-  onSyncAnother,
   selfForwardStatus = null,
   onRetrySelfForward,
 }: {
   coworkerCount: number;
-  onSyncAnother: () => void;
   selfForwardStatus?: SelfForwardStatus;
   onRetrySelfForward?: () => void;
 }) {
@@ -128,9 +120,9 @@ export function ReceivedScreen({
     <div className="no-scrollbar flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-6 pt-12 pb-6">
       <SuccessHalo />
 
-      <h1 className="font-serif text-3xl text-balance">Synced to Feishu</h1>
+      <h1 className="text-3xl text-balance">Synced to Feishu</h1>
       <p className="text-muted-foreground mt-1.5 max-w-[34ch] text-center text-sm leading-relaxed text-pretty">
-        The request is synced to Bitable, backed up in Convex, and ready for the selected coworker.
+        The request is synced to Base, backed up in Convex, and ready for the selected coworker.
       </p>
 
       <SelfForwardChip status={selfForwardStatus} onRetry={onRetrySelfForward} />
@@ -141,11 +133,6 @@ export function ReceivedScreen({
         ))}
       </div>
 
-      <div className="mt-auto w-full max-w-[320px] pt-8">
-        <Button className="h-12 w-full rounded-2xl text-[15px]" onClick={onSyncAnother}>
-          Route another email
-        </Button>
-      </div>
     </div>
   );
 }

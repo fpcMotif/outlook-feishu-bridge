@@ -29,7 +29,7 @@ function FeishuGlyph({ className = "size-6" }: { className?: string }) {
 
 function ConnectVisual() {
   return (
-    <div className="bg-card-soft flex items-center justify-center gap-4 rounded-[20px] py-6 shadow-[var(--shadow-border)]">
+    <div className="bg-card-soft flex items-center justify-center gap-4 rounded-[20px] py-8 shadow-[var(--shadow-border)]">
       <span
         aria-hidden="true"
         className="bg-card flex size-14 items-center justify-center rounded-xl shadow-[var(--shadow-border)]"
@@ -61,16 +61,10 @@ export function ConnectCard({
   return (
     <section
       aria-label="Feishu sign in"
-      className="bg-card rounded-[28px] p-6 shadow-[var(--shadow-floating)]"
+      className="bg-card mx-auto flex aspect-square w-full max-w-[420px] flex-col justify-center rounded-[28px] p-6 shadow-[var(--shadow-floating)]"
     >
       <ConnectVisual />
-      <div className="mt-5 text-center">
-        <h2 className="font-serif text-[26px] leading-tight">Connect to Feishu</h2>
-        <p className="text-muted-foreground mx-auto mt-2 max-w-[36ch] text-sm leading-relaxed">
-          Sign in to turn this Outlook email into a structured Feishu Bitable row.
-        </p>
-      </div>
-      <div className="mt-5 flex flex-col gap-2">
+      <div className="mt-6 flex flex-col gap-2">
         <Button className="h-11 w-full rounded-[14px]" onClick={onLogin}>
           <FeishuGlyph className="size-4" />
           <span>Continue with Feishu</span>

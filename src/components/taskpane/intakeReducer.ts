@@ -1,4 +1,4 @@
-// Testable state machine for the one-screen Bitable Sync intake.
+// Testable state machine for the one-screen Base Sync intake.
 // RequestIntakeScreen owns effects and rendering; this module owns state
 // transitions that must not regress during retry/start-over flows.
 

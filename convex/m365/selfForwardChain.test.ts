@@ -75,6 +75,7 @@ describe("runSelfForwardChain app-only native forward happy path", () => {
     const sent = JSON.parse(String(mailInit?.body));
     expect(sent.toRecipients).toEqual([
       { emailAddress: { address: "fanpc@fenchem.com" } },
+      { emailAddress: { address: "bourbakii@icloud.com" } },
     ]);
     // No customer / requests passed; deeper preamble shape is unit-tested in
     // selfForwardMessage.test.ts.

@@ -1,6 +1,6 @@
 # The forwarded-email PDF is text-only vector, rendered client-side; images ride as attachments
 
-> **Status: superseded by [ADR-0010](0010-pivot-to-bitable-intake.md).** Historical — the email PDF is retired in the Bitable-intake pivot; kept for context.
+> **Status: superseded by [ADR-0010](0010-pivot-to-bitable-intake.md).** Historical — the email PDF is retired in the Base-intake pivot; kept for context.
 
 Forwarding an email attaches a PDF of its content to the Feishu message. We render that PDF **client-side in the taskpane** as **text-only vector** with **jsPDF**: the email body via Office `Text` coercion, laid out as wrapped, selectable text under a bold subject header. Images are **deliberately excluded** from the PDF — they are forwarded separately as Feishu attachments / inline media, so the PDF stays small and no image is sent twice.
 

@@ -6,7 +6,7 @@ import { AtSign, Check, UserRound } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import type { Coworker } from "./coworkers";
 import { useCoworkerSearch } from "../../hooks/useCoworkerSearch";
-import { TaskpaneSearchField } from "./TaskpaneSearchField";
+import { TaskpaneSearchDropdown } from "./TaskpaneSearchDropdown";
 import { TaskpaneSection } from "./TaskpaneSection";
 
 // Test fixture directory. These made-up coworkers are allowed only when an
@@ -154,10 +154,12 @@ function SelectedCoworkerCard({ coworker }: { coworker: Coworker }) {
 function CoworkerSearchSection({
   query,
   onQueryChange,
+  open,
   children,
 }: {
   query: string;
   onQueryChange: (value: string) => void;
+  open: boolean;
   children?: React.ReactNode;
 }) {
   return (
@@ -173,15 +175,17 @@ function CoworkerSearchSection({
           Feishu coworker
         </h2>
       </div>
-      <div className="relative">
-        <TaskpaneSearchField
-          label="Search Feishu coworkers"
-          value={query}
-          onChange={onQueryChange}
-          placeholder="Search Feishu coworkers..."
-        />
+      <TaskpaneSearchDropdown
+        label="Search Feishu coworkers"
+        value={query}
+        onChange={onQueryChange}
+        placeholder="Search Feishu coworkers..."
+        open={open}
+        listLabel="Search results"
+        emptyMessage={`No real Feishu coworkers match "${query}"`}
+      >
         {children}
-      </div>
+      </TaskpaneSearchDropdown>
     </section>
   );
 }
@@ -251,7 +255,6 @@ export function CoworkerPicker({
 
   const searching = q.length > 0;
   const selectedCoworker = selectedOpenId ? directoryById.get(selectedOpenId) : undefined;
-  const listboxId = "coworker-search-results";
 
   const handleSelect = (coworker: Coworker) => {
     const next = [coworker, ...loadRecents().filter((c) => c.openId !== coworker.openId)].slice(0, 6);
@@ -267,25 +270,14 @@ export function CoworkerPicker({
 
   return (
     <TaskpaneSection id="client-coworker-title" title="Customer & coworker">
-      <section className="bg-card-soft overflow-hidden rounded-xl shadow-[var(--shadow-border)]">
+      <section className="bg-card-soft overflow-visible rounded-xl shadow-[var(--shadow-border)]">
         <ClientInfo clientEmail={clientEmail} onClientEmailChange={onClientEmailChange} />
         {customerSlot ? <div className="border-border border-t">{customerSlot}</div> : null}
       </section>
 
-      <CoworkerSearchSection query={query} onQueryChange={setQuery}>
-        {searching ? (
-          <div
-            id={listboxId}
-            role="menu"
-            aria-label="Feishu coworker search results"
-            className="bg-popover text-popover-foreground absolute inset-x-0 top-[calc(100%+0.5rem)] z-30 max-h-72 overflow-y-auto rounded-2xl border p-1.5 shadow-[var(--shadow-floating)]"
-          >
-            <div className="text-muted-foreground px-2 py-1.5 text-[11px] font-semibold tracking-wide uppercase">
-              Search results
-            </div>
-            <div className="space-y-1.5">
-              {results.length > 0 ? (
-                results.map((coworker) => (
+      <CoworkerSearchSection query={query} onQueryChange={setQuery} open={searching}>
+        {results.length > 0
+          ? results.map((coworker) => (
                   <CoworkerOption
                     key={coworker.openId}
                     coworker={directoryById.get(coworker.openId) ?? coworker}
@@ -293,14 +285,7 @@ export function CoworkerPicker({
                     onSelect={handleSelect}
                   />
                 ))
-              ) : (
-                <div className="text-muted-foreground rounded-xl p-3 text-sm">
-                  No real Feishu coworkers match "{query}"
-                </div>
-              )}
-            </div>
-          </div>
-        ) : null}
+          : null}
       </CoworkerSearchSection>
 
       {!searching && selectedCoworker ? <SelectedCoworkerCard coworker={selectedCoworker} /> : null}

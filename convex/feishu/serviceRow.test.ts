@@ -40,6 +40,14 @@ describe("buildServiceFields", () => {
     expect("Sales" in fields).toBe(false);
   });
 
+  it("always writes the Client DuplexLink when a customer record id is resolved", () => {
+    const originalSkip = process.env.DIAG_SKIP_FIELDS;
+    process.env.DIAG_SKIP_FIELDS = "Client";
+    const fields = buildServiceFields(BASE, "rec_customer");
+    expect(fields["Client"]).toEqual(["rec_customer"]);
+    if (originalSkip === undefined) delete process.env.DIAG_SKIP_FIELDS;
+    else process.env.DIAG_SKIP_FIELDS = originalSkip;
+  });
 });
 
 // ADR-0017: the Mail Item's Outlook conversationId rides into the

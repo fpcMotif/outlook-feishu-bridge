@@ -3,7 +3,8 @@ import { internalAction, type ActionCtx } from "../_generated/server";
 import { v } from "convex/values";
 import { callFeishu } from "./call";
 import { buildServiceFields, type ServiceRowInput } from "./serviceRow";
-import { emailDomain } from "./customers";
+import { emailDomain, recordIdFromCustomerInfoRow } from "./customers";
+import { isDevFixtureRecordId } from "./devCustomerFixtures";
 import {
   initiatorValidator,
   requestSelectionValidator,
@@ -70,7 +71,7 @@ export async function matchClientRecordId(
 ): Promise<string | null> {
   const domain = email ? emailDomain(email) : null;
   if (!domain) return null;
-  const data = await callFeishu<{ items?: { record_id: string }[] }>(ctx, {
+  const data = await callFeishu<{ items?: { record_id: string; fields?: Record<string, unknown> }[] }>(ctx, {
     path: `/bitable/v1/apps/${appToken}/tables/${CLIENT_TABLE_ID}/records/search`,
     method: "POST",
     auth: "tenant",
@@ -83,7 +84,8 @@ export async function matchClientRecordId(
     query: { page_size: "1" },
     label: "Bitable client domain search",
   });
-  return data.items?.[0]?.record_id ?? null;
+  const first = data.items?.[0];
+  return first ? recordIdFromCustomerInfoRow(first) : null;
 }
 
 // Resolve the Client DuplexLink target for a sync: prefer the override picked
@@ -95,7 +97,17 @@ export async function resolveClientRecordId(
   appToken: string,
   input: ServiceRowInput,
 ): Promise<string | null> {
-  if (input.clientRecordId) return input.clientRecordId;
+  if (input.clientRecordId) {
+    // A dev-fixture pick is not a real Customer row — never link it, or Bitable
+    // shows a dangling "?????" Client cell. Leave it unlinked (dev-only path).
+    if (isDevFixtureRecordId(input.clientRecordId)) {
+      console.warn(
+        `[bitable] dropping dev-fixture clientRecordId=${input.clientRecordId}; leaving Client unlinked`,
+      );
+      return null;
+    }
+    return input.clientRecordId;
+  }
   return await matchClientRecordId(ctx, appToken, input.clientEmail);
 }
 

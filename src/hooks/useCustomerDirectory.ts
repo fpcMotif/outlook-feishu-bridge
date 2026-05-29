@@ -43,7 +43,7 @@ export function resetCustomerDirectory() {
 
 export interface UseCustomerDirectory {
   state: CustomerDirectoryState;
-  /** Force-refresh the directory from Bitable. Fire-and-forget; safe to call
+  /** Force-refresh the directory from Base. Fire-and-forget; safe to call
    *  multiple times — concurrent calls dedupe via `inflight`. */
   refresh: () => void;
 }

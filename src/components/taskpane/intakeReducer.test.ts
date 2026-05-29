@@ -114,8 +114,8 @@ describe("intakeReducer sync and self-forward state", () => {
   });
 
   it("syncFailed routes to the error screen with the message", () => {
-    const next = intakeReducer(base, { type: "syncFailed", message: "Bitable down" });
-    expect(next).toMatchObject({ screen: "error", syncError: "Bitable down" });
+    const next = intakeReducer(base, { type: "syncFailed", message: "Base down" });
+    expect(next).toMatchObject({ screen: "error", syncError: "Base down" });
   });
 
   it("selfForwardStarted re-arms the pending chip", () => {

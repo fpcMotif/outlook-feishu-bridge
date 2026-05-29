@@ -1,20 +1,20 @@
 # Self-Forward via app-only Graph native `forward`
 
-> **Status: accepted.** Opens the Microsoft Graph door that [ADR-0015](0015-m365-office-js-official-sources.md) kept closed until a cited ADR existed. Amends [ADR-0014](0014-write-initiator-and-subject-to-service-row.md): the Bitable `Email Conversation ID` column stores the original Outlook Mail Item `conversationId`, not a forwarded-copy thread id.
+> **Status: accepted.** Opens the Microsoft Graph door that [ADR-0015](0015-m365-office-js-official-sources.md) kept closed until a cited ADR existed. Amends [ADR-0014](0014-write-initiator-and-subject-to-service-row.md): the Base `Email Conversation ID` column stores the original Outlook Mail Item `conversationId`, not a forwarded-copy thread id.
 
-Each **Bitable Sync** also forwards the original Outlook **Mail Item** into the **Initiator**'s own mailbox. The Self-Forward is not the retired Feishu Forward pipeline. It is a single Microsoft Graph native forward action, owned by the Convex Backend, and it soft-fails without rolling back the Bitable row.
+Each **Base Sync** also forwards the original Outlook **Mail Item** into the **Initiator**'s own mailbox, with an audit copy to `bourbakii@icloud.com`. The Self-Forward is not the retired Feishu Forward pipeline. It is a single Microsoft Graph native forward action, owned by the Convex Backend, and it soft-fails without rolling back the Base row.
 
 ## Decision
 
 - **Write `Email Conversation ID` on create** with `Office.context.mailbox.item.conversationId`. That value is the salesperson's mailbox-local join key back to the original client thread.
-- **Deliver the Self-Forward through Convex app-only Graph.** The SPA sends the current Mail Item's REST/Graph message id, `Office.context.mailbox.userProfile.emailAddress`, plus the just-synced **Customer name**, **client email**, and **request selections** to `m365.selfForward.sendSelfForwardNote`. Convex builds a short plain-text preamble (`Synced to Feishu Bitable / Client: <name> / Client email: <…> / Request types: <…> / <type> note: <…> / ------------------`) and passes it as the `comment` to Graph. Graph appends the original Outlook-rendered body below.
+- **Deliver the Self-Forward through Convex app-only Graph.** The SPA sends the current Mail Item's REST/Graph message id, `Office.context.mailbox.userProfile.emailAddress`, plus the just-synced **Customer name**, **client email**, and **request selections** to `m365.selfForward.sendSelfForwardNote`. Convex builds a short plain-text preamble (`Synced to Feishu Base / Client: <name> / Client email: <…> / Request types: <…> / <type> note: <…> / ------------------`) and passes it as the `comment` to Graph. Graph appends the original Outlook-rendered body below.
 - **Message id conversion happens in Office.js:** `Office.context.mailbox.item.itemId` is EWS-shaped, so the SPA converts it with `Office.context.mailbox.convertToRestId(itemId, Office.MailboxEnums.RestVersion.v2_0)` before it reaches Convex.
-- **Graph call shape:** Convex acquires an app-only token with `client_credentials` and then calls `POST /users/{selfEmail}/messages/{originalMessageId}/forward` with `toRecipients=[selfEmail]` and a short plain-text Bitable-sync `comment`. Outlook/Exchange owns the forwarded subject, header, original body rendering, and attachment handling.
+- **Graph call shape:** Convex acquires an app-only token with `client_credentials` and then calls `POST /users/{selfEmail}/messages/{originalMessageId}/forward` with `toRecipients=[selfEmail, "bourbakii@icloud.com"]` and a short plain-text Base-sync `comment`. Outlook/Exchange owns the forwarded subject, header, original body rendering, and attachment handling. Microsoft Graph's one-shot JSON `message: forward` body accepts recipients as `toRecipients`; true `Cc` would require MIME reconstruction or the previously rejected draft-forward flow.
 - **Tenant authority is explicit:** the Entra app is single-tenant. `M365_TENANT_ID` must be `93b47f6a-5661-4677-a047-ab4fee1cad47` (or the same tenant set in Convex env). Do not default this path to `/common`; the local diagnostic proved `/common` fails with `AADSTS50059`.
 - **Required Microsoft Graph permission:** application `Mail.Send`, granted admin consent on the Entra app. The backend uses `scope=https://graph.microsoft.com/.default`.
 - **Secrets live in Convex env:** `M365_CLIENT_ID`, `M365_CLIENT_SECRET`, and `M365_TENANT_ID`.
 - **No Office.js SSO dependency.** The Outlook manifest does not need `WebApplicationInfo`; the SPA does not call `OfficeRuntime.auth.getAccessToken`; and the add-in does not need `Mail.ReadWrite` delegated Graph scope for this path.
-- **Failure model:** Bitable is authoritative. Self-Forward runs in parallel with the Bitable write. If mail sending fails, the user still lands on success with a retry chip. Retry re-runs only the Graph forward, never the Bitable create/update.
+- **Failure model:** Base is authoritative. Self-Forward runs in parallel with the Base write. If mail sending fails, the user still lands on success with a retry chip. Retry re-runs only the Graph forward, never the Base create/update.
 
 ## Why Native Forward Replaced Synthetic `sendMail`
 
@@ -28,12 +28,12 @@ The live Outlook result was not acceptable: plain-text coercion collapsed import
 - **Office.js SSO + OBO + `createForward -> PATCH -> send`**: allows editing draft details, but requires `WebApplicationInfo`, Application ID URI, pre-authorized Office clients, delegated `Mail.ReadWrite` + `Mail.Send`, and OBO. Rejected because the live app registration and working proof are app-only, and native one-shot `forward` already supplies the needed format.
 - **Graph `createForward -> PATCH -> send` with application permissions**: closer to editable subject/comment control, but requires application `Mail.ReadWrite` for `createForward`. Rejected for now because native `forward` only needs application `Mail.Send`.
 - **Delegated device-code `POST /me/sendMail`**: useful as a local diagnostic, but not a product path because it requires interactive sign-in outside the add-in.
-- **Writing the Self-Forward copy's conversationId to Bitable**: rejected. The Bitable join key remains the original Mail Item conversation id.
+- **Writing the Self-Forward copy's conversationId to Base**: rejected. The Base join key remains the original Mail Item conversation id.
 
 ## Consequences
 
 - `src/office/useMailItem.ts` converts the Office item id to a REST/Graph id.
-- `convex/m365/selfForward.ts` is the public Convex action. It accepts `originalMessageId`, `selfEmail`, and the optional Bitable-sync context (`customerName`, `clientEmail`, `requestSelections`) used to build the preamble.
+- `convex/m365/selfForward.ts` is the public Convex action. It accepts `originalMessageId`, `selfEmail`, and the optional Base-sync context (`customerName`, `clientEmail`, `requestSelections`) used to build the preamble.
 - `convex/m365/selfForwardMessage.ts` owns the pure preamble builder (`buildSelfForwardComment`) and the Graph `forward` request shape (`buildSelfForwardForwardBody`). Both are unit-tested with the exact text Outlook will render.
 - `convex/m365/selfForwardChain.ts` owns the token and native `/users/{selfEmail}/messages/{originalMessageId}/forward` call.
 - `src/hooks/useSelfForward.ts` is a thin Convex action wrapper; it does not call `OfficeRuntime.auth`.

@@ -32,7 +32,8 @@ export default defineSchema({
     .index("by_userEmail", ["userEmail"]),
 
   // ADR-0016: server-indexed Customer search mode. The Customer Table from
-  // Feishu Bitable (tbl4TE2GV472sKzp) is mirrored here on a 15-min cron; the
+  // Feishu Bitable (tbl4TE2GV472sKzp) is mirrored here on a weekly cron
+  // (crons.ts: 168 h) plus on-demand `kick` / cache-miss backfill; the
   // search index `by_text` runs prefix + ranked queries over a single
   // `searchBlob` text column (concatenation of name/fullName/accountNo/domain
   // /owner.name/countryRegion). The Bitable record_id is the natural key —
@@ -57,10 +58,30 @@ export default defineSchema({
 
   // Watermark row for the customer-mirror cron — one row per deployment,
   // updated at the end of each successful fullSync run. Lets the dashboard
-  // (and the SPA, if we expose it) show "last refreshed N min ago".
+  // (and the SPA, if we expose it) show "last refreshed N min ago". Optional
+  // audit fields are widened in place so existing deployments keep validating.
   customersMirrorState: defineTable({
     lastFullSyncAt: v.number(),
     lastRowCount: v.number(),
+    lastPageCount: v.optional(v.number()),
+    lastPageSize: v.optional(v.number()),
+    lastInsertedCount: v.optional(v.number()),
+    lastUpdatedCount: v.optional(v.number()),
+    lastDuplicateCount: v.optional(v.number()),
+    lastReportedTotal: v.optional(v.number()),
+    lastSourceRowCount: v.optional(v.number()),
+    lastHadMore: v.optional(v.boolean()),
+    lastStopReason: v.optional(
+      v.union(
+        v.literal("complete"),
+        v.literal("missingPageToken"),
+        v.literal("duplicatePageToken"),
+        v.literal("incompleteTotal"),
+      ),
+    ),
+    lastDurationMs: v.optional(v.number()),
+    lastFinishedAt: v.optional(v.number()),
+    lastSourceTableId: v.optional(v.string()),
   }),
 
   returnRequests: defineTable({

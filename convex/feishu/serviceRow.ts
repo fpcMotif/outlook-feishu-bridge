@@ -86,7 +86,10 @@ export function buildServiceFields(
   }
 
   if (input.dateOfOffer !== undefined && !skip.has("Date of Offer")) fields["Date of Offer"] = input.dateOfOffer;
-  if (clientRecordId && !skip.has("Client")) fields["Client"] = [clientRecordId];
+
+  // The Client DuplexLink is the business-critical customer link. It must not
+  // be disabled by the temporary diagnostic skip switch.
+  if (clientRecordId) fields["Client"] = [clientRecordId];
 
   // ADR-0014 additions:
   if (input.subject && input.subject.trim() && !skip.has("Email Subject")) fields["Email Subject"] = input.subject;

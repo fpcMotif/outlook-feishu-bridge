@@ -29,8 +29,10 @@ describe("matchClientRecordId", () => {
     expect(callFeishu).not.toHaveBeenCalled();
   });
 
-  it("searches the Customer table by domain and returns the first record_id", async () => {
-    callFeishu.mockResolvedValueOnce({ items: [{ record_id: "rec_match" }] });
+  it("searches the Customer table by domain and returns the Customer Info `Record Id`", async () => {
+    callFeishu.mockResolvedValueOnce({
+      items: [{ record_id: "rec_api", fields: { "Record Id": [{ text: "rec_match", type: "text" }] } }],
+    });
 
     await expect(matchClientRecordId(ctx, APP_TOKEN, "buyer@Mail.Fenchem.COM")).resolves.toBe("rec_match");
 
@@ -53,6 +55,11 @@ describe("matchClientRecordId", () => {
     callFeishu.mockResolvedValueOnce({});
     await expect(matchClientRecordId(ctx, APP_TOKEN, "x@known.com")).resolves.toBeNull();
   });
+
+  it("falls back to the API record_id when the Customer Info `Record Id` field is absent", async () => {
+    callFeishu.mockResolvedValueOnce({ items: [{ record_id: "rec_api" }] });
+    await expect(matchClientRecordId(ctx, APP_TOKEN, "buyer@known.com")).resolves.toBe("rec_api");
+  });
 });
 
 describe("resolveClientRecordId", () => {
@@ -69,6 +76,15 @@ describe("resolveClientRecordId", () => {
     callFeishu.mockResolvedValueOnce({ items: [{ record_id: "rec_domain" }] });
     await expect(resolveClientRecordId(ctx, APP_TOKEN, { clientEmail: "buyer@known.com" })).resolves.toBe("rec_domain");
     expect(callFeishu.mock.calls[0][1].json.filter.conditions[0].value).toEqual(["known.com"]);
+  });
+
+  it("drops a dev-fixture record_id so it never becomes a broken Client link", async () => {
+    const input: ServiceRowInput = {
+      clientRecordId: "dev_fixture_microsoft_customer",
+      clientEmail: "buyer@known.com",
+    };
+    await expect(resolveClientRecordId(ctx, APP_TOKEN, input)).resolves.toBeNull();
+    expect(callFeishu).not.toHaveBeenCalled();
   });
 });
 

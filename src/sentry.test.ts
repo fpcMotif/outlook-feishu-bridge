@@ -86,7 +86,7 @@ describe("reportSyncError", () => {
     const err = new Error("kaboom");
     reportSyncError(err);
     expect(Sentry.captureException).toHaveBeenCalledWith(err, {
-      tags: { feature: "bitable-sync" },
+      tags: { feature: "base-sync" },
     });
   });
 
@@ -95,6 +95,6 @@ describe("reportSyncError", () => {
     const [captured, ctx] = vi.mocked(Sentry.captureException).mock.calls[0];
     expect(captured).toBeInstanceOf(Error);
     expect((captured as Error).message).toBe("plain string failure");
-    expect(ctx).toEqual({ tags: { feature: "bitable-sync" } });
+    expect(ctx).toEqual({ tags: { feature: "base-sync" } });
   });
 });

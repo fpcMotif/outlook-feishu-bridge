@@ -63,7 +63,7 @@ export function mapFeishuItemToCustomer(item: {
 }): CustomerRecord {
   const f = item.fields;
   return {
-    recordId: item.record_id,
+    recordId: recordIdFromCustomerInfoRow(item),
     name: flattenText(f["Account Name"]) ?? "",
     domain: flattenText(f["域名"]),
     fullName: flattenText(f["全名"]),
@@ -73,10 +73,21 @@ export function mapFeishuItemToCustomer(item: {
   };
 }
 
+export function recordIdFromCustomerInfoRow(item: {
+  record_id: string;
+  fields?: Record<string, unknown>;
+}): string {
+  return flattenText(item.fields?.["Record Id"]) ?? item.record_id;
+}
+
 // Feishu Text fields are returned as [{text, type:"text"}, ...]. Concatenate.
 // Returns `undefined` when the field is absent so optional projection fields
 // surface as "absent" instead of "blank".
 function flattenText(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed === "" ? undefined : trimmed;
+  }
   if (!Array.isArray(value) || value.length === 0) return undefined;
   const joined = value
     .map((seg) =>

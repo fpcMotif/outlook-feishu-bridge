@@ -19,7 +19,7 @@ import {
   ownerFilter,
 } from "./customerSearchHelpers";
 import { dlog, dtime } from "../../debug";
-import { TaskpaneSearchField } from "./TaskpaneSearchField";
+import { TaskpaneSearchDropdown } from "./TaskpaneSearchDropdown";
 
 export interface CustomerPickerProps {
   directory: CustomerDirectoryState;
@@ -36,6 +36,7 @@ export interface CustomerPickerProps {
   currentUserOpenId?: string;
   embedded?: boolean;
   onChange: (customer: CustomerRecord | null) => void;
+  onCreateCustomer?: (name: string) => void;
 }
 
 export function CustomerPicker({
@@ -45,6 +46,7 @@ export function CustomerPicker({
   currentUserOpenId,
   embedded = false,
   onChange,
+  onCreateCustomer,
   searchCustomers,
   triggerRefresh,
 }: CustomerPickerProps) {
@@ -71,6 +73,7 @@ export function CustomerPicker({
           onChange(customer);
           setSearchSession(null);
         }}
+        onCreateCustomer={onCreateCustomer}
       />
     );
   }
@@ -119,6 +122,7 @@ function SearchPanel({
   currentUserOpenId,
   embedded = false,
   onSelect,
+  onCreateCustomer,
 }: {
   directory: CustomerDirectoryState;
   searchCustomers: (
@@ -129,6 +133,7 @@ function SearchPanel({
   currentUserOpenId?: string;
   embedded?: boolean;
   onSelect: (customer: CustomerRecord) => void;
+  onCreateCustomer?: (name: string) => void;
 }) {
   const [query, setQuery] = useState("");
   const [serverMatches, setServerMatches] = useState<CustomerRecord[]>([]);
@@ -197,16 +202,19 @@ function SearchPanel({
           ) : null}
         </div>
       </div>
-      <TaskpaneSearchField
+      <TaskpaneSearchDropdown
         label="Search customers"
         value={query}
         onChange={handleQueryChange}
         placeholder="Search by name, domain, account no..."
-      />
-      <ul className="mt-2 space-y-1">
-        {matches.slice(0, 8).map((customer) => (
-          <li key={customer.recordId}>
+        open={Boolean(q || showMine || matches.length > 0)}
+        listLabel="Customer results"
+        emptyMessage={`No customers match "${query}"`}
+      >
+        {matches.length > 0
+          ? matches.slice(0, 8).map((customer) => (
             <button
+              key={customer.recordId}
               type="button"
               onClick={() => {
                 dtime(`customer picker: picked "${customer.name}"`, openedAt);
@@ -229,9 +237,22 @@ function SearchPanel({
                 ) : null}
               </span>
             </button>
-          </li>
-        ))}
-      </ul>
+            ))
+          : q ? (
+            <button
+              type="button"
+              onClick={() => {
+                dtime(`customer picker: create requested "${q}"`, openedAt);
+                onCreateCustomer?.(query.trim());
+              }}
+              className="bg-card hover:bg-accent flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-xs font-semibold shadow-[var(--shadow-border)]"
+            >
+              <Plus className="text-primary size-4 shrink-0" />
+              <span className="min-w-0 flex-1 truncate">Create customer task "{query.trim()}"</span>
+            </button>
+            )
+          : null}
+      </TaskpaneSearchDropdown>
     </section>
   );
 }

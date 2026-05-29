@@ -163,7 +163,7 @@ describe("RequestIntakeScreen sync wiring", () => {
 
   // ADR-0017: the Mail Item's Outlook conversationId rides on every sync call
   // so the backend can write it into the Service row's `Email Conversation ID`
-  // column as the Bitable→Outlook join key.
+  // column as the Base-to-Outlook join key.
   it("passes the Mail Item conversationId on sync", async () => {
     renderScreen();
     fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
@@ -197,7 +197,7 @@ describe("RequestIntakeScreen sync wiring", () => {
   });
 
   // ADR-0017: the Self-Forward "Note to myself" fires in parallel with the
-  // Bitable sync. Both calls are issued from the same submit click.
+  // Base sync. Both calls are issued from the same submit click.
   it("fires the Self-Forward `sendNote` alongside `sync` on submit", async () => {
     renderScreen();
     fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
@@ -220,7 +220,7 @@ describe("RequestIntakeScreen sync wiring", () => {
     });
   });
 
-  // ADR-0017 soft-fail: if Self-Forward fails but Bitable succeeded, the user
+  // ADR-0017 soft-fail: if Self-Forward fails but Base succeeded, the user
   // still lands on the success ("received") screen — the row is authoritative
   // — and a `Note-to-myself failed — retry` chip surfaces.
   it("shows the success screen with a retry chip when Self-Forward fails but sync succeeds", async () => {
@@ -279,11 +279,14 @@ describe("RequestIntakeScreen sync wiring", () => {
     expect(mockSendSelfForward).toHaveBeenCalledTimes(2);
 
     resolveRetry({ ok: true });
-    expect(await screen.findByText(/Note to myself sent/i)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByText(/Sending Note to myself/i)).not.toBeInTheDocument();
+    });
+    expect(screen.queryByText(/Note to myself sent/i)).not.toBeInTheDocument();
   });
 
   it("shows an error and not the success screen when sync rejects", async () => {
-    mockSync.mockImplementationOnce(() => Promise.reject(new Error("Bitable unavailable")));
+    mockSync.mockImplementationOnce(() => Promise.reject(new Error("Base unavailable")));
     renderScreen();
     fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
     fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {

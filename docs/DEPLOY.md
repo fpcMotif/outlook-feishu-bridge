@@ -78,7 +78,7 @@ unsafe-load message for `https://wmdev.zeuja.com/addin/?et=`, Outlook failed to
 navigate to the ECS Host before the SPA JavaScript ran. For non-Mainland-China
 users, regenerate and sideload the Global Host manifest with
 `bun run manifest:global > manifest-sideload.xml`; do not debug React, Office.js,
-or Bitable first. The nearby Microsoft CDN, PeopleGraph photo 404s, and
+or Base first. The nearby Microsoft CDN, PeopleGraph photo 404s, and
 `ERR_NETWORK_CHANGED` Graph requests are Outlook/web-network noise unless the
 taskpane URL itself loads successfully.
 
@@ -90,12 +90,12 @@ That **exact** URL must be whitelisted in the Feishu app (Developer Console →
 `20029 Invalid redirect URL`.
 
 The backend (Convex deployment) needs four Feishu env vars — the app credentials
-plus the target Bitable identifiers ([ADR-0010](adr/0010-pivot-to-bitable-intake.md)):
+plus the target Base identifiers ([ADR-0010](adr/0010-pivot-to-bitable-intake.md)):
 
 ```bash
 bunx convex env set FEISHU_APP_ID <app-id>
 bunx convex env set FEISHU_APP_SECRET <secret>
-bunx convex env set FEISHU_BITABLE_APP_TOKEN <token>   # the base/<…> segment of the Bitable URL
+bunx convex env set FEISHU_BITABLE_APP_TOKEN <token>   # the base/<…> segment of the Base URL
 bunx convex env set FEISHU_BITABLE_TABLE_ID <id>       # the ?table=<…> param
 ```
 

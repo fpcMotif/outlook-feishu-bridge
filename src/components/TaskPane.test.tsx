@@ -93,14 +93,14 @@ describe("TaskPane browser preview auth flow", () => {
   it("starts on a standalone login page and unlocks the request builder after dev login", () => {
     renderPreview();
 
-    expect(screen.getByText("Connect to Feishu")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Continue with Feishu/i })).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /Quotation/i }),
     ).not.toBeInTheDocument();
 
     unlockRequestBuilder();
 
-    expect(screen.queryByText("Connect to Feishu")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Continue with Feishu/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Quotation/i })).toBeInTheDocument();
     expect(screen.getByLabelText("Email")).toBeInTheDocument();
     expect(screen.queryByText("Search by name to choose a Feishu coworker")).not.toBeInTheDocument();
@@ -135,11 +135,33 @@ describe("TaskPane browser preview auth flow", () => {
     expect(accountMenu).toHaveTextContent("Connected");
     fireEvent.click(screen.getByRole("button", { name: /Sign out of Feishu/i }));
 
-    expect(screen.getByText("Connect to Feishu")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Continue with Feishu/i })).toBeInTheDocument();
   });
 });
 
 describe("TaskPane browser preview request flow", () => {
+  it("opens the direct dev preview for the sync screen", () => {
+    window.history.replaceState({}, "", "/?devScreen=sync");
+
+    renderPreview();
+
+    expect(
+      screen.getByRole("heading", { name: /Syncing to Feishu Base/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Base row preview/i)).toBeInTheDocument();
+    expect(screen.queryByText(/m\.hoffmann@bayerpharma\.de ->/i)).not.toBeInTheDocument();
+  });
+
+  it("opens the direct dev preview for the success screen", () => {
+    window.history.replaceState({}, "", "/?devScreen=received");
+
+    renderPreview();
+
+    expect(screen.getByRole("heading", { name: /Synced to Feishu/i })).toBeInTheDocument();
+    expect(screen.queryByText(/Note to myself sent/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Route another email/i })).not.toBeInTheDocument();
+  });
+
   it("supports the full browser-preview request path after login", async () => {
     renderPreview();
 
@@ -153,7 +175,7 @@ describe("TaskPane browser preview request flow", () => {
     fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
 
     expect(
-      screen.getByRole("heading", { name: /Syncing to Feishu Bitable/i }),
+      screen.getByRole("heading", { name: /Syncing to Feishu Base/i }),
     ).toBeInTheDocument();
     expect(screen.getByRole("progressbar", { name: /Sync progress/i })).toBeInTheDocument();
 

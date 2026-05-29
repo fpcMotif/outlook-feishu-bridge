@@ -73,7 +73,7 @@ export function initSentry(): void {
 
 export function reportSyncError(err: unknown): void {
   Sentry.captureException(err instanceof Error ? err : new Error(String(err)), {
-    tags: { feature: "bitable-sync" },
+    tags: { feature: "base-sync" },
   });
 }
 

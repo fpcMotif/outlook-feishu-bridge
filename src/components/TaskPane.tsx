@@ -8,10 +8,12 @@ import { useMailItem, type MailItemData } from "../office/useMailItem";
 import { Button } from "./ui/button";
 import { RequestIntakeScreen } from "./taskpane/RequestIntakeScreen";
 import { FeishuProfile } from "./taskpane/FeishuProfile";
+import { ReceivedScreen } from "./taskpane/ReceivedScreen";
+import { SyncScreen } from "./taskpane/SyncScreen";
 
 // Browser dev has no Office host or mailbox (useOffice falls back to host
 // "browser" after 3s). A sample item lets the full drawer flow render for
-// preview; tests mock the Bitable Sync so nothing is actually written.
+// preview; tests mock the Base Sync so nothing is actually written.
 const DEV_SAMPLE: MailItemData = {
   subject: "Inquiry - bulk pricing for L-Carnitine 500kg quarterly",
   from: "m.hoffmann@bayerpharma.de",
@@ -22,7 +24,7 @@ const DEV_SAMPLE: MailItemData = {
   internetMessageId: "<dev-sample@fenchem.com>",
   itemId: "dev-sample",
   conversationId: "dev-sample",
-  // The Self-Forward target is always the signed-in user's own mailbox; in
+  // The Self-Forward primary recipient is the signed-in user's own mailbox; in
   // dev preview that is fanpc@fenchem.com (the test user). jenny.xu is just
   // a fictional "to" recipient on the sample inbound email; never a sendable
   // address from this add-in.
@@ -31,6 +33,34 @@ const DEV_SAMPLE: MailItemData = {
     { id: "a1", name: "RFQ-2026-Q1.pdf", contentType: "application/pdf", size: 184320, isInline: false },
   ],
 };
+
+const DEV_REQUEST_PREVIEW = [
+  {
+    id: "sample",
+    title: "Sample",
+    note: "Need 50 g of SX-440 silica blend, ship to Acme R&D in Eindhoven.",
+  },
+];
+
+function DevScreenPreview({ screen }: { screen: "sync" | "received" }) {
+  if (screen === "sync") {
+    return (
+      <SyncScreen
+        requests={DEV_REQUEST_PREVIEW}
+        clientEmail={DEV_SAMPLE.from}
+        coworkerCount={1}
+      />
+    );
+  }
+
+  return (
+    <ReceivedScreen
+      coworkerCount={1}
+      selfForwardStatus="ok"
+      onRetrySelfForward={() => {}}
+    />
+  );
+}
 
 function EmptyState({
   loading,
@@ -46,7 +76,7 @@ function EmptyState({
       <span className="bg-secondary text-muted-foreground mb-4 flex size-14 items-center justify-center rounded-2xl">
         {loading ? <Loader2 className="size-6 animate-spin" /> : <MailOpen className="size-6" />}
       </span>
-      <h2 className="font-serif text-2xl">{loading ? "Reading your email..." : "No message open"}</h2>
+      <h2 className="text-2xl">{loading ? "Reading your email..." : "No message open"}</h2>
       <p className="text-muted-foreground mt-1.5 max-w-[32ch] text-sm leading-relaxed">
         {error ?? "Open a received message in Outlook, then sync it to Feishu from here."}
       </p>
@@ -81,6 +111,9 @@ export function TaskPane({ host }: { host: string | null }) {
   const devPreview = import.meta.env.DEV && host !== "Outlook";
   const params = new URLSearchParams(window.location.search);
   const useCoworkerFixtures = devPreview && params.has("e2eCoworkers");
+  const requestedDevScreen = devPreview ? params.get("devScreen") : null;
+  const devScreen =
+    requestedDevScreen === "sync" || requestedDevScreen === "received" ? requestedDevScreen : null;
   const item = mailItem ?? (devPreview ? DEV_SAMPLE : null);
 
   // Dev-only: clicking "Log in" advances straight to the logged-in UI (profile +
@@ -115,7 +148,9 @@ export function TaskPane({ host }: { host: string | null }) {
         <BootReadyMilestone host={host} isLoggedIn={feishuAuth.isLoggedIn} />
       ) : null}
       <main className="flex min-h-0 flex-1 flex-col">
-        {item ? (
+        {devScreen ? (
+          <DevScreenPreview screen={devScreen} />
+        ) : item ? (
           <RequestIntakeScreen
             isLoggedIn={isLoggedIn}
             isAuthLoading={isAuthLoading}

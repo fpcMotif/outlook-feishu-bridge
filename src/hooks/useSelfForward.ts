@@ -24,7 +24,7 @@ export interface SelfForwardArgs {
   customerName?: string;
   /** Sender of the original Mail Item. */
   clientEmail?: string;
-  /** Request types + notes that just landed in the Bitable Service row. */
+  /** Request types + notes that just landed in the Base Service row. */
   requestSelections?: SelfForwardRequestSelectionArg[];
 }
 

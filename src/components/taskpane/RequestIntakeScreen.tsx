@@ -20,10 +20,19 @@ import { TaskpaneSection } from "./TaskpaneSection";
 import { SubmitDock } from "./SubmitDock";
 import { SyncScreen } from "./SyncScreen";
 
+const CREATE_CUSTOMER_MOCK_URL = "https://example.com/";
+
+function buildCreateCustomerTaskUrl(customerName: string) {
+  const url = new URL(CREATE_CUSTOMER_MOCK_URL);
+  url.searchParams.set("task", "create-customer");
+  url.searchParams.set("name", customerName);
+  return url.toString();
+}
+
 function Hero() {
   return (
     <header className="px-1 pt-3 pb-5">
-      <h1 className="font-serif text-[34px] leading-[0.98] tracking-tight">
+      <h1 className="text-[34px] leading-[0.98] tracking-tight">
         How can we
         <br />
         help today?
@@ -57,22 +66,19 @@ function LoginScreen({
   onLoginFallback: () => void;
 }) {
   return (
-    <div className="no-scrollbar flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-5 pt-8 pb-6">
-      <header className="px-1">
-        <div className="text-accent-foreground mb-3 flex items-center gap-2 text-[11px] font-semibold uppercase">
+    <div
+      className="no-scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto px-5 py-8"
+      style={{ backgroundColor: "var(--login-background)" }}
+    >
+      <header className="shrink-0 px-1">
+        <div className="text-accent-foreground flex items-center gap-2 text-[11px] font-semibold uppercase">
           <span className="bg-muted-foreground inline-block h-px w-3.5" />
           Outlook handoff
         </div>
-        <h1 className="font-serif text-[34px] leading-[0.98]">
-          Sign in before
-          <br />
-          routing the email
-        </h1>
-        <p className="text-foreground/70 mt-2 max-w-[32ch] text-sm leading-relaxed">
-          Keep account connection separate from the request cards, then continue cleanly.
-        </p>
       </header>
-      <ConnectCard onLogin={onLogin} onLoginFallback={onLoginFallback} />
+      <div className="flex flex-1 items-center py-7">
+        <ConnectCard onLogin={onLogin} onLoginFallback={onLoginFallback} />
+      </div>
     </div>
   );
 }
@@ -124,7 +130,7 @@ export function RequestIntakeScreen({
   }
 
   // Customer Directory preload (ADR-0013). Non-blocking: while loading the
-  // CustomerPicker shows "Resolving customer for …" and the rest of the
+  // CustomerPicker shows "Resolving customer for 鈥? and the rest of the
   // screen stays interactive. One hook bundles the directory + the per-
   // keystroke server fallback so a single vi.mock replaces both in tests.
   const {
@@ -199,9 +205,13 @@ export function RequestIntakeScreen({
     dispatch({ type: "coworkerSelected", coworker });
   };
 
-  // Sync = (a) the Bitable write that creates the Service row + the Convex
+  const openCreateCustomerMock = useCallback((customerName: string) => {
+    window.open(buildCreateCustomerTaskUrl(customerName), "_blank", "noopener,noreferrer");
+  }, []);
+
+  // Sync = (a) the Base write that creates the Service row + the Convex
   // Email Record, AND (b) the Self-Forward "Note to myself" copy into the
-  // Initiator's own mailbox (ADR-0017). Both fire on submit; Bitable is
+  // Initiator's own mailbox plus audit recipient (ADR-0017). Both fire on submit; Base is
   // authoritative, the Self-Forward soft-fails into a retry chip.
   const fireSelfForward = useCallback(async () => {
     const generation = generationRef.current;
@@ -268,15 +278,15 @@ export function RequestIntakeScreen({
       selectedCoworkers: state.selectedCoworker ? [state.selectedCoworker] : [],
     };
     const write = state.bitableRecordId ? correct({ recordId: state.bitableRecordId, ...payload }) : sync(payload);
-    const bitable = write
+    const baseWrite = write
       .then((result) => dispatch({ type: "syncSucceeded", recordId: result.recordId }))
       .catch((e: unknown) => {
         dispatch({ type: "syncFailed", message: e instanceof Error ? e.message : "Sync failed" });
       });
-    // Parallel — Self-Forward never blocks the Bitable result; if it fails we
+    // Parallel 鈥?Self-Forward never blocks the Base result; if it fails we
     // surface the retry chip on the ReceivedScreen.
     if (state.selfForwardStatus !== "ok") void fireSelfForward();
-    return bitable;
+    return baseWrite;
   }, [
     sync,
     correct,
@@ -296,16 +306,10 @@ export function RequestIntakeScreen({
     runSync();
   };
 
-  const startOver = () => {
-    generationRef.current += 1;
-    dispatch({ type: "startedOver" });
-  };
-
   if (state.screen === "received") {
     return (
       <ReceivedScreen
         coworkerCount={selectedCount}
-        onSyncAnother={startOver}
         selfForwardStatus={state.selfForwardStatus}
         onRetrySelfForward={fireSelfForward}
       />
@@ -325,9 +329,9 @@ export function RequestIntakeScreen({
   if (state.screen === "error") {
     return (
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 px-8 text-center">
-        <h1 className="font-serif text-2xl">Sync failed</h1>
+        <h1 className="text-2xl">Sync failed</h1>
         <p className="text-muted-foreground max-w-[34ch] text-sm leading-relaxed">
-          {state.syncError ?? "Could not sync to Feishu Bitable."}
+          {state.syncError ?? "Could not sync to Feishu Base."}
         </p>
         <div className="flex gap-2">
           <Button onClick={runSync}>Try again</Button>
@@ -347,7 +351,7 @@ export function RequestIntakeScreen({
   const readyToSync = filledCount > 0 && selectedCount > 0;
   const submitHint = filledCount === 0 ? "Start a request above" : "Choose exactly one Feishu coworker";
   const submitFooter = readyToSync
-    ? `${filledCount} request${filledCount > 1 ? "s" : ""} + 1 coworker ready for Bitable + Convex sync`
+    ? `${filledCount} request${filledCount > 1 ? "s" : ""} + 1 coworker ready for Base + Convex sync`
     : "Request details, client, and coworker stay on one screen";
 
   return (
@@ -373,6 +377,7 @@ export function RequestIntakeScreen({
                 currentUserOpenId={user?.openId}
                 embedded={true}
                 onChange={(customer) => dispatch({ type: "customerOverridden", customer })}
+                onCreateCustomer={openCreateCustomerMock}
               />
             }
             sessionId={sessionId}

@@ -1,6 +1,6 @@
 # Cut Outlook→Feishu forward latency by parallelizing the pipeline
 
-> **Status: superseded by [ADR-0010](0010-pivot-to-bitable-intake.md).** Historical — the multi-target forward dispatch this parallelizes is retired in the Bitable-intake pivot (a single Bitable write remains); kept for context.
+> **Status: superseded by [ADR-0010](0010-pivot-to-bitable-intake.md).** Historical — the multi-target forward dispatch this parallelizes is retired in the Base-intake pivot (a single Base write remains); kept for context.
 
 Forwarding an email to Feishu ran the whole pipeline in series: generate the
 PDF, then upload each attachment one-by-one, then create the Feishu Doc, then
@@ -25,7 +25,7 @@ requires.
   its follow-ups), then fires the PDF + attachment messages concurrently.
 - **Target fan-out** ([`convex/feishu/forwardEmail.ts`](../../convex/feishu/forwardEmail.ts)):
   `dispatchToTargets` sends to the independent receivers (bot, team chat,
-  Bitable, contacts, groups) concurrently rather than in series.
+  Base, contacts, groups) concurrently rather than in series.
 
 The only preserved ordering is **card-before-follow-ups per receiver** (asserted
 by a unit test in `message.test.ts`). Cross-receiver and follow-up-vs-follow-up

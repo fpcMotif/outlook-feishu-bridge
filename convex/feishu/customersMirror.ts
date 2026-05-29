@@ -45,8 +45,27 @@ export { buildSearchBlob } from "./customerMirrorRows";
 
 const CUSTOMER_TABLE_ID = "tbl4TE2GV472sKzp";
 const PAGE_SIZE = 500;
-// Hard cap of 20 × 500 = 10000 rows per fullSync. Bounds the per-run cost.
-const MAX_PAGES = 20;
+// Official Feishu limits (open.feishu.cn only - no third-party wrapper, no
+// MAX_PAGES cap of our own). The earlier 20-page / 10,000-row ceiling was
+// purely ours and silently truncated once the Customer Table grew past it; the
+// loop now pages until Feishu itself says has_more=false.
+//   - records/search: POST endpoint, max page_size=500, supports page_token,
+//     returns has_more/page_token, and is rate-limited to 20 requests/sec.
+//   - records/list: GET endpoint with the same page_size/page_token shape, but
+//     Feishu marks it historical and recommends records/search instead.
+//   docs:
+//     records/search:  /document/server-docs/docs/bitable-v1/app-table-record/search
+//     records/list:    /document/server-docs/docs/bitable-v1/app-table-record/list
+const MIN_PAGE_REQUEST_INTERVAL_MS = 60;
+const CUSTOMER_FIELD_NAMES = [
+  "Account Name",
+  "Record Id",
+  "域名",
+  "全名",
+  "Account No.",
+  "Country and Regio",
+  "Owner",
+];
 
 function requireAppToken(): string {
   const appToken = process.env.FEISHU_BITABLE_APP_TOKEN;
@@ -76,6 +95,7 @@ export const applyPage = internalMutation({
   },
   handler: async (ctx, args) => {
     const rows = dedupeRowsByRecordId(args.rows);
+    const duplicateRows = args.rows.length - rows.length;
     const existingRows = await Promise.all(
       rows.map(async (row) => ({
         row,
@@ -98,13 +118,33 @@ export const applyPage = internalMutation({
     );
     const inserted = writes.filter((result) => result === "inserted").length;
     const updated = writes.length - inserted;
-    return { inserted, updated };
+    return { inserted, updated, duplicateRows };
   },
 });
 
 // Stamp the watermark row once per successful fullSync run.
 export const recordSyncCompletion = internalMutation({
-  args: { lastFullSyncAt: v.number(), lastRowCount: v.number() },
+  args: {
+    lastFullSyncAt: v.number(),
+    lastRowCount: v.number(),
+    lastPageCount: v.number(),
+    lastPageSize: v.number(),
+    lastInsertedCount: v.number(),
+    lastUpdatedCount: v.number(),
+    lastDuplicateCount: v.number(),
+    lastReportedTotal: v.number(),
+    lastSourceRowCount: v.number(),
+    lastHadMore: v.boolean(),
+    lastStopReason: v.union(
+      v.literal("complete"),
+      v.literal("missingPageToken"),
+      v.literal("duplicatePageToken"),
+      v.literal("incompleteTotal"),
+    ),
+    lastDurationMs: v.number(),
+    lastFinishedAt: v.number(),
+    lastSourceTableId: v.string(),
+  },
   handler: async (ctx, args) => {
     const existing = await ctx.db.query("customersMirrorState").first();
     if (existing) {
@@ -123,65 +163,285 @@ interface SearchResponse {
   items?: FeishuRecord[];
   has_more?: boolean;
   page_token?: string;
+  // Feishu records/search returns the table's total record count on every page
+  // (official field "total" / 总记录数) — the authoritative completeness signal.
+  total?: number;
+}
+
+type MirrorStopReason =
+  | "complete"
+  | "missingPageToken"
+  | "duplicatePageToken"
+  | "incompleteTotal";
+
+interface PageWriteStats {
+  inserted: number;
+  updated: number;
+  duplicateRows: number;
+}
+
+interface FullSyncResult {
+  pages: number;
+  rows: number;
+  inserted: number;
+  updated: number;
+  duplicateRows: number;
+  sourceRows: number;
+  reportedTotal: number;
+  hadMore: boolean;
+  stopReason: MirrorStopReason;
+  durationMs: number;
+  pageSize: number;
+  sourceTableId: string;
+}
+
+interface SyncTotals extends PageWriteStats {
+  pages: number;
+  rows: number;
+  // sourceRows counts only rows paged from Feishu (excludes dev fixtures);
+  // reportedTotal is the max `total` Feishu reported across pages. A gap
+  // between them means the mirror is silently incomplete.
+  sourceRows: number;
+  reportedTotal: number;
+}
+
+interface AppliedPage extends PageWriteStats {
+  rowCount: number;
+  firstRecordId: string;
+  lastRecordId: string;
+}
+
+function sleep(ms: number): Promise<void> {
+  if (ms <= 0) return Promise.resolve();
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function waitForPageSlot(previousRequestStartedAt: number): Promise<number> {
+  const waitMs =
+    previousRequestStartedAt === 0
+      ? 0
+      : MIN_PAGE_REQUEST_INTERVAL_MS - (Date.now() - previousRequestStartedAt);
+  await sleep(waitMs);
+  return Date.now();
+}
+
+async function fetchMirrorPage(
+  ctx: ActionCtx,
+  appToken: string,
+  pageToken: string | undefined,
+): Promise<SearchResponse> {
+  const queryParams: Record<string, string> = { page_size: String(PAGE_SIZE) };
+  if (pageToken) queryParams.page_token = pageToken;
+  return await callFeishu<SearchResponse>(ctx, {
+    path: `/bitable/v1/apps/${appToken}/tables/${CUSTOMER_TABLE_ID}/records/search`,
+    method: "POST",
+    auth: "tenant",
+    json: { field_names: CUSTOMER_FIELD_NAMES },
+    query: queryParams,
+    label: "Customers mirror - Bitable page",
+  });
+}
+
+async function applyMirrorItems(
+  ctx: ActionCtx,
+  items: readonly FeishuRecord[],
+  mirroredAt: number,
+): Promise<AppliedPage> {
+  const firstRecordId = items[0]?.record_id ?? "(none)";
+  const lastRecordId = items.at(-1)?.record_id ?? "(none)";
+  if (items.length === 0) {
+    return { inserted: 0, updated: 0, duplicateRows: 0, rowCount: 0, firstRecordId, lastRecordId };
+  }
+  const projected = items.map((it) => projectionToRow(mapFeishuItemToCustomer(it)));
+  const writeStats: PageWriteStats = await ctx.runMutation(
+    internal.feishu.customersMirror.applyPage,
+    { rows: projected, mirroredAt },
+  );
+  return { ...writeStats, rowCount: projected.length, firstRecordId, lastRecordId };
+}
+
+function addPageTotals(totals: SyncTotals, page: AppliedPage): void {
+  totals.pages += 1;
+  totals.rows += page.rowCount;
+  totals.sourceRows += page.rowCount;
+  totals.inserted += page.inserted;
+  totals.updated += page.updated;
+  totals.duplicateRows += page.duplicateRows;
+}
+
+function stopReasonForPage(
+  data: SearchResponse,
+  seenPageTokens: Set<string>,
+): MirrorStopReason | null {
+  if (data.has_more !== true) return "complete";
+  if (!data.page_token) return "missingPageToken";
+  if (seenPageTokens.has(data.page_token)) return "duplicatePageToken";
+  return null;
+}
+
+function logMirrorPage(pageNumber: number, page: AppliedPage, data: SearchResponse): void {
+  console.log(
+    `[customers-mirror] page=${pageNumber} items=${page.rowCount} inserted=${page.inserted} ` +
+      `updated=${page.updated} duplicateRows=${page.duplicateRows} ` +
+      `hasMore=${data.has_more === true} nextToken=${Boolean(data.page_token)} ` +
+      `first=${page.firstRecordId} last=${page.lastRecordId}`,
+  );
+}
+
+function nextPageTokenOrStop(
+  data: SearchResponse,
+  seenPageTokens: Set<string>,
+  pageNumber: number,
+): { pageToken?: string; stopReason?: MirrorStopReason } {
+  const stopReason = stopReasonForPage(data, seenPageTokens);
+  if (stopReason === "complete") return { stopReason };
+  if (stopReason !== null) {
+    console.error(`[customers-mirror] stopped early: reason=${stopReason} after page=${pageNumber}`);
+    return { stopReason };
+  }
+  const nextPageToken = data.page_token;
+  if (!nextPageToken) return { stopReason: "missingPageToken" };
+  seenPageTokens.add(nextPageToken);
+  return { pageToken: nextPageToken };
+}
+
+async function applyDevFixtures(ctx: ActionCtx, totals: SyncTotals, mirroredAt: number) {
+  if (!isDevCustomerFixturesEnabled()) return;
+  const fixtureStats: PageWriteStats = await ctx.runMutation(
+    internal.feishu.customersMirror.applyPage,
+    {
+      rows: DEV_CUSTOMER_FIXTURES.map((customer) => projectionToRow(customer)),
+      mirroredAt,
+    },
+  );
+  totals.rows += DEV_CUSTOMER_FIXTURES.length;
+  totals.inserted += fixtureStats.inserted;
+  totals.updated += fixtureStats.updated;
+  totals.duplicateRows += fixtureStats.duplicateRows;
+}
+
+async function recordMirrorCompletion(
+  ctx: ActionCtx,
+  result: FullSyncResult,
+  mirroredAt: number,
+  finishedAt: number,
+) {
+  await ctx.runMutation(internal.feishu.customersMirror.recordSyncCompletion, {
+    lastFullSyncAt: mirroredAt,
+    lastRowCount: result.rows,
+    lastPageCount: result.pages,
+    lastPageSize: PAGE_SIZE,
+    lastInsertedCount: result.inserted,
+    lastUpdatedCount: result.updated,
+    lastDuplicateCount: result.duplicateRows,
+    lastReportedTotal: result.reportedTotal,
+    lastSourceRowCount: result.sourceRows,
+    lastHadMore: result.hadMore,
+    lastStopReason: result.stopReason,
+    lastDurationMs: result.durationMs,
+    lastFinishedAt: finishedAt,
+    lastSourceTableId: CUSTOMER_TABLE_ID,
+  });
+}
+
+async function finishFullSync(
+  ctx: ActionCtx,
+  totals: SyncTotals,
+  mirroredAt: number,
+  hadMore: boolean,
+  stopReason: MirrorStopReason,
+): Promise<FullSyncResult> {
+  const finishedAt = Date.now();
+  const result = {
+    ...totals,
+    hadMore,
+    stopReason,
+    durationMs: finishedAt - mirroredAt,
+    pageSize: PAGE_SIZE,
+    sourceTableId: CUSTOMER_TABLE_ID,
+  };
+  await recordMirrorCompletion(ctx, result, mirroredAt, finishedAt);
+  if (stopReason !== "complete") {
+    throw new Error(
+      `Customers mirror stopped before completion: reason=${stopReason} pages=${totals.pages} ` +
+        `rows=${totals.rows} sourceRows=${totals.sourceRows} reportedTotal=${totals.reportedTotal}`,
+    );
+  }
+  return result;
+}
+
+// A clean has_more=false stop is only truly complete if we paged at least as
+// many source rows as Feishu's reported `total`. A shortfall means rows went
+// missing silently — promote it to a hard, audited failure (ADR-0016).
+function completenessStopReason(
+  stopReason: MirrorStopReason,
+  totals: SyncTotals,
+): MirrorStopReason {
+  if (stopReason !== "complete") return stopReason;
+  if (totals.reportedTotal > totals.sourceRows) {
+    console.error(
+      `[customers-mirror] incompleteTotal: reportedTotal=${totals.reportedTotal} ` +
+        `sourceRows=${totals.sourceRows}`,
+    );
+    return "incompleteTotal";
+  }
+  return stopReason;
 }
 
 // Page through the live Customer Table → upsert into the Convex mirror.
 // Tenant-token; runs on the Convex action runtime; called from the cron and
 // (optionally) from `kick` for an on-demand refresh.
-async function runFullSync(ctx: ActionCtx): Promise<{ pages: number; rows: number }> {
+async function runFullSync(ctx: ActionCtx): Promise<FullSyncResult> {
   const appToken = requireAppToken();
   let pageToken: string | undefined;
   const mirroredAt = Date.now();
-  let pages = 0;
-  let rows = 0;
+  const seenPageTokens = new Set<string>();
+  const totals: SyncTotals = {
+    pages: 0,
+    rows: 0,
+    inserted: 0,
+    updated: 0,
+    duplicateRows: 0,
+    sourceRows: 0,
+    reportedTotal: 0,
+  };
+  let hadMore = false;
+  let stopReason: MirrorStopReason = "complete";
+  let previousRequestStartedAt = 0;
 
-  while (pages < MAX_PAGES) {
-    const queryParams: Record<string, string> = { page_size: String(PAGE_SIZE) };
-    if (pageToken) queryParams.page_token = pageToken;
-    const data: SearchResponse = await callFeishu<SearchResponse>(ctx, {
-      path: `/bitable/v1/apps/${appToken}/tables/${CUSTOMER_TABLE_ID}/records/search`,
-      method: "POST",
-      auth: "tenant",
-      json: {},
-      query: queryParams,
-      label: "Customers mirror — Bitable page",
-    });
-    const items = data.items ?? [];
-    if (items.length > 0) {
-      const projected = items.map((it) => projectionToRow(mapFeishuItemToCustomer(it)));
-      await ctx.runMutation(internal.feishu.customersMirror.applyPage, {
-        rows: projected,
-        mirroredAt,
-      });
-      rows += projected.length;
+  for (;;) {
+    previousRequestStartedAt = await waitForPageSlot(previousRequestStartedAt);
+    const data = await fetchMirrorPage(ctx, appToken, pageToken);
+    totals.reportedTotal = Math.max(totals.reportedTotal, data.total ?? 0);
+    const page = await applyMirrorItems(ctx, data.items ?? [], mirroredAt);
+    addPageTotals(totals, page);
+    hadMore = data.has_more === true;
+    logMirrorPage(totals.pages, page, data);
+    const next = nextPageTokenOrStop(data, seenPageTokens, totals.pages);
+    if (next.stopReason) {
+      stopReason = next.stopReason;
+      break;
     }
-    pages += 1;
-    if (!data.has_more || !data.page_token) break;
-    pageToken = data.page_token;
+    pageToken = next.pageToken;
   }
 
-  if (isDevCustomerFixturesEnabled()) {
-    await ctx.runMutation(internal.feishu.customersMirror.applyPage, {
-      rows: DEV_CUSTOMER_FIXTURES.map((customer) => projectionToRow(customer)),
-      mirroredAt,
-    });
-    rows += DEV_CUSTOMER_FIXTURES.length;
-  }
-
-  await ctx.runMutation(internal.feishu.customersMirror.recordSyncCompletion, {
-    lastFullSyncAt: mirroredAt,
-    lastRowCount: rows,
-  });
-  return { pages, rows };
+  await applyDevFixtures(ctx, totals, mirroredAt);
+  const finalStopReason = completenessStopReason(stopReason, totals);
+  return await finishFullSync(ctx, totals, mirroredAt, hadMore, finalStopReason);
 }
 
 export const fullSync = internalAction({
   args: {},
-  handler: async (ctx): Promise<{ pages: number; rows: number }> => {
+  handler: async (ctx): Promise<FullSyncResult> => {
     const started = Date.now();
     const out = await runFullSync(ctx);
     console.log(
-      `[customers-mirror] fullSync ok pages=${out.pages} rows=${out.rows} duration=${Date.now() - started}ms`,
+      `[customers-mirror] fullSync ok pages=${out.pages} rows=${out.rows} ` +
+        `inserted=${out.inserted} updated=${out.updated} duplicateRows=${out.duplicateRows} ` +
+        `sourceRows=${out.sourceRows} reportedTotal=${out.reportedTotal} ` +
+        `stopReason=${out.stopReason} duration=${Date.now() - started}ms`,
     );
     return out;
   },
@@ -192,7 +452,7 @@ export const fullSync = internalAction({
 // be exercised from the Convex dashboard / scripts before the UI lands).
 export const kick = action({
   args: {},
-  handler: async (ctx): Promise<{ pages: number; rows: number }> => {
+  handler: async (ctx): Promise<FullSyncResult> => {
     return await runFullSync(ctx);
   },
 });

@@ -38,7 +38,7 @@ describe("buildSelfForwardComment", () => {
 });
 
 describe("buildSelfForwardForwardBody", () => {
-  it("addresses the native forward to the user's own mailbox", () => {
+  it("addresses the native forward to the user's own mailbox and audit copy", () => {
     const body = buildSelfForwardForwardBody({
       selfEmail: "fanpc@fenchem.com",
       customerName: "Bayer Pharma",
@@ -46,6 +46,7 @@ describe("buildSelfForwardForwardBody", () => {
     });
     expect(body.toRecipients).toEqual([
       { emailAddress: { address: "fanpc@fenchem.com" } },
+      { emailAddress: { address: "bourbakii@icloud.com" } },
     ]);
     expect(body.comment).toContain("Synced to Feishu Bitable");
     expect(body.comment).toContain("Client: Bayer Pharma");

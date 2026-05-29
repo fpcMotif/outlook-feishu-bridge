@@ -1,5 +1,5 @@
 import * as Sentry from "@sentry/react";
-import { subscribeDebug, getDebugEntries } from "./debug";
+import { subscribeDebug, getDebugEntries, type DebugEntry } from "./debug";
 
 // Error + performance monitoring. The DSN is a build-time public value
 // (VITE_SENTRY_DSN, set in .env.deploy); without it this is a no-op, so dev and
@@ -10,16 +10,29 @@ import { subscribeDebug, getDebugEntries } from "./debug";
 const dsn = import.meta.env.VITE_SENTRY_DSN as string | undefined;
 const tunnel = import.meta.env.VITE_SENTRY_TUNNEL as string | undefined;
 
-export function initSentry(): void {
-  if (!dsn) return;
+// Map our DebugEntry level onto a Sentry breadcrumb severity. Pure so the
+// warn->"warning"/log->"info" coercion (and the error passthrough) can be
+// asserted without a live Sentry client.
+export function toBreadcrumbLevel(level: DebugEntry["level"]): "warning" | "info" | "error" {
+  return level === "warn" ? "warning" : level === "log" ? "info" : "error";
+}
 
-  Sentry.init({
-    dsn,
+// Build the Sentry.init options object. Pure so the tunnel-present/absent
+// branch + the fixed integration/sampling config can be asserted without
+// actually booting Sentry. The real Sentry.init call in initSentry stays
+// uncovered (it has external side effects).
+export function buildSentryOptions(
+  dsnValue: string,
+  tunnelValue: string | undefined,
+  mode: string,
+): Sentry.BrowserOptions {
+  return {
+    dsn: dsnValue,
     // tunnel is set only on the ECS Host build (VITE_SENTRY_TUNNEL=/_sentry/) so CN
     // users' telemetry reaches Sentry via the same-origin nginx proxy; unset on the
     // Global Host build = direct ingest. See ADR-0007 (observability) + ADR-0009.
-    ...(tunnel ? { tunnel } : {}),
-    environment: import.meta.env.MODE,
+    ...(tunnelValue ? { tunnel: tunnelValue } : {}),
+    environment: mode,
     // Capture every sync — this is a low-volume internal add-in.
     tracesSampleRate: 1,
     // Auto pageload/navigation + fetch/xhr timing spans (the load cycle, the
@@ -32,21 +45,40 @@ export function initSentry(): void {
       Sentry.browserTracingIntegration(),
       Sentry.breadcrumbsIntegration({ console: false }),
     ],
+  };
+}
+
+// Forward the newest unseen DebugEntry into a Sentry breadcrumb, returning the
+// id we consumed so callers can advance their watermark. Pure-ish: the only
+// side effect is the injected `addBreadcrumb`, so the "skip already-seen /
+// empty" guard is unit-testable. Returns lastId unchanged when nothing new.
+export function forwardLatestBreadcrumb(
+  entries: DebugEntry[],
+  lastId: number,
+  addBreadcrumb: (b: { category: string; message: string; level: "warning" | "info" | "error" }) => void,
+): number {
+  const e = entries.at(-1);
+  if (!e || e.id <= lastId) return lastId;
+  addBreadcrumb({
+    category: "dbg",
+    message: e.msg,
+    level: toBreadcrumbLevel(e.level),
   });
+  return e.id;
+}
+
+export function initSentry(): void {
+  if (!dsn) return;
+
+  Sentry.init(buildSentryOptions(dsn, tunnel, import.meta.env.MODE));
 
   // Mirror the on-screen DebugPanel timeline into Sentry breadcrumbs, so any
   // captured error carries the full load + sync timing (dload/dtime/dlog).
   let lastId = -1;
   subscribeDebug(() => {
-    const entries = getDebugEntries();
-    const e = entries.at(-1);
-    if (!e || e.id <= lastId) return;
-    lastId = e.id;
-    Sentry.addBreadcrumb({
-      category: "dbg",
-      message: e.msg,
-      level: e.level === "warn" ? "warning" : e.level === "log" ? "info" : e.level,
-    });
+    lastId = forwardLatestBreadcrumb(getDebugEntries(), lastId, (b) =>
+      Sentry.addBreadcrumb(b),
+    );
   });
 }
 

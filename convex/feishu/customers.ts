@@ -110,7 +110,11 @@ export function findCustomerByEmail<R extends { domain?: string }>(
   );
 }
 
-function emailDomain(email: string): string | null {
+// Extract the lowercased domain of an email, or null when there is no domain
+// (no `@`, or a trailing `@` with nothing after it). Exported as the single
+// source of truth so the Bitable write path (bitable.ts) shares one guard
+// instead of forking a subtly-different copy (consolidated per ADR-0018).
+export function emailDomain(email: string): string | null {
   const at = email.lastIndexOf("@");
   if (at < 0 || at === email.length - 1) return null;
   const domain = email.slice(at + 1).trim().toLowerCase();

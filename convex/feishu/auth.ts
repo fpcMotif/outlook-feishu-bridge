@@ -3,14 +3,45 @@ import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import { feishuFetch, FEISHU_BASE } from "./client";
 
+/** Minimal shape of a cached-token row this module reasons about. */
+export interface TokenRow {
+  token: string;
+  expiresAt: number;
+}
+
+/**
+ * Pure selector for the cached-token freshness rule: return the row's token
+ * only when it is still valid ({@code expiresAt > now}); otherwise null.
+ * Extracted from {@link getCachedToken} so the rule is unit-testable.
+ */
+export function selectFreshToken(
+  row: TokenRow | null | undefined,
+  now: number,
+): string | null {
+  if (row && row.expiresAt > now) {
+    return row.token;
+  }
+  return null;
+}
+
+/**
+ * Pure helper for {@link storeToken}'s prune step: return the ids of ALL rows
+ * to delete before inserting the fresh token (no `.take(n)` cap — every stale
+ * row is dropped). Extracted so the "delete all" rule is unit-testable.
+ */
+export function pruneTokenRows<TId>(rows: ReadonlyArray<{ _id: TId }>): TId[] {
+  return rows.map((row) => row._id);
+}
+
+// The two REGISTERED Convex functions below (getCachedToken / storeToken) need a
+// live runtime; their pure rules — selectFreshToken, pruneTokenRows above — are
+// unit-tested, and getTenantAccessToken below is tested with a fake ctx (ADR-0018).
+/* v8 ignore start */
 export const getCachedToken = internalQuery({
   args: {},
   handler: async (ctx) => {
     const cached = await ctx.db.query("feishuTokens").first();
-    if (cached && cached.expiresAt > Date.now()) {
-      return cached.token;
-    }
-    return null;
+    return selectFreshToken(cached, Date.now());
   },
 });
 
@@ -18,7 +49,9 @@ export const storeToken = internalMutation({
   args: { token: v.string(), expiresAt: v.number() },
   handler: async (ctx, args) => {
     const existing = await ctx.db.query("feishuTokens").take(10);
-    await Promise.all(existing.map((row) => ctx.db.delete(row._id)));
+    await Promise.all(
+      pruneTokenRows(existing).map((id) => ctx.db.delete(id)),
+    );
     await ctx.db.insert("feishuTokens", {
       tokenType: "tenant_access_token" as const,
       token: args.token,
@@ -26,6 +59,7 @@ export const storeToken = internalMutation({
     });
   },
 });
+/* v8 ignore stop */
 
 /** Shared helper — call directly from any action, no ctx.runAction needed. */
 export async function getTenantAccessToken(ctx: ActionCtx): Promise<string> {

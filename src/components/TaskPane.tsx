@@ -27,9 +27,6 @@ const DEV_SAMPLE: MailItemData = {
   // a fictional "to" recipient on the sample inbound email; never a sendable
   // address from this add-in.
   userEmail: "fanpc@fenchem.com",
-  attachments: [
-    { id: "a1", name: "RFQ-2026-Q1.pdf", contentType: "application/pdf", size: 184320, isInline: false },
-  ],
 };
 
 function EmptyState({

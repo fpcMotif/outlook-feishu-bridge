@@ -2,6 +2,10 @@ import { mutation, internalMutation, type ActionCtx } from "./_generated/server"
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 
+// The two Convex storage mutations are one-line ctx.storage calls that need a
+// live runtime (convex-test, opted out per ADR-0018); getStorageBytes below is
+// unit-tested with an injected ctx + fetch.
+/* v8 ignore start */
 export const generateUploadUrl = mutation({
   args: {},
   handler: async (ctx) => {
@@ -15,6 +19,7 @@ export const deleteStorageFile = internalMutation({
     await ctx.storage.delete(args.storageId);
   },
 });
+/* v8 ignore stop */
 
 /** Fetch a stored file's bytes from an action (throws if it no longer exists). */
 export async function getStorageBytes(

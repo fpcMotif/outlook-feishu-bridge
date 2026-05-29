@@ -14,7 +14,7 @@ import { runSelfForwardChain, type SelfForwardResult } from "./selfForwardChain"
 
 const FENCHEM_TENANT_ID = "93b47f6a-5661-4677-a047-ab4fee1cad47";
 
-function requireM365Env() {
+export function requireM365Env() {
   const tenantId = process.env.M365_TENANT_ID ?? FENCHEM_TENANT_ID;
   const clientId = process.env.M365_CLIENT_ID;
   const clientSecret = process.env.M365_CLIENT_SECRET;
@@ -24,6 +24,10 @@ function requireM365Env() {
   return { tenantId, clientId, clientSecret };
 }
 
+// The Convex action HANDLERS below need a live runtime (convex-test, opted out
+// per ADR-0018); the pure logic (requireM365Env above; runSelfForwardChain and
+// buildSelfForwardComment in the sibling modules) is unit-tested directly.
+/* v8 ignore start */
 export const diagAadClientCredentials = internalAction({
   args: {},
   handler: async (): Promise<{
@@ -120,3 +124,4 @@ export const sendSelfForwardNote = action({
     return result;
   },
 });
+/* v8 ignore stop */

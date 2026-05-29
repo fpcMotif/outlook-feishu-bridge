@@ -28,7 +28,7 @@ interface FallbackToken {
   avatarUrl: string | null;
 }
 
-function getOrCreateSessionId(): string {
+export function getOrCreateSessionId(): string {
   let sessionId = localStorage.getItem(SESSION_KEY);
   if (!sessionId) {
     sessionId = crypto.randomUUID();
@@ -38,7 +38,7 @@ function getOrCreateSessionId(): string {
 }
 
 // Returns the stored fallback token only if present and not expired.
-function readFallbackToken(): FallbackToken | null {
+export function readFallbackToken(): FallbackToken | null {
   try {
     const raw = localStorage.getItem(FALLBACK_KEY);
     if (!raw) return null;
@@ -88,7 +88,7 @@ type FallbackMessage =
 // for messages that aren't ours (caller must NOT close the dialog), "error" for a
 // malformed/failed feishu-fallback message, or the validated token. State is
 // checked against sessionId (CSRF).
-function parseFallbackMessage(message: string, sessionId: string): FallbackMessage {
+export function parseFallbackMessage(message: string, sessionId: string): FallbackMessage {
   let payload: Partial<FallbackToken> & {
     source?: string;
     state?: string;

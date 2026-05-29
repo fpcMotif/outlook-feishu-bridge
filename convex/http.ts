@@ -4,47 +4,67 @@ import { exchangeCodeForUserToken } from "./feishu/userAuth";
 
 const http = httpRouter();
 
+/**
+ * Pure core of the Feishu OAuth callback. The httpAction wrapper only binds
+ * `exchange` to `(code, state) => exchangeCodeForUserToken(ctx, code, state)`
+ * so the query-parse, success, missing-param 400, and error 500 branches are
+ * unit-testable without a live Convex ctx (mirrors selfForwardChain's injected
+ * fetcher pattern).
+ */
+export async function handleFeishuOAuthCallback(
+  req: Request,
+  exchange: (code: string, sessionId: string) => Promise<void>,
+): Promise<Response> {
+  const url = new URL(req.url);
+  const code = url.searchParams.get("code");
+  // state param contains the sessionId
+  const state = url.searchParams.get("state");
+
+  if (!code || !state) {
+    return new Response(
+      html("Authorization failed: missing code or state parameter."),
+      { status: 400, headers: { "Content-Type": "text/html" } },
+    );
+  }
+
+  // state format: sessionId (simple for now; can add CSRF nonce later)
+  const sessionId = state;
+
+  try {
+    await exchange(code, sessionId);
+    return new Response(
+      html("Login successful! You can close this window."),
+      { status: 200, headers: { "Content-Type": "text/html" } },
+    );
+  } catch (err) {
+    // Log the real cause server-side: a returned 500 Response is invisible in
+    // Convex logs (only uncaught throws are logged), so without this the
+    // failure shows only as the opaque generic envelope. This is the exact
+    // "silent failure" class the observability work targets.
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[feishu oauth callback] token exchange failed: ${message}`);
+    return new Response(html(`Login failed: ${escapeHtml(message)}`), {
+      status: 500,
+      headers: { "Content-Type": "text/html" },
+    });
+  }
+}
+
+// The httpAction wrapper just binds ctx; the pure handleFeishuOAuthCallback
+// (parse/success/400/500 branches) is unit-tested with an injected exchange fn.
+/* v8 ignore start */
 http.route({
   path: "/feishu/oauth/callback",
   method: "GET",
-  handler: httpAction(async (ctx, req) => {
-    const url = new URL(req.url);
-    const code = url.searchParams.get("code");
-    // state param contains the sessionId
-    const state = url.searchParams.get("state");
-
-    if (!code || !state) {
-      return new Response(
-        html("Authorization failed: missing code or state parameter."),
-        { status: 400, headers: { "Content-Type": "text/html" } },
-      );
-    }
-
-    // state format: sessionId (simple for now; can add CSRF nonce later)
-    const sessionId = state;
-
-    try {
-      await exchangeCodeForUserToken(ctx, code, sessionId);
-      return new Response(
-        html("Login successful! You can close this window."),
-        { status: 200, headers: { "Content-Type": "text/html" } },
-      );
-    } catch (err) {
-      // Log the real cause server-side: a returned 500 Response is invisible in
-      // Convex logs (only uncaught throws are logged), so without this the
-      // failure shows only as the opaque generic envelope. This is the exact
-      // "silent failure" class the observability work targets.
-      const message = err instanceof Error ? err.message : String(err);
-      console.error(`[feishu oauth callback] token exchange failed: ${message}`);
-      return new Response(html(`Login failed: ${escapeHtml(message)}`), {
-        status: 500,
-        headers: { "Content-Type": "text/html" },
-      });
-    }
-  }),
+  handler: httpAction((ctx, req) =>
+    handleFeishuOAuthCallback(req, (code, sessionId) =>
+      exchangeCodeForUserToken(ctx, code, sessionId),
+    ),
+  ),
 });
+/* v8 ignore stop */
 
-function escapeHtml(str: string): string {
+export function escapeHtml(str: string): string {
   return str
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
@@ -52,7 +72,7 @@ function escapeHtml(str: string): string {
     .replaceAll('"', "&quot;");
 }
 
-function html(message: string): string {
+export function html(message: string): string {
   return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>

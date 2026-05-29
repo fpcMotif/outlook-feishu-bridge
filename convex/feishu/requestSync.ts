@@ -39,7 +39,7 @@ const intakeArgs = {
   selectedCoworkers: v.optional(v.array(selectedCoworkerValidator)),
 };
 
-function requireExactlyOneCoworker(coworkers: SelectedCoworker[] | undefined): SelectedCoworker[] {
+export function requireExactlyOneCoworker(coworkers: SelectedCoworker[] | undefined): SelectedCoworker[] {
   if (!coworkers || coworkers.length !== 1) {
     throw new Error("Bitable Sync requires exactly one Feishu coworker");
   }
@@ -49,6 +49,11 @@ function requireExactlyOneCoworker(coworkers: SelectedCoworker[] | undefined): S
 // First write: create the Bitable Service row, then store the recoverable Email
 // Record (carrying the new bitableRecordId). Returns the recordId so the UI can
 // offer the bounded in-sync correction.
+// v8-ignore the action HANDLER bodies below: they are Convex ctx-orchestration
+// (ctx.runAction/runMutation) that needs a live runtime (convex-test, opted out
+// per ADR-0018). Their pure logic — requireExactlyOneCoworker, toEmailRecord,
+// buildServiceFields — is unit-tested directly.
+/* v8 ignore start */
 export const syncRequest = action({
   args: intakeArgs,
   handler: async (ctx, args): Promise<{ recordId: string }> => {
@@ -82,7 +87,19 @@ export const syncRequest = action({
       },
       { bitableRecordId: recordId },
     );
-    await ctx.runMutation(internal.emails.storeEmailRecord, record);
+    // The Bitable row is the record of record; the Email Record is a recoverable
+    // BACKUP (CONTEXT.md). A backup-write failure must NOT throw away the
+    // recordId — otherwise the client falls into a retry that creates a SECOND
+    // Service row (the no-touch rule, ADR-0018). Soft-fail: log and return the id.
+    try {
+      await ctx.runMutation(internal.emails.storeEmailRecord, record);
+    } catch (e: unknown) {
+      console.error(
+        `[requestSync] storeEmailRecord failed; Bitable row ${recordId} stands: ${
+          e instanceof Error ? e.message : String(e)
+        }`,
+      );
+    }
     return { recordId };
   },
 });
@@ -108,3 +125,4 @@ export const correctRequest = action({
     return { recordId };
   },
 });
+/* v8 ignore stop */

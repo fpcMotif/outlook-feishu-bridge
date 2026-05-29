@@ -38,7 +38,6 @@ const SAMPLE: MailItemData = {
   itemId: "item-1",
   conversationId: "conv-1",
   userEmail: "jenny.xu@fenchem.com",
-  attachments: [],
 };
 
 function renderRequestIntakeScreen(

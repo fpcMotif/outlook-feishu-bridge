@@ -6,8 +6,8 @@ import { AtSign, Check, UserRound } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import type { Coworker } from "./coworkers";
 import { useCoworkerSearch } from "../../hooks/useCoworkerSearch";
-import { SectionLabel } from "./SectionLabel";
 import { TaskpaneSearchField } from "./TaskpaneSearchField";
+import { TaskpaneSection } from "./TaskpaneSection";
 
 // Test fixture directory. These made-up coworkers are allowed only when an
 // e2e/dev-test harness explicitly opts in; production search must never fall
@@ -237,11 +237,7 @@ export function CoworkerPicker({
   };
 
   return (
-    <section aria-labelledby="client-coworker-title" className="space-y-3">
-      <header className="px-1">
-        <SectionLabel id="client-coworker-title">Customer &amp; coworker</SectionLabel>
-      </header>
-
+    <TaskpaneSection id="client-coworker-title" title="Customer & coworker">
       <section className="bg-card-soft overflow-hidden rounded-xl shadow-[var(--shadow-border)]">
         <ClientInfo clientEmail={clientEmail} onClientEmailChange={onClientEmailChange} />
         {customerSlot ? <div className="border-border border-t">{customerSlot}</div> : null}
@@ -279,6 +275,6 @@ export function CoworkerPicker({
       </CoworkerSearchSection>
 
       {!searching && selectedCoworker ? <SelectedCoworkerCard coworker={selectedCoworker} /> : null}
-    </section>
+    </TaskpaneSection>
   );
 }

@@ -15,7 +15,7 @@ import { CustomerPicker } from "./CustomerPicker";
 import { ReceivedScreen } from "./ReceivedScreen";
 import { RequestCards } from "./RequestCards";
 import { REQUESTS } from "./requests";
-import { SectionLabel } from "./SectionLabel";
+import { TaskpaneSection } from "./TaskpaneSection";
 import { SubmitDock } from "./SubmitDock";
 import { SyncScreen } from "./SyncScreen";
 
@@ -164,12 +164,9 @@ function NewRequestSection({
   onChange: (id: string, value: string) => void;
 }) {
   return (
-    <section aria-labelledby="new-request-title" className="space-y-3">
-      <header className="px-1">
-        <SectionLabel id="new-request-title">New request</SectionLabel>
-      </header>
+    <TaskpaneSection id="new-request-title" title="New request">
       <RequestCards values={values} onChange={onChange} />
-    </section>
+    </TaskpaneSection>
   );
 }
 

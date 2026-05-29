@@ -28,9 +28,16 @@ vi.mock("../../hooks/useCoworkerSearch", () => {
   };
 });
 
+const MICROSOFT = {
+  recordId: "rec_microsoft",
+  name: "Microsoft",
+  domain: "microsoft.com",
+  owner: null,
+};
+
 vi.mock("../../hooks/useCustomerSearch", () => ({
   useCustomerSearch: () => ({
-    directory: { status: "ready", records: [] },
+    directory: { status: "ready", records: [MICROSOFT] },
     search: vi.fn(() => Promise.resolve([])),
   }),
 }));
@@ -103,7 +110,7 @@ describe("RequestIntakeScreen login gate", () => {
 
     expect(screen.queryByText("Connect to Feishu")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Quotation/i })).toBeInTheDocument();
-    expect(screen.getByText("Client email")).toBeInTheDocument();
+    expect(screen.getByText("Email")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Feishu coworker" })).toBeInTheDocument();
     const routeCopy = screen.getByText("Route it to the right coworker in seconds.");
     expect(routeCopy.compareDocumentPosition(screen.getByText("New request"))).toBe(
@@ -131,8 +138,8 @@ describe("RequestIntakeScreen request details", () => {
     renderRequestIntakeScreen(true);
     fillQuotation();
 
-    expect(screen.getByText("Client & coworker")).toBeInTheDocument();
-    expect(screen.getByText("Client email")).toBeInTheDocument();
+    expect(screen.getByText("Customer & coworker")).toBeInTheDocument();
+    expect(screen.getByText("Email")).toBeInTheDocument();
     expect(screen.getByDisplayValue("m.hoffmann@bayerpharma.de")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Feishu coworker" })).toBeInTheDocument();
     expect(screen.getByDisplayValue("Need a quarterly L-Carnitine quote.")).toBeInTheDocument();
@@ -142,15 +149,22 @@ describe("RequestIntakeScreen request details", () => {
     ).toBeDisabled();
   });
 
-  it("lets users confirm and update the retrieved client email", () => {
+  it("lets users confirm and update the retrieved email", () => {
     renderRequestIntakeScreen(true);
     fillQuotation();
 
-    fireEvent.change(screen.getByLabelText("Client email"), {
+    fireEvent.change(screen.getByLabelText("Email"), {
       target: { value: "updated.client@example.com" },
     });
 
     expect(screen.getByDisplayValue("updated.client@example.com")).toBeInTheDocument();
+  });
+
+  it("auto-matches Microsoft from microsoft-noreply@microsoft.com", () => {
+    renderRequestIntakeScreen(true, "microsoft-noreply@microsoft.com");
+
+    expect(screen.getByText("Microsoft")).toBeInTheDocument();
+    expect(screen.queryByText(/No customer matched/i)).not.toBeInTheDocument();
   });
 });
 

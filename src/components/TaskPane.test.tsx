@@ -100,7 +100,7 @@ describe("TaskPane browser preview auth flow", () => {
 
     expect(screen.queryByText("Connect to Feishu")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Quotation/i })).toBeInTheDocument();
-    expect(screen.getByText("Client email")).toBeInTheDocument();
+    expect(screen.getByText("Email")).toBeInTheDocument();
     expect(screen.queryByText("Search by name to choose a Feishu coworker")).not.toBeInTheDocument();
     expect(screen.queryByText(/Recent & suggested/i)).not.toBeInTheDocument();
   });

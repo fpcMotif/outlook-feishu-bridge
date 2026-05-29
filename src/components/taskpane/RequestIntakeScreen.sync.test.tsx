@@ -93,7 +93,7 @@ describe("RequestIntakeScreen sync wiring", () => {
     localStorage.clear();
   });
 
-  it("calls sync once with the request, coworker, and client email on submit", async () => {
+  it("calls sync once with the request, coworker, and email on submit", async () => {
     renderScreen();
     fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
     fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {

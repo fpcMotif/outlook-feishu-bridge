@@ -1,5 +1,5 @@
 // CustomerPicker behavior — the card on the contacts screen that shows the
-// resolved Customer match for the current client email and lets the salesperson
+// resolved Customer match for the current email and lets the salesperson
 // search the Customer Directory to override it (ADR-0013). The picker is fully
 // controlled: the parent owns `selectedCustomer` and computes the initial
 // auto-match via findCustomerByEmail; this component only displays + interacts.
@@ -149,7 +149,7 @@ describe("CustomerPicker server fallback", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /^Search$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /search customer/i }));
     fireEvent.change(screen.getByRole("searchbox", { name: /search customers/i }), {
       target: { value: "novo" },
     });
@@ -171,7 +171,7 @@ describe("CustomerPicker server fallback", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /^Search$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /search customer/i }));
     fireEvent.click(screen.getByRole("button", { name: /show mine/i }));
     fireEvent.change(screen.getByRole("searchbox", { name: /search customers/i }), {
       target: { value: "novo" },

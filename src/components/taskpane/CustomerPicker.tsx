@@ -5,7 +5,7 @@
 
 /* eslint-disable max-lines-per-function */
 import { useMemo, useRef, useState } from "react";
-import { Plus, X } from "lucide-react";
+import { Plus, Search } from "lucide-react";
 
 import type {
   CustomerDirectoryState,
@@ -59,11 +59,6 @@ export function CustomerPicker({
     setSearchSession({ openedAt });
   };
 
-  const closeSearch = () => {
-    if (searchSession) dtime("customer picker: search closed", searchSession.openedAt);
-    setSearchSession(null);
-  };
-
   if (searchSession) {
     return (
       <SearchPanel
@@ -72,7 +67,6 @@ export function CustomerPicker({
         openedAt={searchSession.openedAt}
         currentUserOpenId={currentUserOpenId}
         embedded={embedded}
-        onCancel={closeSearch}
         onSelect={(customer) => {
           onChange(customer);
           setSearchSession(null);
@@ -84,10 +78,10 @@ export function CustomerPicker({
   return (
     <section className={embedded ? "" : "bg-card-soft rounded-xl shadow-[var(--shadow-border)]"}>
       <div className="flex h-14 min-w-0 items-center gap-2 px-3" data-customer-row="true">
-        <span className="text-muted-foreground shrink-0 text-[11px] font-semibold uppercase">
+        <span className="text-muted-foreground w-24 shrink-0 text-[11px] font-semibold uppercase">
           Customer
         </span>
-        <span className="bg-border h-3 w-px shrink-0" />
+        <span className="bg-border h-4 w-px shrink-0" />
         {selectedCustomer ? (
           <>
             <span className="min-w-0 flex-1 truncate text-xs font-semibold">
@@ -122,7 +116,6 @@ function SearchPanel({
   openedAt,
   currentUserOpenId,
   embedded = false,
-  onCancel,
   onSelect,
 }: {
   directory: CustomerDirectoryState;
@@ -133,7 +126,6 @@ function SearchPanel({
   openedAt: number;
   currentUserOpenId?: string;
   embedded?: boolean;
-  onCancel: () => void;
   onSelect: (customer: CustomerRecord) => void;
 }) {
   const [query, setQuery] = useState("");
@@ -201,15 +193,6 @@ function SearchPanel({
               Show mine
             </button>
           ) : null}
-          <button
-            type="button"
-            onClick={onCancel}
-            aria-label="Cancel"
-            className="text-muted-foreground inline-flex min-h-8 items-center gap-1 rounded-md px-1 text-[11px] font-semibold"
-          >
-            <X className="size-3.5" />
-            Cancel
-          </button>
         </div>
       </div>
       <TaskpaneSearchField
@@ -253,7 +236,7 @@ function SearchPanel({
 
 // Lenient no-match (ADR-0013): tell the salesperson the auto-match found
 // nothing and reserve a placeholder for the future create-new affordance, but
-// do not block the sync. A Search button lets them override manually.
+// do not block the sync. A search icon button lets them override manually.
 function NoMatch({ emailDomain, onSearch }: { emailDomain: string; onSearch: () => void }) {
   return (
     <span className="flex min-w-0 flex-1 items-center gap-2">
@@ -263,18 +246,18 @@ function NoMatch({ emailDomain, onSearch }: { emailDomain: string; onSearch: () 
       <button
         type="button"
         onClick={onSearch}
-        className="text-primary inline-flex min-h-8 items-center rounded-md px-2 text-[11px] font-semibold"
+        aria-label="Search customer"
+        className="text-primary hover:bg-accent inline-flex size-8 shrink-0 items-center justify-center rounded-full transition-colors"
       >
-        Search
+        <Search className="size-4" />
       </button>
       <button
         type="button"
         disabled
         aria-label="Add new customer (coming soon)"
-        className="text-muted-foreground inline-flex min-h-8 items-center gap-1 rounded-md px-2 text-[11px] font-semibold opacity-50"
+        className="text-muted-foreground inline-flex size-8 shrink-0 items-center justify-center rounded-full opacity-40"
       >
-        <Plus className="size-3.5" />
-        Add new customer
+        <Plus className="size-4" />
       </button>
     </span>
   );

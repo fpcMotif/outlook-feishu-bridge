@@ -61,16 +61,16 @@ function ClientInfo({
 }) {
   return (
     <div className="flex h-14 min-w-0 items-center gap-2 px-3" data-client-row="true">
-      <span className="text-muted-foreground shrink-0 text-[11px] font-semibold uppercase">
-        Client email
+      <span className="text-muted-foreground w-24 shrink-0 text-[11px] font-semibold uppercase">
+        Email
       </span>
-      <span className="bg-border h-3 w-px shrink-0" />
+      <span className="bg-border h-4 w-px shrink-0" />
       <input
-        aria-label="Client email"
+        aria-label="Email"
         type="email"
         value={clientEmail}
         onChange={(e) => onClientEmailChange(e.target.value)}
-        placeholder="client@example.com"
+        placeholder="email@example.com"
         className="placeholder:text-muted-foreground h-full min-w-0 flex-1 bg-transparent text-xs font-semibold outline-none"
       />
     </div>
@@ -236,7 +236,7 @@ export function CoworkerPicker({
   return (
     <section aria-labelledby="client-coworker-title" className="space-y-3">
       <header className="px-1">
-        <SectionLabel id="client-coworker-title">Client &amp; coworker</SectionLabel>
+        <SectionLabel id="client-coworker-title">Customer &amp; coworker</SectionLabel>
       </header>
 
       <section className="bg-card-soft overflow-hidden rounded-xl shadow-[var(--shadow-border)]">

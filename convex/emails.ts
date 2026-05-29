@@ -26,6 +26,7 @@ export const getByInternetMessageId = query({
 });
 
 export const listRecent = query({
+  args: {},
   handler: async (ctx) => {
     return await ctx.db.query("emailRecords").order("desc").take(20);
   },

@@ -297,7 +297,7 @@ describe("RequestIntakeScreen mailFrom change", () => {
   // lines 109-110 + 109:if branch: when Outlook switches to a different open
   // message, mailItem.from changes between renders → the reducer resets the
   // client email (and clears the prior customer match) to the new sender.
-  it("resets the client email to the new sender when mailItem.from changes between renders", () => {
+  it("resets the client email to the new sender when mailItem.from changes between renders", async () => {
     const { rerender } = render(
       <RequestIntakeScreen
         isLoggedIn={true}
@@ -323,8 +323,44 @@ describe("RequestIntakeScreen mailFrom change", () => {
     );
 
     // The reducer adopted the new sender as the client email.
-    expect(screen.getByDisplayValue("new.sender@othercorp.example")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByDisplayValue("new.sender@othercorp.example")).toBeInTheDocument();
+    });
     expect(screen.queryByDisplayValue("m.hoffmann@bayerpharma.de")).not.toBeInTheDocument();
+  });
+
+  it("re-runs customer auto-match against the new sender after mailItem.from changes", async () => {
+    const { rerender } = render(
+      <RequestIntakeScreen
+        isLoggedIn={true}
+        mailItem={SAMPLE}
+        sessionId="test-session"
+        onLogin={vi.fn()}
+        onLoginFallback={vi.fn()}
+      />,
+    );
+    fillQuotationAndContinue();
+
+    rerender(
+      <RequestIntakeScreen
+        isLoggedIn={true}
+        mailItem={{ ...SAMPLE, from: "buyer@stockmeier.com" }}
+        sessionId="test-session"
+        onLogin={vi.fn()}
+        onLoginFallback={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue("buyer@stockmeier.com")).toBeInTheDocument();
+    });
+    pickJennyAndSync();
+
+    await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(1));
+    expect(mockSync.mock.calls[0][0]).toMatchObject({
+      clientEmail: "buyer@stockmeier.com",
+      selectedCustomer: { recordId: "rec_stock", name: STOCKMEIER.name },
+    });
   });
 });
 

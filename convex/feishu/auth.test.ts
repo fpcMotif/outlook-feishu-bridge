@@ -81,6 +81,10 @@ describe("getTenantAccessToken", () => {
     >[0] & { runQuery: typeof runQuery; runMutation: typeof runMutation };
   }
 
+  function firstMutationPayload(runMutation: { mock: { calls: unknown[][] } }): unknown {
+    return runMutation.mock.calls[0]?.[1];
+  }
+
   it("returns the cached token without calling fetch when runQuery resolves a non-null token", async () => {
     const ctx = fakeCtx({ cached: "cached-token" });
     const tok = await getTenantAccessToken(ctx);
@@ -129,7 +133,7 @@ describe("getTenantAccessToken", () => {
     expect(runMutation).toHaveBeenCalledTimes(1);
     // expire 7200s, minus the 300s early-expiry margin = 6900s after `now`.
     const expectedExpiresAt = 1_000_000 + (7200 - 300) * 1000;
-    expect(runMutation.mock.calls[0][1]).toEqual({
+    expect(firstMutationPayload(runMutation)).toEqual({
       token: "tok",
       expiresAt: expectedExpiresAt,
     });

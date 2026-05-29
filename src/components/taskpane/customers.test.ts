@@ -1,13 +1,25 @@
-// Pure-fn coverage for customers.ts — findCustomerByEmail + its private
-// emailDomain helper (reached through findCustomerByEmail). The match rule is
-// case-insensitive domain equality against the directory's `.domain` field.
+// Pure-fn coverage for customers.ts — emailDomain + findCustomerByEmail. The
+// match rule is case-insensitive domain equality against the directory's
+// `.domain` field.
 
 import { describe, expect, it } from "vitest";
 
-import { findCustomerByEmail } from "./customers";
+import { emailDomain, findCustomerByEmail } from "./customers";
 
 const BAYER = { recordId: "rec_bayer", name: "Bayer Pharma", domain: "bayerpharma.de", owner: null };
 const STOCKMEIER = { recordId: "rec_stock", name: "STOCKMEIER", domain: "stockmeier.com", owner: null };
+
+describe("emailDomain", () => {
+  it("normalizes the domain for UI labels and matching", () => {
+    expect(emailDomain("m@Bayerpharma.DE")).toBe("bayerpharma.de");
+  });
+
+  it("returns null for malformed or empty domains", () => {
+    expect(emailDomain("no-at-sign")).toBeNull();
+    expect(emailDomain("user@")).toBeNull();
+    expect(emailDomain("user@   ")).toBeNull();
+  });
+});
 
 describe("findCustomerByEmail", () => {
   it("matches case-insensitively on the email domain", () => {

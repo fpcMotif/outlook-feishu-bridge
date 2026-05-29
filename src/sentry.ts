@@ -7,8 +7,8 @@ import { subscribeDebug, getDebugEntries, type DebugEntry } from "./debug";
 // ECS Host build sets VITE_SENTRY_TUNNEL=/_sentry/ to route envelopes through its
 // in-region nginx proxy instead (ADR-0007 / ADR-0009). The Global Host (Cloudflare)
 // build leaves it unset — non-CN users reach *.ingest.sentry.io directly.
-const dsn = import.meta.env.VITE_SENTRY_DSN as string | undefined;
-const tunnel = import.meta.env.VITE_SENTRY_TUNNEL as string | undefined;
+const dsn = import.meta.env.VITE_SENTRY_DSN;
+const tunnel = import.meta.env.VITE_SENTRY_TUNNEL;
 
 // Map our DebugEntry level onto a Sentry breadcrumb severity. Pure so the
 // warn->"warning"/log->"info" coercion (and the error passthrough) can be

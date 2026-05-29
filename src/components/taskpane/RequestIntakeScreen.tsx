@@ -3,8 +3,9 @@ import { useCallback, useMemo, useReducer, useRef } from "react";
 import { Loader2 } from "lucide-react";
 
 import type { Coworker } from "./coworkers";
-import { findCustomerByEmail } from "./customers";
+import { emailDomain, findCustomerByEmail } from "./customers";
 import { initialIntakeState, intakeReducer } from "./intakeReducer";
+import type { FeishuUser } from "./feishuUser";
 import type { MailItemData } from "../../office/useMailItem";
 import { useCustomerSearch } from "../../hooks/useCustomerSearch";
 import { useRequestSync } from "../../hooks/useRequestSync";
@@ -154,7 +155,7 @@ export function RequestIntakeScreen({
   sessionId: string;
   // The signed-in Feishu user (the Initiator, ADR-0014). Optional because the
   // dev-preview / browser path can render the screen without a real session.
-  user?: { openId: string; userName?: string; avatarUrl?: string };
+  user?: FeishuUser;
   userAccessToken?: string;
   onLogin: () => void;
   onLoginFallback: () => void;
@@ -383,9 +384,7 @@ export function RequestIntakeScreen({
   }
 
   if (state.screen === "coworker") {
-    const emailDomainPart = state.clientEmail.includes("@")
-      ? state.clientEmail.split("@").pop() ?? state.clientEmail
-      : state.clientEmail;
+    const emailDomainPart = emailDomain(state.clientEmail) ?? state.clientEmail;
     return (
       <>
         <CoworkerPicker

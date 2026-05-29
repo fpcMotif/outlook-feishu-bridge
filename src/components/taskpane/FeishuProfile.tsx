@@ -3,14 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-
-interface FeishuUser {
-  openId: string;
-  userName?: string;
-  avatarUrl?: string;
-  email?: string;
-  org?: string;
-}
+import type { FeishuUser } from "./feishuUser";
 
 function initials(name?: string): string {
   if (!name) return "U";

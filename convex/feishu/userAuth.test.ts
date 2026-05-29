@@ -68,6 +68,10 @@ function queueFetch(responses: unknown[]) {
   mockFetch.mockImplementation(async () => responses[i++] as never);
 }
 
+function firstMutationPayload(runMutation: { mock: { calls: unknown[][] } }): Record<string, unknown> {
+  return (runMutation.mock.calls[0]?.[1] ?? {}) as Record<string, unknown>;
+}
+
 describe("exchangeCodeForUserToken", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -137,7 +141,7 @@ describe("exchangeCodeForUserToken", () => {
     await exchangeCodeForUserToken(ctx, "code", "sess-1");
 
     expect(runMutation).toHaveBeenCalledTimes(1);
-    expect(runMutation.mock.calls[0][1]).toEqual({
+    expect(firstMutationPayload(runMutation)).toEqual({
       sessionId: "sess-1",
       accessToken: "user-at",
       refreshToken: "user-rt",
@@ -165,7 +169,7 @@ describe("exchangeCodeForUserToken", () => {
 
     await exchangeCodeForUserToken(ctx, "code", "sess-2");
 
-    const payload = runMutation.mock.calls[0][1] as Record<string, unknown>;
+    const payload = firstMutationPayload(runMutation);
     expect(payload.openId).toBe("ou_min");
     expect(payload.userName).toBeUndefined();
     expect(payload.avatarUrl).toBeUndefined();
@@ -300,7 +304,7 @@ describe("getUserAccessToken", () => {
     expect(mockFetch.mock.calls[1][0].token).toBe("rotated-at");
 
     expect(runMutation).toHaveBeenCalledTimes(1);
-    const payload = runMutation.mock.calls[0][1] as Record<string, unknown>;
+    const payload = firstMutationPayload(runMutation);
     expect(payload.sessionId).toBe("sess-z");
     expect(payload.accessToken).toBe("rotated-at");
     expect(payload.refreshToken).toBe("rotated-rt");

@@ -142,7 +142,7 @@ function intakeReducer(state: IntakeState, action: IntakeAction): IntakeState {
 
 function Hero() {
   return (
-    <header className="px-1 pt-2 pb-5">
+    <header className="px-1 pt-0 pb-5">
       <h1 className="font-serif text-[34px] leading-[0.98] tracking-tight">
         How can we
         <br />
@@ -427,7 +427,7 @@ export function RequestIntakeScreen({
 
   return (
     <>
-      <div className="no-scrollbar flex-1 overflow-y-auto px-5 pt-1 pb-24">
+      <div className="no-scrollbar relative flex-1 overflow-y-auto px-5 pt-0 pb-24">
         {profileSlot}
         <Hero />
         <div className="space-y-5">

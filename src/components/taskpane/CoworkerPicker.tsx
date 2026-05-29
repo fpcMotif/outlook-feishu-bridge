@@ -1,10 +1,11 @@
 /* eslint-disable max-lines-per-function, max-lines */
 import * as React from "react";
 import { useEffect, useMemo, useReducer, useState } from "react";
-import { Check, Search, UserRound, X } from "lucide-react";
+import { Check, UserRound, X } from "lucide-react";
 
 import type { Coworker } from "./coworkers";
 import { useCoworkerSearch } from "../../hooks/useCoworkerSearch";
+import { TaskpaneSearchField } from "./TaskpaneSearchField";
 
 // Test fixture directory. These made-up coworkers are allowed only when an
 // e2e/dev-test harness explicitly opts in; production search must never fall
@@ -117,55 +118,45 @@ function SelectedCoworkerCard({ coworker }: { coworker: Coworker }) {
 
 function CoworkerSearchSection({
   query,
-  focused,
   onQueryChange,
-  onFocusChange,
   children,
 }: {
   query: string;
-  focused: boolean;
   onQueryChange: (value: string) => void;
-  onFocusChange: (focused: boolean) => void;
   children?: React.ReactNode;
 }) {
+  const clearButton = query ? (
+    <button
+      type="button"
+      onClick={() => onQueryChange("")}
+      aria-label="Clear search"
+      className="text-muted-foreground hover:text-foreground inline-flex min-h-10 min-w-10 items-center justify-center"
+    >
+      <X className="size-4" />
+    </button>
+  ) : null;
+
   return (
     <section
       aria-labelledby="coworker-search-title"
-      className="bg-card mt-3 rounded-[18px] p-2 shadow-[var(--shadow-floating)]"
+      className="bg-card-soft mt-3 rounded-xl px-3 py-2 shadow-[var(--shadow-border)]"
     >
-      <div className="flex items-center px-2 pt-1 pb-2">
-        <h2 id="coworker-search-title" className="text-sm font-bold">
+      <div className="flex items-center justify-between gap-2 pb-2">
+        <h2
+          id="coworker-search-title"
+          className="text-muted-foreground text-[11px] font-semibold uppercase"
+        >
           Feishu coworker
         </h2>
       </div>
       <div className="relative">
-        <div
-          className={
-            "bg-background flex items-center gap-2 rounded-xl px-3 shadow-[var(--shadow-border)] transition-[box-shadow] duration-150 " +
-            (focused ? "ring-ring/10 ring-[3px]" : "")
-          }
-        >
-          <Search className="text-primary size-4 shrink-0" />
-          <input
-            aria-label="Search Feishu coworkers"
-            value={query}
-            onChange={(e) => onQueryChange(e.target.value)}
-            onFocus={() => onFocusChange(true)}
-            onBlur={() => onFocusChange(false)}
-            placeholder="Search Feishu coworkers..."
-            className="placeholder:text-muted-foreground h-11 w-full bg-transparent text-sm outline-none"
-          />
-          {query ? (
-            <button
-              type="button"
-              onClick={() => onQueryChange("")}
-              aria-label="Clear search"
-              className="text-muted-foreground hover:text-foreground inline-flex min-h-10 min-w-10 items-center justify-center"
-            >
-              <X className="size-4" />
-            </button>
-          ) : null}
-        </div>
+        <TaskpaneSearchField
+          label="Search Feishu coworkers"
+          value={query}
+          onChange={onQueryChange}
+          placeholder="Search Feishu coworkers..."
+          rightSlot={clearButton}
+        />
         {children}
       </div>
     </section>
@@ -193,7 +184,6 @@ export function CoworkerPicker({
 }) {
   const search = useCoworkerSearch(sessionId, userAccessToken);
   const [query, setQuery] = useState("");
-  const [focused, setFocused] = useState(false);
   const [recents, setRecents] = useState<Coworker[]>(loadRecents);
   const [results, dispatchResults] = useReducer(searchResultsReducer, []);
 
@@ -267,12 +257,7 @@ export function CoworkerPicker({
       <ClientInfo clientEmail={clientEmail} onClientEmailChange={onClientEmailChange} />
       {customerSlot ? <div>{customerSlot}</div> : null}
 
-      <CoworkerSearchSection
-        query={query}
-        focused={focused}
-        onQueryChange={setQuery}
-        onFocusChange={setFocused}
-      >
+      <CoworkerSearchSection query={query} onQueryChange={setQuery}>
         {searching ? (
           <div
             id={listboxId}

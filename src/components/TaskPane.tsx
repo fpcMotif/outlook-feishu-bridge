@@ -102,7 +102,7 @@ export function TaskPane({ host }: { host: string | null }) {
     isLoggedIn && user ? (
       <section
         aria-label="Feishu account controls"
-        className="flex shrink-0 justify-end px-1 pb-2"
+        className="absolute top-1 right-5 z-20"
         data-profile-header="true"
       >
         <FeishuProfile user={user} onLogout={handleLogout} />

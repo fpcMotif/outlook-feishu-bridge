@@ -5,7 +5,7 @@
 
 /* eslint-disable max-lines-per-function */
 import { useMemo, useRef, useState } from "react";
-import { Plus, Search, X } from "lucide-react";
+import { Plus, X } from "lucide-react";
 
 import type {
   CustomerDirectoryState,
@@ -19,6 +19,7 @@ import {
   ownerFilter,
 } from "./customerSearchHelpers";
 import { dlog, dtime } from "../../debug";
+import { TaskpaneSearchField } from "./TaskpaneSearchField";
 
 export interface CustomerPickerProps {
   directory: CustomerDirectoryState;
@@ -206,17 +207,12 @@ function SearchPanel({
           </button>
         </div>
       </div>
-      <div className="bg-background flex items-center gap-2 rounded-xl px-3 shadow-[var(--shadow-border)]">
-        <Search className="text-primary size-4 shrink-0" />
-        <input
-          type="search"
-          aria-label="Search customers"
-          value={query}
-          onChange={(event) => handleQueryChange(event.target.value)}
-          placeholder="Search by name, domain, account no..."
-          className="placeholder:text-muted-foreground h-10 w-full bg-transparent text-sm outline-none"
-        />
-      </div>
+      <TaskpaneSearchField
+        label="Search customers"
+        value={query}
+        onChange={handleQueryChange}
+        placeholder="Search by name, domain, account no..."
+      />
       <ul className="mt-2 space-y-1">
         {matches.slice(0, 8).map((customer) => (
           <li key={customer.recordId}>

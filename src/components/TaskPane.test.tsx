@@ -121,7 +121,7 @@ describe("TaskPane browser preview auth flow", () => {
     unlockRequestBuilder();
     const profileHeader = screen.getByRole("region", { name: /Feishu account controls/i });
     expect(profileHeader).toHaveAttribute("data-profile-header", "true");
-    expect(profileHeader).toHaveClass("justify-end");
+    expect(profileHeader).toHaveClass("absolute", "top-1", "right-5");
     expect(profileHeader).not.toHaveClass("sticky", "top-0");
 
     fireEvent.click(screen.getByRole("button", { name: /Feishu profile/i }));

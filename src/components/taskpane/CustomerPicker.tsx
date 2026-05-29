@@ -82,8 +82,8 @@ export function CustomerPicker({
   }
 
   return (
-    <section className={embedded ? "px-3 py-2" : "bg-card-soft rounded-xl px-3 py-2 shadow-[var(--shadow-border)]"}>
-      <div className="flex min-w-0 items-center gap-2">
+    <section className={embedded ? "" : "bg-card-soft rounded-xl shadow-[var(--shadow-border)]"}>
+      <div className="flex h-14 min-w-0 items-center gap-2 px-3" data-customer-row="true">
         <span className="text-muted-foreground shrink-0 text-[11px] font-semibold uppercase">
           Customer
         </span>

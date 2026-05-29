@@ -6,6 +6,7 @@ import { Check, UserRound } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import type { Coworker } from "./coworkers";
 import { useCoworkerSearch } from "../../hooks/useCoworkerSearch";
+import { SectionLabel } from "./SectionLabel";
 import { TaskpaneSearchField } from "./TaskpaneSearchField";
 
 // Test fixture directory. These made-up coworkers are allowed only when an
@@ -59,21 +60,19 @@ function ClientInfo({
   onClientEmailChange: (email: string) => void;
 }) {
   return (
-    <div className="px-3 py-2">
-      <div className="flex min-w-0 items-center gap-2">
-        <span className="text-muted-foreground shrink-0 text-[11px] font-semibold uppercase">
-          Client email
-        </span>
-        <span className="bg-border h-3 w-px shrink-0" />
-        <input
-          aria-label="Client email"
-          type="email"
-          value={clientEmail}
-          onChange={(e) => onClientEmailChange(e.target.value)}
-          placeholder="client@example.com"
-          className="placeholder:text-muted-foreground min-h-10 min-w-0 flex-1 bg-transparent text-xs font-semibold outline-none"
-        />
-      </div>
+    <div className="flex h-14 min-w-0 items-center gap-2 px-3" data-client-row="true">
+      <span className="text-muted-foreground shrink-0 text-[11px] font-semibold uppercase">
+        Client email
+      </span>
+      <span className="bg-border h-3 w-px shrink-0" />
+      <input
+        aria-label="Client email"
+        type="email"
+        value={clientEmail}
+        onChange={(e) => onClientEmailChange(e.target.value)}
+        placeholder="client@example.com"
+        className="placeholder:text-muted-foreground h-full min-w-0 flex-1 bg-transparent text-xs font-semibold outline-none"
+      />
     </div>
   );
 }
@@ -237,13 +236,7 @@ export function CoworkerPicker({
   return (
     <section aria-labelledby="client-coworker-title" className="space-y-3">
       <header className="px-1">
-        <div
-          id="client-coworker-title"
-          className="text-accent-foreground flex items-center gap-2 text-[11px] font-semibold uppercase"
-        >
-          <span className="bg-muted-foreground inline-block h-px w-3.5" />
-          Client &amp; coworker
-        </div>
+        <SectionLabel id="client-coworker-title">Client &amp; coworker</SectionLabel>
       </header>
 
       <section className="bg-card-soft overflow-hidden rounded-xl shadow-[var(--shadow-border)]">

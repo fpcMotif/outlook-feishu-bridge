@@ -16,8 +16,8 @@ vi.mock("../../hooks/useSelfForward", () => ({
 }));
 vi.mock("../../hooks/useCoworkerSearch", () => {
   const coworkers = [
-    { openId: "ou_jenny", name: "Jenny Xu" },
-    { openId: "ou_michael", name: "Michael Chen" },
+    { openId: "ou_jenny", name: "Jenny Xu", avatarUrl: "https://example.test/jenny.png" },
+    { openId: "ou_michael", name: "Michael Chen", avatarUrl: "https://example.test/michael.png" },
   ];
   return {
     useCoworkerSearch: () =>
@@ -110,7 +110,7 @@ describe("RequestIntakeScreen sync wiring", () => {
       requestSelections: [
         { requestType: "Quotation", note: "Need a quarterly L-Carnitine quote." },
       ],
-      selectedCoworkers: [{ openId: "ou_jenny", name: "Jenny Xu" }],
+      selectedCoworkers: [{ openId: "ou_jenny", name: "Jenny Xu", avatarUrl: "https://example.test/jenny.png" }],
     });
   });
 

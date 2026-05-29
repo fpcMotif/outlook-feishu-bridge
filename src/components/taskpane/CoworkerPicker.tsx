@@ -3,6 +3,7 @@ import * as React from "react";
 import { useEffect, useMemo, useReducer, useState } from "react";
 import { Check, UserRound, X } from "lucide-react";
 
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import type { Coworker } from "./coworkers";
 import { useCoworkerSearch } from "../../hooks/useCoworkerSearch";
 import { TaskpaneSearchField } from "./TaskpaneSearchField";
@@ -94,9 +95,12 @@ function CoworkerOption({
       className="bg-card flex w-full cursor-pointer items-center gap-3 rounded-[14px] px-4 py-3 text-left shadow-[var(--shadow-border)] transition-[background-color,box-shadow,scale] duration-150 ease-[var(--ease-out-strong)] outline-none active:scale-[0.97] data-[selected=true]:bg-accent data-[selected=true]:shadow-[0_0_0_1.5px_var(--primary)] focus-visible:ring-[3px] focus-visible:ring-ring/15"
       data-selected={selected}
     >
-      <span className="bg-secondary text-primary flex size-10 items-center justify-center rounded-full">
-        <UserRound className="size-5" />
-      </span>
+      <Avatar className="size-10 bg-secondary">
+        {coworker.avatarUrl ? <AvatarImage src={coworker.avatarUrl} alt="" /> : null}
+        <AvatarFallback className="bg-secondary text-primary">
+          <UserRound className="size-5" />
+        </AvatarFallback>
+      </Avatar>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-semibold">{coworker.name}</span>
         <span className="text-muted-foreground block truncate text-xs">Feishu coworker</span>

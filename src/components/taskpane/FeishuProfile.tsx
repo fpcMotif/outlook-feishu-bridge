@@ -50,13 +50,15 @@ export function FeishuProfile({ user, onLogout }: { user: FeishuUser; onLogout: 
         aria-expanded={open}
         aria-label="Feishu profile"
       >
-        <Avatar className="size-8">
-          {user.avatarUrl ? <AvatarImage src={user.avatarUrl} alt="" /> : null}
-          <AvatarFallback className="bg-foreground text-background">
-            {initials(user.userName)}
-          </AvatarFallback>
-        </Avatar>
-        <span className="border-background bg-sage absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full border-2" />
+        <span className="relative flex size-8">
+          <Avatar className="size-8">
+            {user.avatarUrl ? <AvatarImage src={user.avatarUrl} alt="" /> : null}
+            <AvatarFallback className="bg-foreground text-background">
+              {initials(user.userName)}
+            </AvatarFallback>
+          </Avatar>
+          <span className="border-background bg-sage absolute right-0 bottom-0 size-2.5 rounded-full border-2" />
+        </span>
       </button>
 
       {open ? (

@@ -15,6 +15,11 @@ import { v } from "convex/values";
 
 import { action, type ActionCtx } from "../_generated/server";
 import { callFeishu } from "./call";
+import {
+  mergePreferredCustomers,
+  searchDevCustomerFixtures,
+  withDevCustomerFixtures,
+} from "./devCustomerFixtures";
 
 // Same Base as the Service table (FEISHU_BITABLE_APP_TOKEN). The customer
 // table id is fixed — see ADR-0012's "Client linkage (domain match)" section.
@@ -174,7 +179,7 @@ export const listCustomers = action({
   handler: async (ctx): Promise<{ records: CustomerRecord[]; generatedAt: number }> => {
     const appToken = requireAppToken();
     const records = await fetchCustomerPage(ctx, appToken, undefined, [], 0);
-    return { records, generatedAt: Date.now() };
+    return { records: withDevCustomerFixtures(records), generatedAt: Date.now() };
   },
 });
 
@@ -206,6 +211,7 @@ export const searchCustomers = action({
       query: { page_size: String(PAGE_SIZE) },
       label: "Bitable search customers",
     });
-    return { records: (data.items ?? []).map((item) => mapFeishuItemToCustomer(item)) };
+    const liveRecords = (data.items ?? []).map((item) => mapFeishuItemToCustomer(item));
+    return { records: mergePreferredCustomers(searchDevCustomerFixtures(q), liveRecords) };
   },
 });

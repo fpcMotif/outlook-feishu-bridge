@@ -19,6 +19,8 @@ import type * as feishu_coworkers from "../feishu/coworkers.js";
 import type * as feishu_customerMirrorRows from "../feishu/customerMirrorRows.js";
 import type * as feishu_customers from "../feishu/customers.js";
 import type * as feishu_customersMirror from "../feishu/customersMirror.js";
+import type * as feishu_devCustomerFixtures from "../feishu/devCustomerFixtures.js";
+import type * as feishu_devCustomerSeed from "../feishu/devCustomerSeed.js";
 import type * as feishu_requestSync from "../feishu/requestSync.js";
 import type * as feishu_serviceRow from "../feishu/serviceRow.js";
 import type * as feishu_userAuth from "../feishu/userAuth.js";
@@ -47,6 +49,8 @@ declare const fullApi: ApiFromModules<{
   "feishu/customerMirrorRows": typeof feishu_customerMirrorRows;
   "feishu/customers": typeof feishu_customers;
   "feishu/customersMirror": typeof feishu_customersMirror;
+  "feishu/devCustomerFixtures": typeof feishu_devCustomerFixtures;
+  "feishu/devCustomerSeed": typeof feishu_devCustomerSeed;
   "feishu/requestSync": typeof feishu_requestSync;
   "feishu/serviceRow": typeof feishu_serviceRow;
   "feishu/userAuth": typeof feishu_userAuth;

@@ -1,7 +1,7 @@
 /* eslint-disable max-lines-per-function, max-lines */
 import * as React from "react";
 import { useEffect, useMemo, useReducer, useState } from "react";
-import { Check, UserRound } from "lucide-react";
+import { Check, Mail, UserRound } from "lucide-react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import type { Coworker } from "./coworkers";
@@ -60,18 +60,23 @@ function ClientInfo({
   onClientEmailChange: (email: string) => void;
 }) {
   return (
-    <div className="flex h-14 min-w-0 items-center gap-2 px-3" data-client-row="true">
-      <span className="text-muted-foreground w-24 shrink-0 text-[11px] font-semibold uppercase">
-        Email
+    <div className="flex min-h-14 min-w-0 items-center gap-3 px-3 py-2" data-client-row="true">
+      <span
+        className="bg-background/70 text-muted-foreground flex size-8 shrink-0 items-center justify-center rounded-full"
+        aria-hidden="true"
+      >
+        <Mail className="size-4" />
       </span>
-      <span className="bg-border h-4 w-px shrink-0" />
-      <input
+      <textarea
         aria-label="Email"
-        type="email"
         value={clientEmail}
-        onChange={(e) => onClientEmailChange(e.target.value)}
+        onChange={(e) => onClientEmailChange(e.target.value.replaceAll(/\s+/g, ""))}
         placeholder="email@example.com"
-        className="placeholder:text-muted-foreground h-full min-w-0 flex-1 bg-transparent text-xs font-semibold outline-none"
+        rows={2}
+        inputMode="email"
+        autoComplete="email"
+        spellCheck={false}
+        className="placeholder:text-muted-foreground min-h-8 min-w-0 flex-1 resize-none bg-transparent py-1 text-xs leading-4 font-semibold break-all outline-none"
       />
     </div>
   );

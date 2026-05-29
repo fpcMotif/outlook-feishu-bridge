@@ -35,9 +35,16 @@ const MICROSOFT = {
   owner: null,
 };
 
+const FANPC = {
+  recordId: "dev_fixture_fanpc_customer",
+  name: "fanpc",
+  domain: "fenchem.com",
+  owner: { openId: "ou_dev", name: "fanpc" },
+};
+
 vi.mock("../../hooks/useCustomerSearch", () => ({
   useCustomerSearch: () => ({
-    directory: { status: "ready", records: [MICROSOFT] },
+    directory: { status: "ready", records: [FANPC, MICROSOFT] },
     search: vi.fn(() => Promise.resolve([])),
   }),
 }));
@@ -110,7 +117,7 @@ describe("RequestIntakeScreen login gate", () => {
 
     expect(screen.queryByText("Connect to Feishu")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Quotation/i })).toBeInTheDocument();
-    expect(screen.getByText("Email")).toBeInTheDocument();
+    expect(screen.getByLabelText("Email")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Feishu coworker" })).toBeInTheDocument();
     const routeCopy = screen.getByText("Route it to the right coworker in seconds.");
     expect(routeCopy.compareDocumentPosition(screen.getByText("New request"))).toBe(
@@ -139,7 +146,7 @@ describe("RequestIntakeScreen request details", () => {
     fillQuotation();
 
     expect(screen.getByText("Customer & coworker")).toBeInTheDocument();
-    expect(screen.getByText("Email")).toBeInTheDocument();
+    expect(screen.getByLabelText("Email")).toBeInTheDocument();
     expect(screen.getByDisplayValue("m.hoffmann@bayerpharma.de")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Feishu coworker" })).toBeInTheDocument();
     expect(screen.getByDisplayValue("Need a quarterly L-Carnitine quote.")).toBeInTheDocument();
@@ -160,10 +167,21 @@ describe("RequestIntakeScreen request details", () => {
     expect(screen.getByDisplayValue("updated.client@example.com")).toBeInTheDocument();
   });
 
+});
+
+describe("RequestIntakeScreen customer auto-match", () => {
   it("auto-matches Microsoft from microsoft-noreply@microsoft.com", () => {
     renderRequestIntakeScreen(true, "microsoft-noreply@microsoft.com");
 
     expect(screen.getByText("Microsoft")).toBeInTheDocument();
+    expect(screen.queryByText(/No customer matched/i)).not.toBeInTheDocument();
+  });
+
+  it("auto-matches fanpc from fanpc@fenchem.com", () => {
+    renderRequestIntakeScreen(true, "fanpc@fenchem.com");
+
+    expect(screen.getByText("fanpc")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /change/i })).toBeInTheDocument();
     expect(screen.queryByText(/No customer matched/i)).not.toBeInTheDocument();
   });
 });

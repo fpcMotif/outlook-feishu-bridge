@@ -29,6 +29,12 @@ import {
   mirrorDocToCustomer,
   projectionToRow,
 } from "./customerMirrorRows";
+import {
+  DEV_CUSTOMER_FIXTURES,
+  isDevCustomerFixturesEnabled,
+  mergePreferredCustomers,
+  searchDevCustomerFixtures,
+} from "./devCustomerFixtures";
 
 export { buildSearchBlob } from "./customerMirrorRows";
 
@@ -149,6 +155,14 @@ async function runFullSync(ctx: ActionCtx): Promise<{ pages: number; rows: numbe
     pageToken = data.page_token;
   }
 
+  if (isDevCustomerFixturesEnabled()) {
+    await ctx.runMutation(internal.feishu.customersMirror.applyPage, {
+      rows: DEV_CUSTOMER_FIXTURES.map((customer) => projectionToRow(customer)),
+      mirroredAt,
+    });
+    rows += DEV_CUSTOMER_FIXTURES.length;
+  }
+
   await ctx.runMutation(internal.feishu.customersMirror.recordSyncCompletion, {
     lastFullSyncAt: mirroredAt,
     lastRowCount: rows,
@@ -217,10 +231,12 @@ export const searchAndCacheMiss = action({
         mirroredAt: Date.now(),
       });
     }
-    const records =
+    const records = mergePreferredCustomers(
+      searchDevCustomerFixtures(q, args.mineFor),
       args.mineFor === undefined
         ? backfilledRecords
-        : backfilledRecords.filter((record) => record.owner?.openId === args.mineFor);
+        : backfilledRecords.filter((record) => record.owner?.openId === args.mineFor),
+    );
     console.log(
       `[customers-mirror] searchAndCacheMiss q="${q.slice(0, 40)}" -> ${records.length}/${backfilledRecords.length} backfilled (${Date.now() - started}ms)`,
     );
@@ -253,7 +269,10 @@ export const search = query({
         return s;
       })
       .take(limit);
-    const records: CustomerRecord[] = hits.map((hit) => mirrorDocToCustomer(hit));
+    const records: CustomerRecord[] = mergePreferredCustomers(
+      searchDevCustomerFixtures(q, args.mineFor),
+      hits.map((hit) => mirrorDocToCustomer(hit)),
+    ).slice(0, limit);
     return { records, mirroredAt: state?.lastFullSyncAt ?? null };
   },
 });

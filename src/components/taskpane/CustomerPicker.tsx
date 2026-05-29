@@ -5,7 +5,7 @@
 
 /* eslint-disable max-lines-per-function */
 import { useMemo, useRef, useState } from "react";
-import { Plus, Search } from "lucide-react";
+import { Building2, Plus, Search } from "lucide-react";
 
 import type {
   CustomerDirectoryState,
@@ -77,14 +77,16 @@ export function CustomerPicker({
 
   return (
     <section className={embedded ? "" : "bg-card-soft rounded-xl shadow-[var(--shadow-border)]"}>
-      <div className="flex h-14 min-w-0 items-center gap-2 px-3" data-customer-row="true">
-        <span className="text-muted-foreground w-24 shrink-0 text-[11px] font-semibold uppercase">
-          Customer
+      <div className="flex min-h-14 min-w-0 items-center gap-3 px-3 py-2" data-customer-row="true">
+        <span
+          className="bg-background/70 text-muted-foreground flex size-8 shrink-0 items-center justify-center rounded-full"
+          aria-hidden="true"
+        >
+          <Building2 className="size-4" />
         </span>
-        <span className="bg-border h-4 w-px shrink-0" />
         {selectedCustomer ? (
           <>
-            <span className="min-w-0 flex-1 truncate text-xs font-semibold">
+            <span className="min-w-0 flex-1 whitespace-normal break-words text-xs leading-4 font-semibold">
               {selectedCustomer.name}
             </span>
             <button
@@ -96,7 +98,7 @@ export function CustomerPicker({
             </button>
           </>
         ) : directory.status === "loading" || directory.status === "idle" ? (
-          <span className="text-muted-foreground min-w-0 flex-1 truncate text-xs">
+          <span className="text-muted-foreground min-w-0 flex-1 whitespace-normal break-words text-xs leading-4">
             Resolving customer for {emailDomain}...
           </span>
         ) : (
@@ -239,15 +241,15 @@ function SearchPanel({
 // do not block the sync. A search icon button lets them override manually.
 function NoMatch({ emailDomain, onSearch }: { emailDomain: string; onSearch: () => void }) {
   return (
-    <span className="flex min-w-0 flex-1 items-center gap-2">
-      <span className="text-muted-foreground min-w-0 flex-1 truncate text-xs">
+    <span className="flex min-w-0 flex-1 items-center gap-1">
+      <span className="text-muted-foreground min-w-0 flex-1 whitespace-normal break-words text-xs leading-4">
         No customer matched for {emailDomain}
       </span>
       <button
         type="button"
         onClick={onSearch}
         aria-label="Search customer"
-        className="text-primary hover:bg-accent inline-flex size-8 shrink-0 items-center justify-center rounded-full transition-colors"
+        className="text-primary hover:bg-accent inline-flex size-10 shrink-0 items-center justify-center rounded-full transition-colors active:scale-[0.96]"
       >
         <Search className="size-4" />
       </button>
@@ -255,7 +257,7 @@ function NoMatch({ emailDomain, onSearch }: { emailDomain: string; onSearch: () 
         type="button"
         disabled
         aria-label="Add new customer (coming soon)"
-        className="text-muted-foreground inline-flex size-8 shrink-0 items-center justify-center rounded-full opacity-40"
+        className="text-muted-foreground inline-flex size-10 shrink-0 items-center justify-center rounded-full opacity-40"
       >
         <Plus className="size-4" />
       </button>

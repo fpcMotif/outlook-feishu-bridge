@@ -42,9 +42,11 @@ const FANPC = {
   owner: { openId: "ou_dev", name: "fanpc" },
 };
 
+let customerDirectoryRecords = [FANPC, MICROSOFT];
+
 vi.mock("../../hooks/useCustomerSearch", () => ({
   useCustomerSearch: () => ({
-    directory: { status: "ready", records: [FANPC, MICROSOFT] },
+    directory: { status: "ready", records: customerDirectoryRecords },
     search: vi.fn(() => Promise.resolve([])),
     matchEmail: vi.fn((email: string) =>
       Promise.resolve(
@@ -107,6 +109,7 @@ async function searchCoworker(name: string) {
 
 beforeEach(() => {
   localStorage.clear();
+  customerDirectoryRecords = [FANPC, MICROSOFT];
 });
 
 describe("RequestIntakeScreen login gate", () => {
@@ -200,6 +203,15 @@ describe("RequestIntakeScreen customer auto-match", () => {
     expect(screen.getByText("fanpc")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /change/i })).toBeInTheDocument();
     expect(screen.queryByText(/No match/i)).not.toBeInTheDocument();
+  });
+
+  it("keeps the async Convex mirror match when the local directory is empty", async () => {
+    customerDirectoryRecords = [];
+
+    renderRequestIntakeScreen(true, "fanpc@fenchem.com");
+
+    expect(await screen.findByText("fanpc")).toBeInTheDocument();
+    expect(screen.queryByText(/No matched/i)).not.toBeInTheDocument();
   });
 });
 

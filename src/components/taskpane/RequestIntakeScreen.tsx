@@ -262,6 +262,7 @@ export function RequestIntakeScreen({
   if (
     !state.customerTouched &&
     customerDirectory.status === "ready" &&
+    autoMatch !== null &&
     autoMatchId !== currentMatchId
   ) {
     dispatch({ type: "customerAutoMatched", customer: autoMatch });

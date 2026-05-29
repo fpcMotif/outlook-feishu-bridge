@@ -1,7 +1,7 @@
 /* eslint-disable max-lines-per-function, max-lines */
 import * as React from "react";
 import { useEffect, useMemo, useReducer, useState } from "react";
-import { Check, UserRound, X } from "lucide-react";
+import { Check, UserRound } from "lucide-react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import type { Coworker } from "./coworkers";
@@ -129,17 +129,6 @@ function CoworkerSearchSection({
   onQueryChange: (value: string) => void;
   children?: React.ReactNode;
 }) {
-  const clearButton = query ? (
-    <button
-      type="button"
-      onClick={() => onQueryChange("")}
-      aria-label="Clear search"
-      className="text-muted-foreground hover:text-foreground inline-flex min-h-10 min-w-10 items-center justify-center"
-    >
-      <X className="size-4" />
-    </button>
-  ) : null;
-
   return (
     <section
       aria-labelledby="coworker-search-title"
@@ -159,7 +148,6 @@ function CoworkerSearchSection({
           value={query}
           onChange={onQueryChange}
           placeholder="Search Feishu coworkers..."
-          rightSlot={clearButton}
         />
         {children}
       </div>

@@ -10,7 +10,7 @@ User-visible Coworker search has a single source of truth: Feishu Search Users. 
 
 `GET /open-apis/search/v1/user` (keyword in the `query` URL param, scope `contact:user:search`, `user_access_token`) is the **current** official Search Users API — verified directly against the open.feishu.cn docs (both the `contact-v3/user/search-users` page and the older page; neither carries a deprecation / 旧版 banner). The `v1` is **not** legacy and there is **no** `contact/v3` search-users replacement. Do not "upgrade" the path.
 
-The real defect was the *call shape*: `coworkers.ts` originally issued a **POST with the keyword in a JSON body** and read a non-existent `avatar_url`. Fixed to a **GET** with `?query=`, mapping `avatarUrl` from the `avatar.avatar_72` object field.
+The real defect was the *call shape*: `coworkers.ts` originally issued a **POST with the keyword in a JSON body** and read a non-existent `avatar_url`. Fixed to a **GET** with `?query=`, mapping `avatarUrl` from Feishu's `avatar` object (`avatar_72`, falling back through larger sizes when a tenant response omits 72px).
 
 ## Consequences
 

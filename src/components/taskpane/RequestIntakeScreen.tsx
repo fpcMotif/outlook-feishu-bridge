@@ -33,13 +33,8 @@ function Hero() {
   return (
     <header className="px-1 pt-3 pb-5">
       <h1 className="text-[34px] leading-[0.98] tracking-tight">
-        How can we
-        <br />
-        help today?
+        Sales Services
       </h1>
-      <p className="text-foreground/70 mt-2 max-w-[32ch] text-sm leading-relaxed">
-        Route it to the right coworker in seconds.
-      </p>
     </header>
   );
 }
@@ -352,7 +347,7 @@ export function RequestIntakeScreen({
   const submitHint = filledCount === 0 ? "Start a request above" : "Choose exactly one Feishu coworker";
   const submitFooter = readyToSync
     ? `${filledCount} request${filledCount > 1 ? "s" : ""} + 1 coworker ready for Base + Convex sync`
-    : "Request details, client, and coworker stay on one screen";
+    : "";
 
   return (
     <>
@@ -360,10 +355,6 @@ export function RequestIntakeScreen({
         {profileSlot}
         <Hero />
         <div className="space-y-5">
-          <NewRequestSection
-            values={state.notes}
-            onChange={(id, value) => dispatch({ type: "noteChanged", id, value })}
-          />
           <CoworkerPicker
             clientEmail={state.clientEmail}
             onClientEmailChange={(value) => dispatch({ type: "clientEmailChanged", value })}
@@ -385,6 +376,10 @@ export function RequestIntakeScreen({
             selectedOpenId={selectedOpenId}
             onSelect={selectCoworker}
             usePreviewCoworkers={usePreviewCoworkers}
+          />
+          <NewRequestSection
+            values={state.notes}
+            onChange={(id, value) => dispatch({ type: "noteChanged", id, value })}
           />
         </div>
       </div>

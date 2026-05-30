@@ -118,7 +118,11 @@ export function TaskPane({ host }: { host: string | null }) {
 
   // Dev-only: clicking "Log in" advances straight to the logged-in UI (profile +
   // coworker picker) without the real OAuth popup. ?devUser=1 starts logged in.
-  const showDevUser = devPreview && (devLoggedIn || params.has("devUser"));
+  // Local-only fake login switches. No backend needed for UI smoke: use
+  // `?devUser=1` (existing), `?fakeLogin=1`, or `?fake=1`.
+  const forceFakeLogin =
+    params.has("devUser") || params.has("dev") || params.has("fake") || params.has("fakeLogin");
+  const showDevUser = devPreview && (devLoggedIn || forceFakeLogin);
   const devUser = showDevUser
     ? { openId: "ou_dev", userName: "Jenny Xu", email: "jenny.xu@fenchem.com", org: "Branch Sales" }
     : null;

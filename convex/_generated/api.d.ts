@@ -28,7 +28,6 @@ import type * as http from "../http.js";
 import type * as m365_selfForward from "../m365/selfForward.js";
 import type * as m365_selfForwardChain from "../m365/selfForwardChain.js";
 import type * as m365_selfForwardMessage from "../m365/selfForwardMessage.js";
-import type * as returns from "../returns.js";
 import type * as storage from "../storage.js";
 
 import type {
@@ -58,7 +57,6 @@ declare const fullApi: ApiFromModules<{
   "m365/selfForward": typeof m365_selfForward;
   "m365/selfForwardChain": typeof m365_selfForwardChain;
   "m365/selfForwardMessage": typeof m365_selfForwardMessage;
-  returns: typeof returns;
   storage: typeof storage;
 }>;
 

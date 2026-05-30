@@ -49,8 +49,8 @@ export function SubmitDock({
         className={cn(
           "flex h-14 w-full items-center justify-between rounded-[18px] px-5 text-[15px] font-semibold transition-[background-color,color,box-shadow,scale] duration-150 ease-[var(--ease-out-strong)]",
           live
-            ? "bg-primary text-primary-foreground shadow-[var(--shadow-floating)] hover:bg-primary-deep active:scale-[0.97]"
-            : "bg-secondary text-muted-foreground cursor-not-allowed shadow-[var(--shadow-border)]",
+            ? "bg-primary text-primary-foreground shadow-float hover:bg-primary-deep active:scale-[0.97]"
+            : "bg-secondary text-muted-foreground cursor-not-allowed shadow-edge",
         )}
       >
         <span className="inline-flex min-w-0 items-center gap-2">

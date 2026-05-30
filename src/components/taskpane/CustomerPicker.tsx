@@ -79,7 +79,7 @@ export function CustomerPicker({
   }
 
   return (
-    <section className={embedded ? "" : "bg-card-soft rounded-xl shadow-[var(--shadow-border)]"}>
+    <section className={embedded ? "" : "bg-card-soft rounded-xl shadow-edge"}>
       <div className="flex min-h-14 min-w-0 items-center gap-3 px-3 py-2" data-customer-row="true">
         <span
           className="text-muted-foreground flex size-8 shrink-0 items-center justify-center"
@@ -183,7 +183,7 @@ function SearchPanel({
   const matches = localMatches.length > 0 ? localMatches : serverMatches;
 
   return (
-    <section className={embedded ? "px-3 py-2" : "bg-card-soft rounded-xl px-3 py-2 shadow-[var(--shadow-border)]"}>
+    <section className={embedded ? "px-3 py-2" : "bg-card-soft rounded-xl px-3 py-2 shadow-edge"}>
       <div className="flex items-center justify-between gap-2 pb-2">
         <span className="text-muted-foreground text-[11px] font-semibold uppercase">
           Pick a customer
@@ -216,11 +216,13 @@ function SearchPanel({
             <button
               key={customer.recordId}
               type="button"
+              data-search-option=""
+              aria-selected={false}
               onClick={() => {
                 dtime(`customer picker: picked "${customer.name}"`, openedAt);
                 onSelect(customer);
               }}
-              className="bg-card hover:bg-accent flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-xs shadow-[var(--shadow-border)]"
+              className="bg-card hover:bg-accent aria-selected:bg-accent flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-xs shadow-edge"
             >
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-semibold">{customer.name}</span>
@@ -241,11 +243,13 @@ function SearchPanel({
           : q ? (
             <button
               type="button"
+              data-search-option=""
+              aria-selected={false}
               onClick={() => {
                 dtime(`customer picker: create requested "${q}"`, openedAt);
                 onCreateCustomer?.(query.trim());
               }}
-              className="bg-card hover:bg-accent flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-xs font-semibold shadow-[var(--shadow-border)]"
+              className="bg-card hover:bg-accent aria-selected:bg-accent flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-xs font-semibold shadow-edge"
             >
               <Plus className="text-primary size-4 shrink-0" />
               <span className="min-w-0 flex-1 truncate">Create customer task "{query.trim()}"</span>

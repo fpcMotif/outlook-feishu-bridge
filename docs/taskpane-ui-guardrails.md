@@ -1,66 +1,100 @@
-# Taskpane UI Guardrails
+# Taskpane UI guardrails
 
-Scope: this note only covers the recent request-builder visual drift around the
-`New request` and `Customer & coworker` section labels.
+The taskpane renders inside a narrow (~320–400px) Outlook pane. These notes keep
+the design system coherent as it evolves.
 
-## Incident
+## Token system
 
-The two labels looked equivalent in component code but did not render equivalent
-in the taskpane. The root cause was not the label styling alone: the same label
-component was sitting inside different parent spacing and wrapper structures.
-Small padding and margin fixes treated symptoms and created a whack-a-mole loop.
+All tokens live in `src/index.css` (`@theme inline` + `:root` / `.dark`). Prefer
+tokens over ad-hoc values.
 
-## Rule
+### Focus ring
 
-Same visual role = same component and same DOM structure.
+- One opacity everywhere: `focus-visible:ring-ring/20` (the search field uses
+  `focus-within:ring-ring/20`), with `focus-visible:ring-[3px]`.
+- Applied across `ui/{button,input,textarea,checkbox,accordion}` and
+  `taskpane/{CoworkerPicker,FeishuProfile,TaskpaneSearchField}`.
+- When adding a focusable control, reuse `ring-ring/20` — do not introduce a new
+  opacity.
 
-Do not copy `SectionLabel` classes into a different wrapper when a section is
-supposed to align with another first-level taskpane section. Put both sections
-through `TaskpaneSection` so the wrapper, header, label, spacing, and line width
-can only change in one place.
+### Color semantics
 
-## Current Invariant
+- `primary` — main brand/action color (Sync button, active states).
+- `accent` — a quiet **tertiary** tint (selected cards, "Live"/info chips).
+- `sage` / `sage-soft` — **success** only (synced Base rows, "Connected" status).
+  Do not use `accent` to signal success; do not use `sage` for tertiary chrome.
+- `destructive` — errors / sign-out.
 
-First-level request-builder sections use:
+### Radius
 
-- `TaskpaneSection` for the outer section shell.
-- `SectionLabel` for the uppercase label row.
-- The same `section -> header -> label -> content` DOM shape.
-- Shared tokens in those components, including `space-y-3`, `h-4`,
-  `leading-none`, and the same label rule width.
+- Use the radius scale: `rounded-{sm,md,lg,xl,2xl}` (derived from `--radius`).
+- Bespoke radii (`rounded-[14px]`, `rounded-[20px]`, `rounded-[28px]`) predate the
+  scale; leave them unless a value-identical token exists. There is no `--text-*`
+  px scale yet, so keep `text-[Npx]` literals until one is added.
 
-The current first-level peers are:
+### Shadow utilities (Tailwind v4 collision-safe)
 
-- `New request` in `RequestIntakeScreen.tsx`.
-- `Customer & coworker` in `CoworkerPicker.tsx`.
+- `--shadow-border` / `--shadow-floating` are the source tokens.
+- Apply them via `.shadow-edge` (border/elevation) and `.shadow-float`
+  (floating/popover), defined under `@layer utilities` in `index.css`. They alias
+  the tokens so rendered output is identical to the old inline values.
+- Named distinctly on purpose: in Tailwind v4 a bare `shadow-border` would map to
+  the `--color-border` token. Never reintroduce inline `shadow-[var(--shadow-*)]`.
+- Genuine one-offs (selection ring `shadow-[0_0_0_1.5px_...]`, the dock's top
+  fade, the received-screen step ring) stay inline.
 
-The hero is intentionally not a `TaskpaneSection`; do not compare hero spacing to
-section-label spacing.
+## Accessibility
 
-## How To Change This Safely
+- Search dropdowns (`TaskpaneSearchDropdown` + `TaskpaneSearchField`) are ARIA
+  comboboxes: the input carries `role="combobox"`, `aria-expanded`,
+  `aria-controls`, `aria-activedescendant`, `aria-autocomplete="list"`; the panel
+  is `role="listbox"`.
+- Option buttons stay native `<button>`s (so they remain discoverable as buttons)
+  and are tagged `data-search-option` + `aria-selected`; the dropdown rovers the
+  active option over them. Do **not** override their role with `role="option"` —
+  existing tests find coworker/customer rows by the button role.
+- Keyboard: ArrowDown/ArrowUp move the active option (wrap-around), Enter selects,
+  Escape closes. Mouse behavior is unchanged. The key→action logic is a pure,
+  unit-tested helper (`taskpaneSearchKeyboard.ts`); `scrollIntoView` is guarded
+  with `?.` because jsdom does not implement it.
 
-- If a new first-level taskpane section should visually align with these labels,
-  route it through `TaskpaneSection`.
-- If the label height, leading, rule width, or top-level spacing needs to change,
-  change `SectionLabel` or `TaskpaneSection`, then check every first-level peer.
-- If only one section looks off, first inspect its parent DOM and spacing context.
-  Avoid local padding or margin patches unless the section truly has a different
-  visual role.
-- Inner labels such as the `Feishu coworker` search label can stay local to their
-  control. They are not first-level section labels.
+## Dev affordances
 
-## Regression Checks
+- A DEV-only dark-mode toggle (`devDarkToggle.ts`, gated by `import.meta.env.DEV`
+  in `main.tsx`) flips the `.dark` class on `<html>` for QA. It never ships in
+  production builds.
 
-Unit tests that assert text exists are not enough for this class of bug. They can
-prove both labels render while still missing a four-pixel layout drift.
+## Section structure (prior incident)
 
-For pixel-sensitive taskpane changes:
+Same visual role = same component and same DOM structure. First-level
+request-builder sections go through `TaskpaneSection` + `SectionLabel` so the
+wrapper, header, label, spacing, and rule width live in one place. Do not copy
+`SectionLabel` classes into a different wrapper; change `TaskpaneSection` /
+`SectionLabel` and check every first-level peer (`New request` in
+`RequestIntakeScreen.tsx`, `Customer & coworker` in `CoworkerPicker.tsx`). The
+hero is intentionally not a `TaskpaneSection`. Inner labels (e.g. the
+`Feishu coworker` search label) stay local to their control.
 
-- Run the browser/e2e path and capture screenshots with `E2E_SCREENSHOT_DIR`.
-- Compare computed styles and bounding boxes for `#new-request-title` and
-  `#client-coworker-title`, not only screenshots.
-- Check the rendered bundle after a hard refresh or taskpane reopen before
-  trusting the screenshot. Frontend and backend deploys can change separately.
+## Ongoing UI loop
 
-The useful question is: "Could these two labels diverge if someone changes only
-one parent?" If yes, the structure is still too easy to break.
+1. `bun run dev` (or `bun run dev:https` for sideloaded Outlook).
+2. Screenshot the key states at ~360px: connect, request intake,
+   coworker/customer pickers (empty + results + selected), sync progress,
+   received/success, and the profile popover. Toggle the DEV dark switch and
+   recapture.
+3. Critique with the frontend-design skill against this token system (focus ring,
+   color semantics, radius, shadow utilities).
+4. Adjust **tokens/components**, not one-off inline values.
+5. Re-screenshot and compare.
+6. `/code-review`, then the gate: `bun run typecheck` → `bun run lint` →
+   `bun run test` (all green).
+7. Commit.
+
+For pixel-sensitive changes, unit tests that only assert text exists are not
+enough — capture screenshots (`E2E_SCREENSHOT_DIR`) and compare computed styles /
+bounding boxes for `#new-request-title` and `#client-coworker-title`.
+
+## Open questions
+
+- No `--text-*` px scale yet; `text-[Npx]` literals remain until one is introduced.
+- No automated visual regression tests; rely on the screenshot loop above.

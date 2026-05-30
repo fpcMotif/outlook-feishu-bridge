@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { REQUESTS } from "./requests";
 
 const ITEM_CLASS =
-  "group bg-card rounded-[20px] shadow-[var(--shadow-border)] transition-[background-color,box-shadow,scale] duration-200 ease-[var(--ease-out-strong)] data-[state=open]:bg-card data-[state=open]:shadow-[var(--shadow-floating)]";
+  "group bg-card rounded-[20px] shadow-edge transition-[background-color,box-shadow,scale] duration-200 ease-[var(--ease-out-strong)] data-[state=open]:bg-card data-[state=open]:shadow-float";
 
 export function RequestCards({
   values,

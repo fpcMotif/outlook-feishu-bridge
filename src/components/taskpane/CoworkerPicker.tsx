@@ -122,8 +122,10 @@ function CoworkerOption({
     <button
       type="button"
       aria-pressed={selected}
+      data-search-option=""
+      aria-selected={false}
       onClick={() => onSelect(coworker)}
-      className="bg-card flex w-full cursor-pointer items-center gap-3 rounded-[14px] px-4 py-3 text-left shadow-[var(--shadow-border)] transition-[background-color,box-shadow,scale] duration-150 ease-[var(--ease-out-strong)] outline-none active:scale-[0.97] data-[selected=true]:bg-accent data-[selected=true]:shadow-[0_0_0_1.5px_var(--primary)] focus-visible:ring-[3px] focus-visible:ring-ring/15"
+      className="bg-card flex w-full cursor-pointer items-center gap-3 rounded-[14px] px-4 py-3 text-left shadow-edge transition-[background-color,box-shadow,scale] duration-150 ease-[var(--ease-out-strong)] outline-none active:scale-[0.97] data-[selected=true]:bg-accent data-[selected=true]:shadow-[0_0_0_1.5px_var(--primary)] aria-selected:bg-secondary focus-visible:ring-[3px] focus-visible:ring-ring/20"
       data-selected={selected}
     >
       <Avatar className="size-10 bg-secondary">
@@ -143,7 +145,7 @@ function CoworkerOption({
 
 function SelectedCoworkerCard({ coworker }: { coworker: Coworker }) {
   return (
-    <div className="bg-accent text-accent-foreground mt-2 flex items-center gap-2 rounded-xl px-3 py-2 shadow-[var(--shadow-border)]">
+    <div className="bg-accent text-accent-foreground border-accent-foreground/15 mt-2 flex items-center gap-2 rounded-xl border px-3 py-2 shadow-edge">
       <Check className="text-primary size-4 shrink-0" />
       <span className="text-muted-foreground text-[11px] font-semibold uppercase">Selected</span>
       <span className="min-w-0 truncate text-sm font-semibold">{coworker.name}</span>
@@ -165,7 +167,7 @@ function CoworkerSearchSection({
   return (
     <section
       aria-labelledby="coworker-search-title"
-      className="bg-card-soft mt-3 rounded-xl px-3 py-2 shadow-[var(--shadow-border)]"
+      className="bg-card-soft mt-3 rounded-xl px-3 py-2 shadow-edge"
     >
       <div className="flex items-center justify-between gap-2 pb-2">
         <h2
@@ -270,7 +272,7 @@ export function CoworkerPicker({
 
   return (
     <TaskpaneSection id="client-coworker-title" title="Customer & coworker">
-      <section className="bg-card-soft overflow-visible rounded-xl shadow-[var(--shadow-border)]">
+      <section className="bg-card-soft overflow-visible rounded-xl shadow-edge">
         <ClientInfo clientEmail={clientEmail} onClientEmailChange={onClientEmailChange} />
         {customerSlot ? <div className="border-border border-t">{customerSlot}</div> : null}
       </section>

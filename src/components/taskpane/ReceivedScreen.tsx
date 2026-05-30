@@ -47,7 +47,7 @@ function SuccessHalo() {
       <span className="border-primary/30 animate-pulse-ring absolute inset-0 rounded-full border" />
       <span className="border-primary/30 animate-pulse-ring absolute inset-0 rounded-full border [animation-delay:0.8s]" />
       <span className="border-primary/30 animate-pulse-ring absolute inset-0 rounded-full border [animation-delay:1.6s]" />
-      <span className="bg-primary text-primary-foreground animate-pop-in relative z-10 flex size-20 items-center justify-center rounded-full shadow-[var(--shadow-floating)]">
+      <span className="bg-primary text-primary-foreground animate-pop-in relative z-10 flex size-20 items-center justify-center rounded-full shadow-float">
         <Check className="size-10" strokeWidth={2.4} />
       </span>
     </div>

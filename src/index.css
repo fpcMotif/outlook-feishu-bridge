@@ -304,3 +304,12 @@
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
+
+/* Named aliases for the shadow tokens. Distinct names (not shadow-border)
+   avoid colliding with Tailwind v4's auto-generated --color-border utility. */
+.shadow-edge {
+  box-shadow: var(--shadow-border);
+}
+.shadow-float {
+  box-shadow: var(--shadow-floating);
+}

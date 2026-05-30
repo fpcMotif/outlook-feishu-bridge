@@ -198,7 +198,7 @@ describe("RequestIntakeScreen request details", () => {
     renderRequestIntakeScreen(true);
 
     fireEvent.click(screen.getByRole("button", { name: /search customer/i }));
-    fireEvent.change(screen.getByRole("searchbox", { name: /search customers/i }), {
+    fireEvent.change(screen.getByRole("combobox", { name: /search customers/i }), {
       target: { value: "fff" },
     });
     fireEvent.click(screen.getByRole("button", { name: /create customer task "fff"/i }));

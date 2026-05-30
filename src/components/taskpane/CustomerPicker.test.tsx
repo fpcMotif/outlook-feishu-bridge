@@ -117,7 +117,7 @@ describe("CustomerPicker override search", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /change/i }));
 
-    const search = screen.getByRole("searchbox", { name: /search customers/i });
+    const search = screen.getByRole("combobox", { name: /search customers/i });
     fireEvent.change(search, { target: { value: "stock" } });
 
     expect(
@@ -150,7 +150,7 @@ describe("CustomerPicker server fallback", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: /search customer/i }));
-    fireEvent.change(screen.getByRole("searchbox", { name: /search customers/i }), {
+    fireEvent.change(screen.getByRole("combobox", { name: /search customers/i }), {
       target: { value: "novo" },
     });
 
@@ -172,7 +172,7 @@ describe("CustomerPicker server fallback", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: /search customer/i }));
-    fireEvent.change(screen.getByRole("searchbox", { name: /search customers/i }), {
+    fireEvent.change(screen.getByRole("combobox", { name: /search customers/i }), {
       target: { value: "ddddd" },
     });
 
@@ -199,7 +199,7 @@ describe("CustomerPicker server fallback", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /search customer/i }));
     fireEvent.click(screen.getByRole("button", { name: /show mine/i }));
-    fireEvent.change(screen.getByRole("searchbox", { name: /search customers/i }), {
+    fireEvent.change(screen.getByRole("combobox", { name: /search customers/i }), {
       target: { value: "novo" },
     });
 
@@ -223,14 +223,14 @@ describe("CustomerPicker override commit", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: /change/i }));
-    fireEvent.change(screen.getByRole("searchbox", { name: /search customers/i }), {
+    fireEvent.change(screen.getByRole("combobox", { name: /search customers/i }), {
       target: { value: "stock" },
     });
     fireEvent.click(screen.getByRole("button", { name: /STOCKMEIER Chemie/i }));
 
     expect(onChange).toHaveBeenCalledWith(STOCKMEIER);
     // Back to chip view — search input is no longer rendered.
-    expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
   });
 });
 
@@ -265,7 +265,7 @@ describe("CustomerPicker owner filter", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: /search/i }));
-    fireEvent.change(screen.getByRole("searchbox", { name: /search customers/i }), {
+    fireEvent.change(screen.getByRole("combobox", { name: /search customers/i }), {
       target: { value: "florian" },
     });
 

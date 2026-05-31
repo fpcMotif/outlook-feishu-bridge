@@ -46,6 +46,11 @@ export { buildSearchBlob } from "./customerMirrorRows";
 
 const CUSTOMER_TABLE_ID = "tbl4TE2GV472sKzp";
 const PAGE_SIZE = 500;
+// Cache-miss search only needs enough rows to fill the picker and warm the
+// mirror around the user's exact query. Keep the full-sync page size at
+// Feishu's documented max, but do not pull/write 500 rows on an interactive
+// miss when the UI returns at most 50.
+const CACHE_MISS_PAGE_SIZE = 50;
 // Official Feishu limits (open.feishu.cn only - no third-party wrapper, no
 // MAX_PAGES cap of our own). The earlier 20-page / 10,000-row ceiling was
 // purely ours and silently truncated once the Customer Table grew past it; the
@@ -522,7 +527,7 @@ export const searchAndCacheMiss = action({
           ],
         },
       },
-      query: { page_size: String(PAGE_SIZE) },
+      query: { page_size: String(CACHE_MISS_PAGE_SIZE) },
       label: "Customers mirror — live search on cache miss",
     });
     const backfilledRecords: CustomerRecord[] = (data.items ?? []).map((item) =>

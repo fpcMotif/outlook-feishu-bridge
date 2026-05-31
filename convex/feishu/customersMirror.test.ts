@@ -10,7 +10,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { callFeishu } from "./call";
-import { applyPage, buildSearchBlob, kick } from "./customersMirror";
+import { applyPage, buildSearchBlob, kick, searchAndCacheMiss } from "./customersMirror";
 
 vi.mock("./call", () => ({
   callFeishu: vi.fn(),
@@ -45,6 +45,17 @@ type KickHandler = (
 }>;
 
 const kickHandler = (kick as unknown as { _handler: KickHandler })._handler;
+const searchAndCacheMissHandler = (searchAndCacheMiss as unknown as {
+  _handler: (
+    ctx: {
+      runMutation: (
+        fn: unknown,
+        args: Record<string, unknown>,
+      ) => Promise<{ inserted: number; updated: number; unchanged: number; duplicateRows: number }>;
+    },
+    args: { q: string; mineFor?: string },
+  ) => Promise<{ records: unknown[]; backfilled: number }>;
+})._handler;
 const applyPageHandler = (applyPage as unknown as {
   _handler: (
     ctx: {
@@ -220,6 +231,38 @@ describe("customer mirror applyPage", () => {
     expect(result).toEqual({ inserted: 0, updated: 0, unchanged: 1, duplicateRows: 0 });
     expect(patch).not.toHaveBeenCalled();
     expect(insert).not.toHaveBeenCalled();
+  });
+});
+
+describe("customer mirror cache-miss search", () => {
+  it("uses a smaller Feishu page than full sync for interactive cache misses", async () => {
+    mockCallFeishu.mockResolvedValueOnce({
+      items: [
+        {
+          record_id: "rec_acme",
+          fields: { "Account Name": [{ text: "Acme", type: "text" }] },
+        },
+      ],
+      has_more: false,
+    });
+    const runMutation = vi.fn(async () => ({
+      inserted: 1,
+      updated: 0,
+      unchanged: 0,
+      duplicateRows: 0,
+    }));
+
+    const result = await searchAndCacheMissHandler({ runMutation }, { q: "Acme" });
+
+    expect(result.backfilled).toBe(1);
+    expect(mockCallFeishu).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        label: "Customers mirror — live search on cache miss",
+        query: { page_size: "50" },
+      }),
+    );
+    expect(runMutation).toHaveBeenCalledTimes(1);
   });
 });
 

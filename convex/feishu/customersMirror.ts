@@ -519,6 +519,7 @@ export const searchAndCacheMiss = action({
       method: "POST",
       auth: "tenant",
       json: {
+        field_names: CUSTOMER_FIELD_NAMES,
         filter: {
           conjunction: "or",
           conditions: [

@@ -260,6 +260,17 @@ describe("customer mirror cache-miss search", () => {
       expect.objectContaining({
         label: "Customers mirror — live search on cache miss",
         query: { page_size: "50" },
+        json: expect.objectContaining({
+          field_names: [
+            "Account Name",
+            "Record Id",
+            "域名",
+            "全名",
+            "Account No.",
+            "Country and Regio",
+            "Owner",
+          ],
+        }),
       }),
     );
     expect(runMutation).toHaveBeenCalledTimes(1);

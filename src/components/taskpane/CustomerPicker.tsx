@@ -21,6 +21,8 @@ import {
 import { dlog, dtime } from "../../debug";
 import { TaskpaneSearchDropdown } from "./TaskpaneSearchDropdown";
 
+const MIN_SERVER_SEARCH_LENGTH = 2;
+
 export interface CustomerPickerProps {
   directory: CustomerDirectoryState;
   searchCustomers: (
@@ -161,7 +163,11 @@ function SearchPanel({
       currentUserOpenId,
     );
     if (searchTimer.current !== null) window.clearTimeout(searchTimer.current);
-    if (!nextQ || (directory.status === "ready" && nextLocalMatches.length > 0)) {
+    if (
+      !nextQ ||
+      nextQ.length < MIN_SERVER_SEARCH_LENGTH ||
+      (directory.status === "ready" && nextLocalMatches.length > 0)
+    ) {
       latestSearch.current += 1;
       setServerMatches([]);
       return;

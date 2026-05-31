@@ -141,6 +141,28 @@ describe("CustomerPicker server fallback", () => {
     owner: { openId: "ou_florian", name: "Florian Meurer" },
   };
 
+  it("does not call server search for one-character queries", async () => {
+    vi.useFakeTimers();
+    const searchCustomers = vi.fn(() => Promise.resolve([NOVO]));
+    render(
+      <CustomerPicker
+        directory={{ status: "ready", records: [BAYER] }}
+        searchCustomers={searchCustomers}
+        emailDomain="unknown.io"
+        selectedCustomer={null}
+        onChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /search customer/i }));
+    fireEvent.change(screen.getByRole("combobox", { name: /search customers/i }), {
+      target: { value: "n" },
+    });
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(searchCustomers).not.toHaveBeenCalled();
+  });
+
   it("debounces server search when the local Customer Directory has no match", async () => {
     vi.useFakeTimers();
     const searchCustomers = vi.fn(() => Promise.resolve([NOVO]));

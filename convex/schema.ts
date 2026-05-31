@@ -44,6 +44,7 @@ export default defineSchema({
     recordId: v.string(),
     name: v.string(),
     domain: v.optional(v.string()),
+    domainCanonical: v.optional(v.string()),
     fullName: v.optional(v.string()),
     accountNo: v.optional(v.string()),
     countryRegion: v.optional(v.string()),
@@ -54,7 +55,17 @@ export default defineSchema({
   })
     .index("by_recordId", ["recordId"])
     .index("by_domain", ["domain"])
+    .index("by_domainCanonical", ["domainCanonical"])
     .searchIndex("by_text", { searchField: "searchBlob", filterFields: ["ownerOpenId"] }),
+
+  // User-directory cache for coworker typeahead (search users API, Feishu).
+  // Caches only public result rows and TTL metadata for the query key.
+  coworkerSearchCache: defineTable({
+    normalizedQuery: v.string(),
+    results: v.array(v.object({ openId: v.string(), name: v.string(), avatarUrl: v.optional(v.string()) })),
+    fetchedAt: v.number(),
+    expiresAt: v.number(),
+  }).index("by_normalizedQuery", ["normalizedQuery"]),
 
   // Watermark row for the customer-mirror cron — one row per deployment,
   // updated at the end of each successful fullSync run. Lets the dashboard

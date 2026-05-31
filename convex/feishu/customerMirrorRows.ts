@@ -1,9 +1,10 @@
-import type { CustomerRecord } from "./customers";
+import { canonicalCustomerDomain, type CustomerRecord } from "./customers";
 
 export interface CustomerUpsertRow {
   recordId: string;
   name: string;
   domain?: string;
+  domainCanonical?: string;
   fullName?: string;
   accountNo?: string;
   countryRegion?: string;
@@ -16,6 +17,7 @@ export interface CustomerMirrorDoc {
   recordId: string;
   name: string;
   domain?: string;
+  domainCanonical?: string;
   fullName?: string;
   accountNo?: string;
   countryRegion?: string;
@@ -27,11 +29,13 @@ export interface CustomerMirrorDoc {
 // across one column; concatenating the searchable fields gives salespeople
 // "type anything that identifies the Customer" behavior.
 export function buildSearchBlob(customer: CustomerRecord): string {
+  const domainCanonical = canonicalCustomerDomain(customer.domain);
   return [
     customer.name,
     customer.fullName ?? "",
     customer.accountNo ?? "",
     customer.domain ?? "",
+    domainCanonical ?? "",
     customer.countryRegion ?? "",
     customer.owner?.name ?? "",
   ]
@@ -44,6 +48,7 @@ export function projectionToRow(customer: CustomerRecord): CustomerUpsertRow {
     recordId: customer.recordId,
     name: customer.name,
     domain: customer.domain,
+    domainCanonical: canonicalCustomerDomain(customer.domain),
     fullName: customer.fullName,
     accountNo: customer.accountNo,
     countryRegion: customer.countryRegion,

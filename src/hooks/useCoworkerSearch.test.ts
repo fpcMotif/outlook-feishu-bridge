@@ -24,6 +24,21 @@ describe("useCoworkerSearch", () => {
     mockUseConvex.mockReturnValue({ query: vi.fn(async () => null) } as never);
   });
 
+  it("skips Convex and Feishu search for one-character queries", async () => {
+    const query = vi.fn(async () => null);
+    const action = vi.fn().mockResolvedValue(sample);
+    mockUseConvex.mockReturnValue({ query } as never);
+    mockUseAction.mockReturnValue(action);
+
+    const { result } = renderHook(() => useCoworkerSearch("session-short"));
+
+    const found = await act(async () => result.current(" a "));
+
+    expect(found).toEqual([]);
+    expect(query).not.toHaveBeenCalled();
+    expect(action).not.toHaveBeenCalled();
+  });
+
   it("caches identical queries for the same session", async () => {
     const action = vi.fn().mockResolvedValue(sample);
     mockUseAction.mockReturnValue(action);

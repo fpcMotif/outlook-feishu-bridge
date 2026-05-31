@@ -11,6 +11,7 @@ interface CoworkerCacheEntry {
 
 const COWORKER_SEARCH_CACHE_TTL_MS = 5 * 60 * 1000;
 const COWORKER_SEARCH_CACHE_MAX_ENTRIES = 24;
+const MIN_COWORKER_SEARCH_LENGTH = 2;
 
 const cache = new Map<string, CoworkerCacheEntry>();
 const inflight = new Map<string, Promise<Coworker[]>>();
@@ -121,7 +122,7 @@ export function useCoworkerSearch(sessionId: string, userAccessToken?: string) {
   return useCallback(
     (query: string): Promise<Coworker[]> => {
       const q = normalizeQuery(query);
-      if (!q) return Promise.resolve([]);
+      if (q.length < MIN_COWORKER_SEARCH_LENGTH) return Promise.resolve([]);
       const key = cacheKey(sessionId, q, userAccessToken);
       const cached = getCached(sessionId, q, userAccessToken);
       if (cached) {

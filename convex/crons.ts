@@ -24,4 +24,11 @@ crons.interval(
   {},
 );
 
+crons.interval(
+  "coworker search cache cleanup",
+  { hours: 6 },
+  internal.feishu.coworkers.cleanupExpiredCoworkerSearchCache,
+  {},
+);
+
 export default crons;

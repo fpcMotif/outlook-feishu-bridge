@@ -31,6 +31,7 @@ function appliedPage(rowCount: number, stats?: Partial<AppliedPage>): AppliedPag
   return {
     inserted: rowCount,
     updated: 0,
+    unchanged: 0,
     duplicateRows: 0,
     rowCount,
     firstRecordId: "rec_first",
@@ -102,13 +103,14 @@ describe("addPageTotals", () => {
   it("accumulates row and write counts across pages", () => {
     const totals = emptyTotals();
     addPageTotals(totals, appliedPage(2, { inserted: 1, updated: 1 }));
-    addPageTotals(totals, appliedPage(3, { inserted: 3 }));
+    addPageTotals(totals, appliedPage(3, { inserted: 2, unchanged: 1 }));
     expect(totals).toMatchObject({
       pages: 2,
       rows: 5,
       sourceRows: 5,
-      inserted: 4,
+      inserted: 3,
       updated: 1,
+      unchanged: 1,
       duplicateRows: 0,
     });
   });

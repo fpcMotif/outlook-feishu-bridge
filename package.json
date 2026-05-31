@@ -21,7 +21,8 @@
     "deploy:be": "bash scripts/deploy.sh backend",
     "deploy:all": "bash scripts/deploy.sh all",
     "deploy:cf": "bash scripts/deploy.sh cloudflare",
-    "doctor": "bunx react-doctor@latest"
+    "doctor": "bunx react-doctor@latest",
+    "search:experiment": "bun scripts/search-latency-experiment.mjs"
   },
   "dependencies": {
     "@emnapi/core": "^1.10.0",

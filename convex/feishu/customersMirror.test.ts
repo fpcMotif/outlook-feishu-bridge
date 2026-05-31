@@ -10,7 +10,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { callFeishu } from "./call";
-import { buildSearchBlob, kick } from "./customersMirror";
+import { applyPage, buildSearchBlob, kick } from "./customersMirror";
 
 vi.mock("./call", () => ({
   callFeishu: vi.fn(),
@@ -31,7 +31,7 @@ type KickHandler = (
     runMutation: (
       fn: unknown,
       args: Record<string, unknown>,
-    ) => Promise<{ inserted: number; updated: number; duplicateRows: number } | null>;
+    ) => Promise<{ inserted: number; updated: number; unchanged: number; duplicateRows: number } | null>;
   },
   args: Record<string, never>,
 ) => Promise<{
@@ -39,11 +39,42 @@ type KickHandler = (
   rows: number;
   inserted: number;
   updated: number;
+  unchanged: number;
   duplicateRows: number;
   stopReason: string;
 }>;
 
 const kickHandler = (kick as unknown as { _handler: KickHandler })._handler;
+const applyPageHandler = (applyPage as unknown as {
+  _handler: (
+    ctx: {
+      db: {
+        query: (table: "customers") => {
+          withIndex: (
+            name: "by_recordId",
+            callback: (q: { eq: (field: "recordId", value: string) => unknown }) => unknown,
+          ) => { unique: () => Promise<Record<string, unknown> | null> };
+        };
+        patch: (id: string, fields: Record<string, unknown>) => Promise<void>;
+        insert: (table: "customers", fields: Record<string, unknown>) => Promise<void>;
+      };
+    },
+    args: {
+      rows: Array<{
+        recordId: string;
+        name: string;
+        domain?: string;
+        fullName?: string;
+        accountNo?: string;
+        countryRegion?: string;
+        ownerOpenId?: string;
+        ownerName?: string;
+        searchBlob: string;
+      }>;
+      mirroredAt: number;
+    },
+  ) => Promise<{ inserted: number; updated: number; unchanged: number; duplicateRows: number }>;
+})._handler;
 const mockCallFeishu = vi.mocked(callFeishu);
 const originalConvexDeployment = process.env.CONVEX_DEPLOYMENT;
 const originalFixturesFlag = process.env.ENABLE_DEV_CUSTOMER_FIXTURES;
@@ -66,7 +97,7 @@ function makeCtx() {
   const completions: Record<string, unknown>[] = [];
   const runMutation = vi.fn(async (_fn: unknown, args: Record<string, unknown>) => {
     if (Array.isArray(args.rows)) {
-      return { inserted: args.rows.length, updated: 0, duplicateRows: 0 };
+      return { inserted: args.rows.length, updated: 0, unchanged: 0, duplicateRows: 0 };
     }
     completions.push(args);
     return null;
@@ -130,6 +161,68 @@ describe("buildSearchBlob", () => {
   });
 });
 
+describe("customer mirror applyPage", () => {
+  it("skips unchanged rows so full refreshes do not rewrite the search index", async () => {
+    const existing = {
+      _id: "customer_1",
+      recordId: "rec_same",
+      name: "Same Customer",
+      domain: "same.example",
+      fullName: "Same Customer GmbH",
+      accountNo: "SAME-001",
+      countryRegion: "Germany",
+      ownerOpenId: "ou_owner",
+      ownerName: "Owner One",
+      searchBlob: "Same Customer Same Customer GmbH SAME-001 same.example Germany Owner One",
+      mirroredAt: 1,
+    };
+    const patch = vi.fn(async () => undefined);
+    const insert = vi.fn(async () => undefined);
+    const db = {
+      query: () => ({
+        withIndex: (_name: "by_recordId", callback: (q: { eq: (field: "recordId", value: string) => unknown }) => unknown) => {
+          const constraints: Record<string, string> = {};
+          callback({
+            eq: (field, value) => {
+              constraints[field] = value;
+              return null;
+            },
+          });
+          return {
+            unique: async () => (constraints.recordId === existing.recordId ? existing : null),
+          };
+        },
+      }),
+      patch,
+      insert,
+    };
+
+    const result = await applyPageHandler(
+      { db },
+      {
+        rows: [
+          {
+            recordId: existing.recordId,
+            name: existing.name,
+            domain: existing.domain,
+            fullName: existing.fullName,
+            accountNo: existing.accountNo,
+            countryRegion: existing.countryRegion,
+            ownerOpenId: existing.ownerOpenId,
+            ownerName: existing.ownerName,
+            searchBlob: existing.searchBlob,
+          },
+        ],
+        mirroredAt: 2,
+      },
+    );
+
+    expect(result).toEqual({ inserted: 0, updated: 0, unchanged: 1, duplicateRows: 0 });
+    expect(patch).not.toHaveBeenCalled();
+    expect(insert).not.toHaveBeenCalled();
+  });
+});
+
 describe("customer mirror full sync pagination", () => {
   it("keeps paging past the old 20-page ceiling until Feishu has_more is false", async () => {
     const pages = Array.from({ length: 22 }, (_, index) => feishuPage(index + 1, index < 21));
@@ -167,6 +260,7 @@ describe("customer mirror full sync pagination", () => {
       rows: 22,
       inserted: 22,
       updated: 0,
+      unchanged: 0,
       duplicateRows: 0,
       stopReason: "complete",
     });
@@ -176,6 +270,7 @@ describe("customer mirror full sync pagination", () => {
       lastPageSize: 500,
       lastInsertedCount: 22,
       lastUpdatedCount: 0,
+      lastUnchangedCount: 0,
       lastDuplicateCount: 0,
       lastHadMore: false,
       lastStopReason: "complete",

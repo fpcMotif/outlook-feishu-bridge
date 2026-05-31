@@ -29,6 +29,7 @@ export type MirrorStopReason =
 export interface PageWriteStats {
   inserted: number;
   updated: number;
+  unchanged: number;
   duplicateRows: number;
 }
 
@@ -54,6 +55,7 @@ export function emptyTotals(): SyncTotals {
     rows: 0,
     inserted: 0,
     updated: 0,
+    unchanged: 0,
     duplicateRows: 0,
     sourceRows: 0,
     reportedTotal: 0,
@@ -84,6 +86,7 @@ export function addPageTotals(totals: SyncTotals, page: AppliedPage): void {
   totals.sourceRows += page.rowCount;
   totals.inserted += page.inserted;
   totals.updated += page.updated;
+  totals.unchanged += page.unchanged;
   totals.duplicateRows += page.duplicateRows;
 }
 
@@ -141,7 +144,7 @@ export function completenessStopReason(
 export function logMirrorPage(pageNumber: number, page: AppliedPage, data: SearchResponse): void {
   console.log(
     `[customers-mirror] page=${pageNumber} items=${page.rowCount} inserted=${page.inserted} ` +
-      `updated=${page.updated} duplicateRows=${page.duplicateRows} ` +
+      `updated=${page.updated} unchanged=${page.unchanged} duplicateRows=${page.duplicateRows} ` +
       `hasMore=${data.has_more === true} nextToken=${Boolean(data.page_token)} ` +
       `first=${page.firstRecordId} last=${page.lastRecordId}`,
   );

@@ -28,8 +28,10 @@ const EMPTY_DIRECTORY: CustomerDirectoryState = { status: "ready", records: [] }
 // full syncs; cache-miss backfill still covers fresh rows between kicks.
 const MIRROR_KICK_COOLDOWN_MS = 15 * 60 * 1000;
 const MIN_SERVER_SEARCH_LENGTH = 2;
+const EMPTY_LIVE_MISS_TTL_MS = 30 * 1000;
 let lastMirrorKickStartedAt = 0;
 const inFlightSearches = new Map<string, Promise<CustomerRecord[]>>();
+const emptyLiveMisses = new Map<string, number>();
 
 type ConvexClient = ReturnType<typeof useConvex>;
 type SearchAction = ReturnType<typeof useAction<typeof api.feishu.customersMirror.searchAndCacheMiss>>;
@@ -52,9 +54,23 @@ function trackSearch(key: string, p: Promise<CustomerRecord[]>): Promise<Custome
   return p;
 }
 
+function hasRecentEmptyLiveMiss(key: string): boolean {
+  const cachedAt = emptyLiveMisses.get(key);
+  if (cachedAt === undefined) return false;
+  if (Date.now() - cachedAt < EMPTY_LIVE_MISS_TTL_MS) return true;
+  emptyLiveMisses.delete(key);
+  return false;
+}
+
+function rememberLiveMiss(key: string, records: CustomerRecord[]) {
+  if (records.length === 0) emptyLiveMisses.set(key, Date.now());
+  else emptyLiveMisses.delete(key);
+}
+
 async function runMirrorSearch(
   convex: ConvexClient,
   searchAndCacheMiss: SearchAction,
+  key: string,
   q: string,
   mineFor: string | undefined,
 ): Promise<CustomerRecord[]> {
@@ -62,10 +78,16 @@ async function runMirrorSearch(
   const args = searchArgs(q, mineFor);
   const hit = await convex.query(api.feishu.customersMirror.search, args);
   if (hit.records.length > 0) {
+    emptyLiveMisses.delete(key);
     dtime(`customer search (mirror hit) "${q.slice(0, 40)}" -> ${hit.records.length}`, started);
     return hit.records;
   }
+  if (hasRecentEmptyLiveMiss(key)) {
+    dtime(`customer search (recent empty live miss) "${q.slice(0, 40)}" -> 0`, started);
+    return [];
+  }
   const live = await searchAndCacheMiss(args);
+  rememberLiveMiss(key, live.records);
   dtime(
     `customer search (mirror miss -> live + backfill ${live.backfilled}) "${q.slice(0, 40)}" -> ${live.records.length}`,
     started,
@@ -108,7 +130,7 @@ export function useCustomerSearchServerIndex(): CustomerSearch {
         dlog(`customer search coalesced "${q.slice(0, 40)}"`);
         return inFlight;
       }
-      return trackSearch(key, runMirrorSearch(convex, searchAndCacheMissAction, q, options?.mineFor));
+      return trackSearch(key, runMirrorSearch(convex, searchAndCacheMissAction, key, q, options?.mineFor));
     },
     [convex, searchAndCacheMissAction],
   );

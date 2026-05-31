@@ -61,6 +61,22 @@ describe("useCustomerSearchServerIndex", () => {
     ]);
   });
 
+  it("skips repeated live cache-miss actions after an empty result", async () => {
+    const query = vi.fn(async () => ({ records: [] }));
+    const kick = vi.fn(async () => ({ pages: 1, rows: 1 }));
+    const searchAndCacheMiss = vi.fn(async () => ({ records: [], backfilled: 0 }));
+    mockUseConvex.mockReturnValue({ query } as never);
+    mockUseAction.mockReturnValueOnce(kick).mockReturnValueOnce(searchAndCacheMiss);
+
+    const { result } = renderHook(() => useCustomerSearchServerIndex());
+
+    await expect(result.current.search("zz")).resolves.toEqual([]);
+    await expect(result.current.search(" zz ")).resolves.toEqual([]);
+
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(searchAndCacheMiss).toHaveBeenCalledTimes(1);
+  });
+
   it("throttles repeated mirror refresh kicks from rapid picker opens", () => {
     const kick = vi.fn(async () => ({ pages: 1, rows: 1 }));
     const searchAndCacheMiss = vi.fn();

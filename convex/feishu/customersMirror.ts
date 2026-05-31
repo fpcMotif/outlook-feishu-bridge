@@ -51,6 +51,7 @@ const PAGE_SIZE = 500;
 // Feishu's documented max, but do not pull/write 500 rows on an interactive
 // miss when the UI returns at most 50.
 const CACHE_MISS_PAGE_SIZE = 50;
+const MIN_CACHE_MISS_SEARCH_LENGTH = 2;
 // Official Feishu limits (open.feishu.cn only - no third-party wrapper, no
 // MAX_PAGES cap of our own). The earlier 20-page / 10,000-row ceiling was
 // purely ours and silently truncated once the Customer Table grew past it; the
@@ -511,7 +512,7 @@ export const searchAndCacheMiss = action({
   args: { q: v.string(), mineFor: v.optional(v.string()) },
   handler: async (ctx, args): Promise<{ records: CustomerRecord[]; backfilled: number }> => {
     const q = args.q.trim();
-    if (!q) return { records: [], backfilled: 0 };
+    if (q.length < MIN_CACHE_MISS_SEARCH_LENGTH) return { records: [], backfilled: 0 };
     const appToken = requireAppToken();
     const started = Date.now();
     const data: SearchResponse = await callFeishu<SearchResponse>(ctx, {

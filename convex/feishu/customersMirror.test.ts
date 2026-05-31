@@ -235,6 +235,16 @@ describe("customer mirror applyPage", () => {
 });
 
 describe("customer mirror cache-miss search", () => {
+  it("skips live Feishu search for one-character queries", async () => {
+    const runMutation = vi.fn();
+
+    const result = await searchAndCacheMissHandler({ runMutation }, { q: " a " });
+
+    expect(result).toEqual({ records: [], backfilled: 0 });
+    expect(mockCallFeishu).not.toHaveBeenCalled();
+    expect(runMutation).not.toHaveBeenCalled();
+  });
+
   it("uses a smaller Feishu page than full sync for interactive cache misses", async () => {
     mockCallFeishu.mockResolvedValueOnce({
       items: [

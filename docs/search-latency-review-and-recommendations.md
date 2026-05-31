@@ -60,10 +60,11 @@ sequenceDiagram
 
 ## Changes in this iteration
 
-1. `convex/feishu/customersMirror.ts`
+1. `convex/feishu/customersMirror.ts` + `src/hooks/useCustomerSearchServerIndex.ts`
    - Adds `customerRowChanged` diffing.
    - `applyPage` returns `unchanged` and skips `ctx.db.patch` when the mirrored Customer projection is identical.
    - `customersMirrorState` records `lastUnchangedCount` for refresh observability.
+   - Throttles on-search `customersMirror.kick` to one full refresh per taskpane session every 15 minutes, while cache-miss backfill still covers cold queries.
 2. `convex/schema.ts`
    - Adds `coworkerSearchCache` with `by_session_query`, `by_session_cachedAt`, and `by_cachedAt` indexes for lookup, per-session eviction, and TTL cleanup.
    - Adds optional `lastUnchangedCount` to `customersMirrorState`.

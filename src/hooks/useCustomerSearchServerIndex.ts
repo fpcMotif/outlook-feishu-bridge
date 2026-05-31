@@ -15,12 +15,19 @@ import type {
   CustomerRecord,
   CustomerSearchOptions,
 } from "../components/taskpane/customers";
-import { dtime } from "../debug";
+import { dlog, dtime } from "../debug";
 import type { CustomerSearch } from "./customerSearch";
 
 // No preload in this mode; expose a ready empty directory so the picker stays
 // interactive and delegates to server search on every keystroke.
 const EMPTY_DIRECTORY: CustomerDirectoryState = { status: "ready", records: [] };
+
+// The Customer Mirror full sync is intentionally heavy: it pages Feishu Bitable
+// records/search under documented API limits, then updates Convex's search
+// read model. Opening/closing the picker repeatedly should not enqueue several
+// full syncs; cache-miss backfill still covers fresh rows between kicks.
+const MIRROR_KICK_COOLDOWN_MS = 15 * 60 * 1000;
+let lastMirrorKickStartedAt = 0;
 
 type ConvexClient = ReturnType<typeof useConvex>;
 type SearchAction = ReturnType<typeof useAction<typeof api.feishu.customersMirror.searchAndCacheMiss>>;
@@ -52,6 +59,12 @@ async function runMirrorSearch(
 }
 
 function kickMirror(kickAction: KickAction) {
+  const now = Date.now();
+  if (lastMirrorKickStartedAt > 0 && now - lastMirrorKickStartedAt < MIRROR_KICK_COOLDOWN_MS) {
+    dlog("customer mirror: on-search kick skipped (cooldown)");
+    return;
+  }
+  lastMirrorKickStartedAt = now;
   const started = performance.now();
   void kickAction({})
     .then((res) => {

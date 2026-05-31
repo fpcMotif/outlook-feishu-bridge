@@ -27,6 +27,7 @@ const EMPTY_DIRECTORY: CustomerDirectoryState = { status: "ready", records: [] }
 // read model. Opening/closing the picker repeatedly should not enqueue several
 // full syncs; cache-miss backfill still covers fresh rows between kicks.
 const MIRROR_KICK_COOLDOWN_MS = 15 * 60 * 1000;
+const MIN_SERVER_SEARCH_LENGTH = 2;
 let lastMirrorKickStartedAt = 0;
 const inFlightSearches = new Map<string, Promise<CustomerRecord[]>>();
 
@@ -100,7 +101,7 @@ export function useCustomerSearchServerIndex(): CustomerSearch {
   const search = useCallback(
     (query: string, options?: CustomerSearchOptions): Promise<CustomerRecord[]> => {
       const q = query.trim();
-      if (!q) return Promise.resolve([]);
+      if (q.length < MIN_SERVER_SEARCH_LENGTH) return Promise.resolve([]);
       const key = searchKey(q, options?.mineFor);
       const inFlight = inFlightSearches.get(key);
       if (inFlight) {

@@ -20,6 +20,21 @@ describe("useCustomerSearchServerIndex", () => {
     mockUseConvex.mockReturnValue({ query: vi.fn() } as never);
   });
 
+  it("skips Convex search for one-character queries", async () => {
+    const query = vi.fn();
+    const kick = vi.fn(async () => ({ pages: 1, rows: 1 }));
+    const searchAndCacheMiss = vi.fn();
+    mockUseConvex.mockReturnValue({ query } as never);
+    mockUseAction.mockReturnValueOnce(kick).mockReturnValueOnce(searchAndCacheMiss);
+
+    const { result } = renderHook(() => useCustomerSearchServerIndex());
+
+    await expect(result.current.search(" a ")).resolves.toEqual([]);
+
+    expect(query).not.toHaveBeenCalled();
+    expect(searchAndCacheMiss).not.toHaveBeenCalled();
+  });
+
   it("coalesces repeated in-flight customer searches", async () => {
     let resolveQuery!: (value: { records: Array<{ recordId: string; name: string; owner: null }> }) => void;
     const pendingQuery = new Promise<{ records: Array<{ recordId: string; name: string; owner: null }> }>((resolve) => {

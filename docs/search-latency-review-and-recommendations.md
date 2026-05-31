@@ -65,7 +65,7 @@ sequenceDiagram
    - `applyPage` returns `unchanged` and skips `ctx.db.patch` when the mirrored Customer projection is identical.
    - `customersMirrorState` records `lastUnchangedCount` for refresh observability.
    - Throttles on-search `customersMirror.kick` to one full refresh per taskpane session every 15 minutes, while cache-miss backfill still covers cold queries.
-   - Avoids server fallback for one-character CustomerPicker queries; local directory matches still render immediately, and server search begins once the query is specific enough to reduce broad cache-miss traffic.
+   - Avoids server fallback for one-character CustomerPicker and server-index adapter queries; local directory matches still render immediately, and server search begins once the query is specific enough to reduce broad cache-miss traffic.
    - Keeps full mirror sync at Feishu's documented max page size (500), but caps interactive cache-miss live search at 50 rows and requests only the projected Customer fields to reduce payload and write fanout for typeahead misses.
 2. `convex/schema.ts`
    - Adds `coworkerSearchCache` with `by_session_query`, `by_session_cachedAt`, and `by_cachedAt` indexes for lookup, per-session eviction, and TTL cleanup.

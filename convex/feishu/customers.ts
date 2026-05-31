@@ -46,6 +46,24 @@ export interface CustomerRecord {
   owner: { openId: string; name: string } | null;
 }
 
+export const SEARCH_FALLBACK_PAGE_SIZE = 50;
+const CUSTOMER_SEARCH_FIELDS = [
+  "Account Name",
+  "域名",
+  "全名",
+  "Account No.",
+  "Country and Regio",
+] as const;
+
+interface SearchFilter {
+  conjunction: "or";
+  conditions: {
+    field_name: (typeof CUSTOMER_SEARCH_FIELDS)[number];
+    operator: "contains";
+    value: string[];
+  }[];
+}
+
 /**
  * Map one /records/search item to the slim {@link CustomerRecord}. Pure — no
  * I/O — so it is the foundation for both the on-login `listCustomers` preload
@@ -97,6 +115,22 @@ function flattenText(value: unknown): string | undefined {
     )
     .join("");
   return joined === "" ? undefined : joined;
+}
+
+export function normalizeCustomerQuery(query: string): string {
+  return query.trim().replace(/\s+/g, " ");
+}
+
+export function buildCustomerSearchFilter(query: string): SearchFilter {
+  const q = normalizeCustomerQuery(query);
+  return {
+    conjunction: "or",
+    conditions: CUSTOMER_SEARCH_FIELDS.map((fieldName) => ({
+      field_name: fieldName,
+      operator: "contains",
+      value: [q],
+    })),
+  };
 }
 
 function firstOwner(value: unknown): { openId: string; name: string } | null {
@@ -210,29 +244,21 @@ export const listCustomers = action({
 /**
  * Per-keystroke server-side search — the fallback path used before the
  * directory finishes preloading, or for A/B comparison against the local Fuse
- * index (ADR-0013). One `or` filter with `contains` against Account Name +
- * 域名; takes the first page only.
+ * index (ADR-0013). A normalized `or` contains filter over searchable
+ * Customer fields; takes the first page only.
  */
 export const searchCustomers = action({
   args: { query: v.string() },
   handler: async (ctx, args): Promise<{ records: CustomerRecord[] }> => {
-    const q = args.query.trim();
+    const q = normalizeCustomerQuery(args.query);
     if (!q) return { records: [] };
     const appToken = requireAppToken();
     const data: SearchResponse = await callFeishu<SearchResponse>(ctx, {
       path: `/bitable/v1/apps/${appToken}/tables/${CUSTOMER_TABLE_ID}/records/search`,
       method: "POST",
       auth: "tenant",
-      json: {
-        filter: {
-          conjunction: "or",
-          conditions: [
-            { field_name: "Account Name", operator: "contains", value: [q] },
-            { field_name: "域名", operator: "contains", value: [q] },
-          ],
-        },
-      },
-      query: { page_size: String(PAGE_SIZE) },
+      json: { filter: buildCustomerSearchFilter(q) },
+      query: { page_size: String(SEARCH_FALLBACK_PAGE_SIZE) },
       label: "Bitable search customers",
     });
     const liveRecords = (data.items ?? []).map((item) => mapFeishuItemToCustomer(item));

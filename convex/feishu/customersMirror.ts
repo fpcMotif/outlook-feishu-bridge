@@ -25,7 +25,10 @@ import {
 import { internal } from "../_generated/api";
 import { callFeishu } from "./call";
 import {
+  SEARCH_FALLBACK_PAGE_SIZE,
   canonicalCustomerDomain,
+  buildCustomerSearchFilter,
+  normalizeCustomerQuery,
   mapFeishuItemToCustomer,
   type CustomerRecord,
 } from "./customers";
@@ -83,6 +86,7 @@ export const applyPage = internalMutation({
         recordId: v.string(),
         name: v.string(),
         domain: v.optional(v.string()),
+        domainCanonical: v.optional(v.string()),
         fullName: v.optional(v.string()),
         accountNo: v.optional(v.string()),
         countryRegion: v.optional(v.string()),
@@ -467,7 +471,7 @@ export const kick = action({
 export const searchAndCacheMiss = action({
   args: { q: v.string(), mineFor: v.optional(v.string()) },
   handler: async (ctx, args): Promise<{ records: CustomerRecord[]; backfilled: number }> => {
-    const q = args.q.trim();
+    const q = normalizeCustomerQuery(args.q);
     if (!q) return { records: [], backfilled: 0 };
     const appToken = requireAppToken();
     const started = Date.now();
@@ -476,15 +480,9 @@ export const searchAndCacheMiss = action({
       method: "POST",
       auth: "tenant",
       json: {
-        filter: {
-          conjunction: "or",
-          conditions: [
-            { field_name: "Account Name", operator: "contains", value: [q] },
-            { field_name: "域名", operator: "contains", value: [q] },
-          ],
-        },
+        filter: buildCustomerSearchFilter(q),
       },
-      query: { page_size: String(PAGE_SIZE) },
+      query: { page_size: String(SEARCH_FALLBACK_PAGE_SIZE) },
       label: "Customers mirror — live search on cache miss",
     });
     const backfilledRecords: CustomerRecord[] = (data.items ?? []).map((item) =>
@@ -514,17 +512,24 @@ export const matchByEmail = query({
   handler: async (ctx, args): Promise<{ customer: CustomerRecord | null }> => {
     const domain = canonicalCustomerDomain(emailDomain(args.email));
     if (!domain) return { customer: null };
-    const hit = await ctx.db
+    const hitByCanonical = await ctx.db
       .query("customers")
-      .withIndex("by_domain", (q) => q.eq("domain", domain))
+      .withIndex("by_domainCanonical", (q) => q.eq("domainCanonical", domain))
       .first();
-    if (hit) {
-      if (hit.recordId === "dev_fixture_fanpc_customer") {
+    if (hitByCanonical) {
+      if (hitByCanonical.recordId === "dev_fixture_fanpc_customer") {
         console.log(
           `[dev-customer-fixture] TEST ONLY matched fanpc customer for ${domain}`,
         );
       }
-      return { customer: mirrorDocToCustomer(hit) };
+      return { customer: mirrorDocToCustomer(hitByCanonical) };
+    }
+    const hitByRaw = await ctx.db
+      .query("customers")
+      .withIndex("by_domain", (q) => q.eq("domain", domain))
+      .first();
+    if (hitByRaw) {
+      return { customer: mirrorDocToCustomer(hitByRaw) };
     }
     const fixture = searchDevCustomerFixtures(domain)[0] ?? null;
     if (fixture) {
@@ -552,7 +557,7 @@ export const search = query({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args): Promise<{ records: CustomerRecord[]; mirroredAt: number | null }> => {
-    const q = args.q.trim();
+    const q = normalizeCustomerQuery(args.q);
     const limit = Math.min(Math.max(args.limit ?? 20, 1), 50);
     const state = await ctx.db.query("customersMirrorState").first();
     if (!q) {

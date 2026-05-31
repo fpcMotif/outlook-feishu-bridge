@@ -29,7 +29,11 @@ export default defineSchema({
   })
     .index("by_internetMessageId", ["internetMessageId"])
     .index("by_conversationId", ["conversationId"])
-    .index("by_userEmail", ["userEmail"]),
+    .index("by_userEmail", ["userEmail"])
+    .index("by_bitableSyncStatus_and_bitableNextRetryAt", [
+      "bitableSyncStatus",
+      "bitableNextRetryAt",
+    ]),
 
   // Short-lived, per-session Feishu Search Users results. This keeps repeated
   // Coworker Picker query bursts on Convex instead of paying a Feishu

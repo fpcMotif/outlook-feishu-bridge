@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { requireExactlyOneCoworker } from "./requestSync";
+import { reconcilePendingBitableSync, requireExactlyOneCoworker, syncRequest } from "./requestSync";
 import type { SelectedCoworker } from "../emailRecord";
 
 const jenny: SelectedCoworker = { openId: "ou_jenny", name: "Jenny Xu" };
@@ -26,5 +26,140 @@ describe("requireExactlyOneCoworker", () => {
   it("throws when given two or more coworkers", () => {
     expect(() => requireExactlyOneCoworker([jenny, dave])).toThrow(ERR);
     expect(() => requireExactlyOneCoworker([jenny, dave, jenny])).toThrow(ERR);
+  });
+});
+
+const baseArgs = {
+  subject: "Need quote",
+  from: "buyer@example.com",
+  to: ["sales@example.com"],
+  cc: [],
+  body: "Please quote 10kg.",
+  internetMessageId: "<msg-1@example.com>",
+  itemId: "item-1",
+  conversationId: "conv-1",
+  userEmail: "rep@example.com",
+  dateTimeCreated: 1_716_000_000_000,
+  clientEmail: "buyer@example.com",
+  selectedCustomer: { recordId: "rec_customer", name: "Example Customer" },
+  initiator: { openId: "ou_rep", name: "Rep" },
+  requestSelections: [{ requestType: "Quotation", note: "10kg" }],
+  selectedCoworkers: [jenny],
+};
+
+type SyncRequestHandler = (
+  ctx: {
+    runMutation: (fn: unknown, args: Record<string, unknown>) => Promise<unknown>;
+    runAction: (fn: unknown, args: Record<string, unknown>) => Promise<{ recordId: string }>;
+  },
+  args: typeof baseArgs,
+) => Promise<{ recordId: string }>;
+
+const syncRequestHandler = (syncRequest as unknown as { _handler: SyncRequestHandler })._handler;
+
+describe("syncRequest durable dual sync", () => {
+  it("writes a pending Convex backup before creating the Feishu Base row", async () => {
+    const runMutation = vi
+      .fn()
+      .mockResolvedValueOnce({ bitableClientToken: "client-token-1", bitableRecordId: null })
+      .mockResolvedValueOnce(null);
+    const runAction = vi.fn().mockResolvedValueOnce({ recordId: "rec_service_1" });
+
+    const result = await syncRequestHandler({ runMutation, runAction }, baseArgs);
+
+    expect(result).toEqual({ recordId: "rec_service_1" });
+    expect(runMutation.mock.invocationCallOrder[0]).toBeLessThan(
+      runAction.mock.invocationCallOrder[0],
+    );
+    expect(runMutation.mock.calls[0][1]).toMatchObject({
+      internetMessageId: "<msg-1@example.com>",
+      clientEmail: "buyer@example.com",
+      sentToBitable: false,
+      bitableRecordId: undefined,
+    });
+    expect(runAction.mock.calls[0][1]).toMatchObject({
+      clientToken: "client-token-1",
+      clientRecordId: "rec_customer",
+      emailConversationId: "conv-1",
+    });
+    expect(runMutation.mock.calls[1][1]).toMatchObject({
+      internetMessageId: "<msg-1@example.com>",
+      bitableRecordId: "rec_service_1",
+    });
+  });
+
+  it("short-circuits when the Convex backup already knows the Base record id", async () => {
+    const runMutation = vi.fn().mockResolvedValueOnce({
+      bitableClientToken: "client-token-1",
+      bitableRecordId: "rec_existing",
+    });
+    const runAction = vi.fn();
+
+    await expect(syncRequestHandler({ runMutation, runAction }, baseArgs)).resolves.toEqual({
+      recordId: "rec_existing",
+    });
+
+    expect(runAction).not.toHaveBeenCalled();
+  });
+
+  it("records a retryable failure when the Feishu Base create fails", async () => {
+    const runMutation = vi
+      .fn()
+      .mockResolvedValueOnce({ bitableClientToken: "client-token-1", bitableRecordId: null })
+      .mockResolvedValueOnce(null);
+    const runAction = vi.fn().mockRejectedValueOnce(new Error("Feishu unavailable"));
+
+    await expect(syncRequestHandler({ runMutation, runAction }, baseArgs)).rejects.toThrow(
+      "Feishu unavailable",
+    );
+
+    expect(runMutation.mock.calls[1][1]).toMatchObject({
+      internetMessageId: "<msg-1@example.com>",
+      error: "Feishu unavailable",
+    });
+  });
+});
+
+type ReconcileHandler = (
+  ctx: {
+    runQuery: (fn: unknown, args: Record<string, unknown>) => Promise<Array<Record<string, unknown>>>;
+    runMutation: (fn: unknown, args: Record<string, unknown>) => Promise<unknown>;
+    runAction: (fn: unknown, args: Record<string, unknown>) => Promise<{ recordId: string }>;
+  },
+  args: Record<string, never>,
+) => Promise<{ checked: number; synced: number; failed: number }>;
+
+const reconcileHandler = (
+  reconcilePendingBitableSync as unknown as { _handler: ReconcileHandler }
+)._handler;
+
+describe("reconcilePendingBitableSync", () => {
+  it("replays due Convex backups with their stored idempotency token", async () => {
+    const runQuery = vi.fn().mockResolvedValueOnce([
+      {
+        ...baseArgs,
+        bodyPreview: "Please quote 10kg.",
+        sentToBitable: false,
+        bitableClientToken: "client-token-1",
+      },
+    ]);
+    const runAction = vi.fn().mockResolvedValueOnce({ recordId: "rec_service_1" });
+    const runMutation = vi.fn().mockResolvedValueOnce(null);
+
+    await expect(reconcileHandler({ runQuery, runAction, runMutation }, {})).resolves.toEqual({
+      checked: 1,
+      synced: 1,
+      failed: 0,
+    });
+
+    expect(runAction.mock.calls[0][1]).toMatchObject({
+      clientToken: "client-token-1",
+      clientRecordId: "rec_customer",
+      emailConversationId: "conv-1",
+    });
+    expect(runMutation.mock.calls[0][1]).toMatchObject({
+      internetMessageId: "<msg-1@example.com>",
+      bitableRecordId: "rec_service_1",
+    });
   });
 });

@@ -4,6 +4,7 @@ import { toEmailRecord, type EmailRecord, type EmailRecordInput } from "./emailR
 const syncInput: EmailRecordInput = {
   subject: "Q3 numbers",
   from: "alice@corp.com",
+  clientEmail: "client@corp.com",
   to: ["bob@corp.com", "carol@corp.com"],
   cc: ["dave@corp.com"],
   body: "Here are the figures.",
@@ -19,6 +20,7 @@ const syncInput: EmailRecordInput = {
 const syncRecord: EmailRecord = {
   subject: "Q3 numbers",
   from: "alice@corp.com",
+  clientEmail: "client@corp.com",
   to: ["bob@corp.com", "carol@corp.com"],
   cc: ["dave@corp.com"],
   bodyPreview: "Here are the figures.",
@@ -34,12 +36,20 @@ const syncRecord: EmailRecord = {
   sentToGroups: undefined,
   requestSelections: [{ requestType: "Quotation", note: "Need a quarterly quote." }],
   selectedCoworkers: [{ openId: "ou_abc", name: "Bob", avatarUrl: "https://cdn/bob.png" }],
+  selectedCustomer: undefined,
+  initiator: undefined,
   feishuMessageId: undefined,
   bitableRecordId: "rec_1",
   pdfFileKey: undefined,
   attachmentFileKeys: undefined,
   feishuDocUrl: undefined,
   feishuDocToken: undefined,
+  bitableClientToken: undefined,
+  bitableSyncStatus: undefined,
+  bitableLastError: undefined,
+  bitableLastAttemptAt: undefined,
+  bitableAttemptCount: undefined,
+  bitableNextRetryAt: undefined,
 };
 
 describe("toEmailRecord", () => {
@@ -55,6 +65,13 @@ describe("toEmailRecord", () => {
     expect(record.selectedCoworkers).toEqual([
       { openId: "ou_abc", name: "Bob", avatarUrl: "https://cdn/bob.png" },
     ]);
+  });
+
+  it("can create a pending Convex backup before the Bitable row exists", () => {
+    const record = toEmailRecord(syncInput, { sentToBitable: false });
+    expect(record.sentToBitable).toBe(false);
+    expect(record.bitableRecordId).toBeUndefined();
+    expect(record.clientEmail).toBe("client@corp.com");
   });
 
   it("truncates the body to a 500-char preview; the full body is never persisted", () => {

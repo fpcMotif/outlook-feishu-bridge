@@ -28,6 +28,7 @@ const EMPTY_DIRECTORY: CustomerDirectoryState = { status: "ready", records: [] }
 // full syncs; cache-miss backfill still covers fresh rows between kicks.
 const MIRROR_KICK_COOLDOWN_MS = 15 * 60 * 1000;
 let lastMirrorKickStartedAt = 0;
+const inFlightSearches = new Map<string, Promise<CustomerRecord[]>>();
 
 type ConvexClient = ReturnType<typeof useConvex>;
 type SearchAction = ReturnType<typeof useAction<typeof api.feishu.customersMirror.searchAndCacheMiss>>;
@@ -35,6 +36,19 @@ type KickAction = ReturnType<typeof useAction<typeof api.feishu.customersMirror.
 
 function searchArgs(q: string, mineFor: string | undefined) {
   return mineFor === undefined ? { q } : { q, mineFor };
+}
+
+function searchKey(q: string, mineFor: string | undefined): string {
+  return `${mineFor ?? "<all>"}:${q.toLowerCase()}`;
+}
+
+function trackSearch(key: string, p: Promise<CustomerRecord[]>): Promise<CustomerRecord[]> {
+  inFlightSearches.set(key, p);
+  p.then(
+    () => inFlightSearches.delete(key),
+    () => inFlightSearches.delete(key),
+  );
+  return p;
 }
 
 async function runMirrorSearch(
@@ -87,7 +101,13 @@ export function useCustomerSearchServerIndex(): CustomerSearch {
     (query: string, options?: CustomerSearchOptions): Promise<CustomerRecord[]> => {
       const q = query.trim();
       if (!q) return Promise.resolve([]);
-      return runMirrorSearch(convex, searchAndCacheMissAction, q, options?.mineFor);
+      const key = searchKey(q, options?.mineFor);
+      const inFlight = inFlightSearches.get(key);
+      if (inFlight) {
+        dlog(`customer search coalesced "${q.slice(0, 40)}"`);
+        return inFlight;
+      }
+      return trackSearch(key, runMirrorSearch(convex, searchAndCacheMissAction, q, options?.mineFor));
     },
     [convex, searchAndCacheMissAction],
   );

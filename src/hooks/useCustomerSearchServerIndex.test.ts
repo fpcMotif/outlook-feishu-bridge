@@ -20,6 +20,32 @@ describe("useCustomerSearchServerIndex", () => {
     mockUseConvex.mockReturnValue({ query: vi.fn() } as never);
   });
 
+  it("coalesces repeated in-flight customer searches", async () => {
+    let resolveQuery!: (value: { records: Array<{ recordId: string; name: string; owner: null }> }) => void;
+    const pendingQuery = new Promise<{ records: Array<{ recordId: string; name: string; owner: null }> }>((resolve) => {
+      resolveQuery = resolve;
+    });
+    const query = vi.fn(() => pendingQuery);
+    const kick = vi.fn(async () => ({ pages: 1, rows: 1 }));
+    const searchAndCacheMiss = vi.fn();
+    mockUseConvex.mockReturnValue({ query } as never);
+    mockUseAction.mockReturnValueOnce(kick).mockReturnValueOnce(searchAndCacheMiss);
+
+    const { result } = renderHook(() => useCustomerSearchServerIndex());
+
+    const p1 = result.current.search("Acme");
+    const p2 = result.current.search(" acme ");
+
+    expect(p1).toBe(p2);
+    expect(query).toHaveBeenCalledTimes(1);
+
+    resolveQuery({ records: [{ recordId: "rec_acme", name: "Acme", owner: null }] });
+    await expect(Promise.all([p1, p2])).resolves.toEqual([
+      [{ recordId: "rec_acme", name: "Acme", owner: null }],
+      [{ recordId: "rec_acme", name: "Acme", owner: null }],
+    ]);
+  });
+
   it("throttles repeated mirror refresh kicks from rapid picker opens", () => {
     const kick = vi.fn(async () => ({ pages: 1, rows: 1 }));
     const searchAndCacheMiss = vi.fn();

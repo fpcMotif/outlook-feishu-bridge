@@ -3,8 +3,8 @@
 // findCustomerByEmail; this module displays the chosen Customer and owns the
 // search-panel interaction for manual overrides.
 
-/* eslint-disable max-lines-per-function */
-import { useMemo, useRef, useState } from "react";
+/* eslint-disable max-lines, max-lines-per-function */
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Search, UserRound } from "lucide-react";
 
 import type {
@@ -139,11 +139,18 @@ function SearchPanel({
   const [serverMatches, setServerMatches] = useState<CustomerRecord[]>([]);
   const [showMine, setShowMine] = useState(false);
   const latestSearch = useRef(0);
+  const searchTimer = useRef<number | null>(null);
   const q = normalizedQuery(query);
 
   const localMatches = useMemo<CustomerRecord[]>(() => {
     return filterLocalCustomers(directory.records, q, showMine, currentUserOpenId);
   }, [q, showMine, currentUserOpenId, directory.records]);
+
+  useEffect(() => {
+    return () => {
+      if (searchTimer.current !== null) window.clearTimeout(searchTimer.current);
+    };
+  }, []);
 
   const runServerSearch = (nextQuery: string, nextShowMine: boolean) => {
     const nextQ = normalizedQuery(nextQuery);
@@ -153,6 +160,7 @@ function SearchPanel({
       nextShowMine,
       currentUserOpenId,
     );
+    if (searchTimer.current !== null) window.clearTimeout(searchTimer.current);
     if (!nextQ || (directory.status === "ready" && nextLocalMatches.length > 0)) {
       latestSearch.current += 1;
       setServerMatches([]);
@@ -160,13 +168,15 @@ function SearchPanel({
     }
     const searchId = latestSearch.current + 1;
     latestSearch.current = searchId;
-    void searchCustomers(nextQ, ownerFilter(nextShowMine, currentUserOpenId))
-      .then((rows) => {
-        if (latestSearch.current === searchId) setServerMatches(rows);
-      })
-      .catch(() => {
-        if (latestSearch.current === searchId) setServerMatches([]);
-      });
+    searchTimer.current = window.setTimeout(() => {
+      void searchCustomers(nextQ, ownerFilter(nextShowMine, currentUserOpenId))
+        .then((rows) => {
+          if (latestSearch.current === searchId) setServerMatches(rows);
+        })
+        .catch(() => {
+          if (latestSearch.current === searchId) setServerMatches([]);
+        });
+    }, 250);
   };
 
   const handleQueryChange = (nextQuery: string) => {

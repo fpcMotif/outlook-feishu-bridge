@@ -6,7 +6,7 @@
 
 /* eslint-disable max-lines-per-function, require-unicode-regexp */
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CustomerPicker } from "./CustomerPicker";
 
@@ -23,6 +23,10 @@ const STOCKMEIER = {
   domain: "stockmeier.com",
   owner: null,
 };
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe("CustomerPicker", () => {
   it("renders the selected Customer's name as the chip", () => {
@@ -136,6 +140,32 @@ describe("CustomerPicker server fallback", () => {
     domain: "novonordisk.com",
     owner: { openId: "ou_florian", name: "Florian Meurer" },
   };
+
+  it("debounces server search when the local Customer Directory has no match", async () => {
+    vi.useFakeTimers();
+    const searchCustomers = vi.fn(() => Promise.resolve([NOVO]));
+    render(
+      <CustomerPicker
+        directory={{ status: "ready", records: [BAYER] }}
+        searchCustomers={searchCustomers}
+        emailDomain="unknown.io"
+        selectedCustomer={null}
+        onChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /search customer/i }));
+    const input = screen.getByRole("combobox", { name: /search customers/i });
+    fireEvent.change(input, { target: { value: "n" } });
+    fireEvent.change(input, { target: { value: "no" } });
+    fireEvent.change(input, { target: { value: "novo" } });
+
+    expect(searchCustomers).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(250);
+
+    expect(searchCustomers).toHaveBeenCalledTimes(1);
+    expect(searchCustomers).toHaveBeenCalledWith("novo", undefined);
+  });
 
   it("uses server search when the local Customer Directory has no match", async () => {
     const searchCustomers = vi.fn(() => Promise.resolve([NOVO]));

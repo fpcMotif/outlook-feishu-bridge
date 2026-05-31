@@ -1,4 +1,12 @@
-import { action, internalMutation, internalQuery, type ActionCtx } from "../_generated/server";
+/* eslint-disable max-lines */
+import {
+  action,
+  internalMutation,
+  internalQuery,
+  query as convexQuery,
+  type ActionCtx,
+  type QueryCtx,
+} from "../_generated/server";
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import { callFeishu, resolveFeishuToken } from "./call";
@@ -66,6 +74,24 @@ function isCacheFresh(cachedAt: number, now: number, ttlMs: number): boolean {
   return now - cachedAt <= ttlMs;
 }
 
+async function getFreshCoworkerCacheEntry(
+  ctx: QueryCtx,
+  sessionId: string,
+  searchText: string,
+): Promise<{ cachedAt: number; results: Coworker[] } | null> {
+  const normalized = makeCacheLookupQuery(searchText);
+  const [hit] = await ctx.db
+    .query("coworkerSearchCache")
+    .withIndex("by_session_query", (q) =>
+      q.eq("sessionId", sessionId).eq("query", normalized),
+    )
+    .order("desc")
+    .take(1);
+  if (hit === undefined) return null;
+  if (!isCacheFresh(hit.cachedAt, Date.now(), hit.ttlMs)) return null;
+  return { cachedAt: hit.cachedAt, results: hit.results };
+}
+
 function logCoworkerAvatarDiagnostics(users: FeishuUser[], coworkers: Coworker[]) {
   const avatarKeys = new Set<string>();
   for (const user of users) {
@@ -87,24 +113,31 @@ export const getCachedCoworkerSearch = internalQuery({
   },
   handler: async (ctx, args): Promise<{ cachedAt: number; results: Coworker[] } | null> => {
     const normalized = makeCacheLookupQuery(args.query);
-    const [hit] = await ctx.db
-      .query("coworkerSearchCache")
-      .withIndex("by_session_query", (q) =>
-        q.eq("sessionId", args.sessionId).eq("query", normalized),
-      )
-      .order("desc")
-      .take(1);
-    if (hit === undefined) {
-      console.log(`[coworkers] cache miss session=${args.sessionId} q="${normalized.slice(0, 40)}"`);
+    const cached = await getFreshCoworkerCacheEntry(ctx, args.sessionId, normalized);
+    if (!cached) {
+      console.log(`[coworkers] cache miss/stale session=${args.sessionId} q="${normalized.slice(0, 40)}"`);
       return null;
     }
-    if (!isCacheFresh(hit.cachedAt, Date.now(), hit.ttlMs)) {
-      console.log(
-        `[coworkers] cache stale session=${args.sessionId} q="${normalized.slice(0, 40)}" cachedAt=${hit.cachedAt} ttlMs=${hit.ttlMs}`,
-      );
-      return null;
-    }
-    return { cachedAt: hit.cachedAt, results: hit.results };
+    return cached;
+  },
+});
+
+export const searchCoworkersCached = convexQuery({
+  args: {
+    sessionId: v.string(),
+    query: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ results: Coworker[] } | null> => {
+    const q = normalizeCoworkerQuery(args.query);
+    if (!q) return { results: [] };
+    const session = await ctx.db
+      .query("feishuUserTokens")
+      .withIndex("by_sessionId", (idx) => idx.eq("sessionId", args.sessionId))
+      .unique();
+    if (!session || session.expiresAt <= Date.now()) return null;
+    const cached = await getFreshCoworkerCacheEntry(ctx, args.sessionId, q);
+    if (!cached) return null;
+    return { results: cached.results };
   },
 });
 

@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { dlog, dtime } from "../debug";
-import { useAction } from "convex/react";
+import { useAction, useConvex } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import type { Coworker } from "../components/taskpane/coworkers";
 
@@ -14,6 +14,9 @@ const COWORKER_SEARCH_CACHE_MAX_ENTRIES = 24;
 
 const cache = new Map<string, CoworkerCacheEntry>();
 const inflight = new Map<string, Promise<Coworker[]>>();
+
+type ConvexClient = ReturnType<typeof useConvex>;
+type SearchAction = ReturnType<typeof useAction<typeof api.feishu.coworkers.searchCoworkers>>;
 
 function normalizeQuery(query: string): string {
   return query.trim();
@@ -74,56 +77,76 @@ function setCached(
   }
 }
 
+async function runRemoteCoworkerSearch(
+  convex: ConvexClient,
+  searchAction: SearchAction,
+  sessionId: string,
+  q: string,
+  started: number,
+  userAccessToken?: string,
+): Promise<Coworker[]> {
+  if (userAccessToken === undefined) {
+    const warm = await convex.query(api.feishu.coworkers.searchCoworkersCached, {
+      sessionId,
+      query: q,
+    });
+    if (warm) {
+      setCached(sessionId, q, warm.results, userAccessToken);
+      dtime(`coworker search convex cache "${q.slice(0, 40)}" -> ${warm.results.length}`, started);
+      return warm.results;
+    }
+  }
+  const result = await searchAction({ sessionId, query: q, userAccessToken });
+  setCached(sessionId, q, result, userAccessToken);
+  dtime(`coworker search network (Feishu) "${q.slice(0, 40)}" -> ${result.length}`, started);
+  dlog(`coworker search cached "${q.slice(0, 40)}" -> ${result.length}`);
+  return result;
+}
+
+function trackInflight(key: string, p: Promise<Coworker[]>): Promise<Coworker[]> {
+  inflight.set(key, p);
+  p.then(
+    () => inflight.delete(key),
+    () => inflight.delete(key),
+  );
+  return p;
+}
+
 // Real Feishu directory search (Search Users, scope contact:user:search, user
 // token). The sessionId scopes the user token. See convex/feishu/coworkers.ts +
 // ADR-0003. Returns [] for a blank query.
-//
-// Added in-session query cache and in-flight de-dup to avoid duplicate API calls
-// while users type, reopen the picker, or rapidly repeat the same query.
 export function useCoworkerSearch(sessionId: string, userAccessToken?: string) {
+  const convex = useConvex();
   const searchAction = useAction(api.feishu.coworkers.searchCoworkers);
   return useCallback(
     (query: string): Promise<Coworker[]> => {
       const q = normalizeQuery(query);
       if (!q) return Promise.resolve([]);
-
       const key = cacheKey(sessionId, q, userAccessToken);
       const cached = getCached(sessionId, q, userAccessToken);
       if (cached) {
         dlog(`coworker search cache hit "${q.slice(0, 40)}" (${cached.length})`);
         return Promise.resolve(cached);
       }
-
       const inFlight = inflight.get(key);
       if (inFlight) {
         dlog(`coworker search coalesced "${q.slice(0, 40)}"`);
         return inFlight;
       }
-
       const started = performance.now();
-      const p = searchAction({ sessionId, query: q, userAccessToken })
-        .then((result) => {
-          setCached(sessionId, q, result, userAccessToken);
-          dtime(`coworker search network (Feishu) "${q.slice(0, 40)}" -> ${result.length}`, started);
-          dlog(`coworker search cached "${q.slice(0, 40)}" -> ${result.length}`);
-          return result;
-        })
-        .catch((error: unknown) => {
-          dtime(`coworker search failed "${q.slice(0, 40)}"`, started);
-          throw error;
-        });
-      inflight.set(key, p);
-      p.then(
-        () => {
-          inflight.delete(key);
-        },
-        () => {
-          inflight.delete(key);
-        },
-      );
-
-      return p;
+      const p = runRemoteCoworkerSearch(
+        convex,
+        searchAction,
+        sessionId,
+        q,
+        started,
+        userAccessToken,
+      ).catch((error: unknown) => {
+        dtime(`coworker search failed "${q.slice(0, 40)}"`, started);
+        throw error;
+      });
+      return trackInflight(key, p);
     },
-    [searchAction, sessionId, userAccessToken],
+    [convex, searchAction, sessionId, userAccessToken],
   );
 }

@@ -6,7 +6,7 @@ _Last updated: 2026-06-01_
 
 - **Customer search:** keep the Convex **server-indexed Customer Mirror** as the production path for large Customer Tables (`VITE_CUSTOMER_SEARCH_MODE=server-index`). The hot query is `convex/feishu/customersMirror.ts:search`, backed by `convex/schema.ts` search index `customers.by_text`.
 - **Customer mirror refresh latency/cost:** `applyPage` now skips no-op writes when mirrored rows are unchanged. This avoids unnecessary Convex invalidation, search-index rewrites, replication work, and reactive subscriber churn during weekly full refreshes.
-- **Coworker/contact search:** keep Feishu's official Search Users API (`GET /open-apis/search/v1/user`) as the source of truth, but add session-scoped Convex cache plus frontend in-flight de-dup/TTL cache to avoid repeated Feishu round-trips for identical query bursts.
+- **Coworker/contact search:** keep Feishu's official Search Users API (`GET /open-apis/search/v1/user`) as the source of truth, but add a session-validated Convex query cache plus frontend in-flight de-dup/TTL cache to avoid repeated Feishu round-trips and action runtime overhead for identical query bursts.
 - **Experiment loop:** `scripts/search-latency-experiment.mjs` plus `bun run search:experiment` provide repeatable Convex-backed p50/p95 probes for customer mirror search and coworker cache-hit search.
 
 ## Official-doc constraints used
@@ -44,12 +44,11 @@ sequenceDiagram
   alt frontend cache hit or in-flight duplicate
     Mem-->>UI: cached/coalesced coworkers
   else miss
-    Mem->>A: searchCoworkers(sessionId, q)
-    A->>DB: getCachedCoworkerSearch(sessionId, normalized q)
-    alt Convex cache hit
-      DB-->>A: cached coworkers
-      A-->>Mem: cached coworkers
+    Mem->>DB: searchCoworkersCached(sessionId, q)
+    alt Convex query cache hit and session valid
+      DB-->>Mem: cached coworkers
     else cold/stale
+      Mem->>A: searchCoworkers(sessionId, q)
       A->>F: GET /search/v1/user?query=q&page_size=20
       F-->>A: users + avatar fields
       A->>DB: setCoworkerSearchCache(TTL 5m, max 24/session)
@@ -69,16 +68,16 @@ sequenceDiagram
    - Adds `coworkerSearchCache` with `by_session_query`, `by_session_cachedAt`, and `by_cachedAt` indexes for lookup, per-session eviction, and TTL cleanup.
    - Adds optional `lastUnchangedCount` to `customersMirrorState`.
 3. `convex/feishu/coworkers.ts`
-   - Adds internal cache query/mutation for Search Users results.
+   - Adds internal cache query/mutation plus public `searchCoworkersCached` query for warm Search Users results.
    - Validates the primary server-side Feishu session before returning cached results; fallback browser-held tokens bypass the shared server cache.
    - Keeps Feishu as source of truth on cold/stale cache misses.
    - Preserves avatar fallback order: `avatar_72`, `avatar_240`, `avatar_640`, `avatar_origin`, `avatar_url`.
 4. `src/hooks/useCoworkerSearch.ts`
-   - Adds module-level TTL cache, LRU-style pruning, token-scoped fallback cache keys, and in-flight promise coalescing.
+   - Adds module-level TTL cache, LRU-style pruning, token-scoped fallback cache keys, in-flight promise coalescing, and a public-query warm-cache check before the action fallback.
    - Adds timing/debug logs for cache hits, coalesced calls, network calls, and failures.
 5. `scripts/search-latency-experiment.mjs`
    - Seeds synthetic customers, coworker cache rows, and one benchmark Feishu session token row into an explicitly acknowledged disposable Convex deployment.
-   - Repeatedly runs `feishu/customersMirror:search` and `feishu/coworkers:searchCoworkers`.
+   - Repeatedly runs `feishu/customersMirror:search` and `feishu/coworkers:searchCoworkersCached`.
    - Prints CLI wall-time p50/p95/min/max.
 
 ## Verification

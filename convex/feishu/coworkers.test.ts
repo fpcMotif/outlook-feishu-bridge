@@ -5,6 +5,7 @@ import {
   type Coworker,
   getCachedCoworkerSearch,
   setCoworkerSearchCache,
+  searchCoworkersCached,
   type FeishuUser,
   cleanupExpiredCoworkerSearchCache,
   mapCoworkers,
@@ -33,8 +34,15 @@ type CacheRow = {
   ttlMs: number;
 };
 
+type SessionRow = {
+  _id: string;
+  sessionId: string;
+  expiresAt: number;
+};
+
 type FakeDb = {
   rows: CacheRow[];
+  sessions: SessionRow[];
   query: (table: string) => FakeQueryBuilder;
   insert: (row: Omit<CacheRow, "_id"> & { _id?: string }) => Promise<string>;
   patch: (id: string, patch: Partial<CacheRow>) => Promise<void>;
@@ -56,24 +64,29 @@ type FakeQueryChainAfterIndex = {
   take: (n: number) => Promise<CacheRow[]>;
 };
 
-const makeFakeDb = (initialRows: CacheRow[] = []): FakeDb => {
+const makeFakeDb = (initialRows: CacheRow[] = [], initialSessions: SessionRow[] = []): FakeDb => {
   const rows = [...initialRows];
+  const sessions = [...initialSessions];
   let nextId = rows.length;
 
   type Constraint =
     | { op: "eq"; field: keyof CacheRow; value: unknown }
     | { op: "lt"; field: keyof CacheRow; value: number };
 
-  const matches = (row: CacheRow, constraint: Constraint) => {
-    if (constraint.op === "eq") return row[constraint.field] === constraint.value;
-    return typeof row[constraint.field] === "number" && row[constraint.field] < constraint.value;
+  const matches = (row: CacheRow | SessionRow, constraint: Constraint) => {
+    if (constraint.op === "eq") return row[constraint.field as keyof typeof row] === constraint.value;
+    const fieldValue = row[constraint.field as keyof typeof row];
+    return typeof fieldValue === "number" && fieldValue < constraint.value;
   };
 
-  const uniqueQuery = (constraints: Constraint[]) => {
-    return rows.find((row) => constraints.every((constraint) => matches(row, constraint))) ?? null;
+  const tableRows = (table: string): Array<CacheRow | SessionRow> =>
+    table === "feishuUserTokens" ? sessions : rows;
+
+  const uniqueQuery = (table: string, constraints: Constraint[]) => {
+    return tableRows(table).find((row) => constraints.every((constraint) => matches(row, constraint))) ?? null;
   };
 
-  const chainFactory = (constraints: Constraint[]): FakeQueryBuilder => {
+  const chainFactory = (table: string, constraints: Constraint[]): FakeQueryBuilder => {
     let order: "desc" | undefined;
 
     const q: FakeConstraintBuilder = {
@@ -87,13 +100,13 @@ const makeFakeDb = (initialRows: CacheRow[] = []): FakeDb => {
       },
     };
 
-    const listRows = () => rows.filter((row) => constraints.every((constraint) => matches(row, constraint)));
+    const listRows = () => tableRows(table).filter((row) => constraints.every((constraint) => matches(row, constraint)));
 
     const chainAfterIndex: FakeQueryBuilder = {
       withIndex: () => {
         throw new Error("invalid: withIndex should not be called after withIndex");
       },
-      unique: async () => uniqueQuery(constraints),
+      unique: async () => uniqueQuery(table, constraints),
       order: (dir: "desc") => {
         order = dir;
         return chainAfterIndex;
@@ -116,8 +129,9 @@ const makeFakeDb = (initialRows: CacheRow[] = []): FakeDb => {
 
   return {
     rows,
-    query: (_table: string) => {
-      return chainFactory([]);
+    sessions,
+    query: (table: string) => {
+      return chainFactory(table, []);
     },
     insert: async (row: Omit<CacheRow, "_id"> & { _id?: string }) => {
       const id = row._id ?? `cache_${nextId++}`;
@@ -152,6 +166,10 @@ const setCoworkerSearchCacheHandler = (setCoworkerSearchCache as unknown as {
 
 const cleanupExpiredCoworkerSearchCacheHandler = (cleanupExpiredCoworkerSearchCache as unknown as {
   _handler: (ctx: { db: FakeDb }, args: Record<string, never>) => Promise<{ deleted: number }>;
+})._handler;
+
+const searchCoworkersCachedHandler = (searchCoworkersCached as unknown as {
+  _handler: (ctx: { db: FakeDb }, args: { sessionId: string; query: string }) => Promise<{ results: Coworker[] } | null>;
 })._handler;
 
 describe("Coworker Search Users mapping", () => {
@@ -340,6 +358,36 @@ describe("Coworker search cache internals", () => {
       ttlMs: 3000,
       results: [{ openId: "ou_cached", name: "Fresh Alice" }],
     });
+  });
+});
+
+describe("searchCoworkersCached query behavior", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("returns warm cache only when the server session is still valid", async () => {
+    const db = makeFakeDb(
+      [
+        {
+          _id: "cached-1",
+          sessionId: "sess-valid",
+          query: "alice",
+          cachedAt: 9000,
+          ttlMs: 5000,
+          results: [{ openId: "ou_cached", name: "Cached Alice" }],
+        },
+      ],
+      [{ _id: "session-1", sessionId: "sess-valid", expiresAt: 20000 }],
+    );
+    vi.spyOn(Date, "now").mockReturnValue(10000);
+
+    await expect(
+      searchCoworkersCachedHandler({ db }, { sessionId: "sess-valid", query: " Alice " }),
+    ).resolves.toEqual({ results: [{ openId: "ou_cached", name: "Cached Alice" }] });
+    await expect(
+      searchCoworkersCachedHandler({ db }, { sessionId: "sess-missing", query: "Alice" }),
+    ).resolves.toBeNull();
   });
 });
 

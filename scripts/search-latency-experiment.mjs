@@ -247,7 +247,7 @@ function runExperiment(config) {
     customerQueryDurations.push(call.elapsedMs);
   }
 
-  console.log("Running coworker search (cache-hit) query loop...");
+  console.log("Running coworker search (public query cache-hit) loop...");
   for (const q of coworkerQueries) {
     const payload = {
       sessionId: "bench_session_01",
@@ -258,7 +258,7 @@ function runExperiment(config) {
         "run",
         "--deployment",
         deploymentRef,
-        "feishu/coworkers:searchCoworkers",
+        "feishu/coworkers:searchCoworkersCached",
         JSON.stringify(payload),
       ],
       deploymentRef,

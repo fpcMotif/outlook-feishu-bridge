@@ -8,9 +8,11 @@ import * as convexReact from "convex/react";
 
 vi.mock("convex/react", () => ({
   useAction: vi.fn(),
+  useConvex: vi.fn(),
 }));
 
 const mockUseAction = vi.mocked(convexReact.useAction);
+const mockUseConvex = vi.mocked(convexReact.useConvex);
 
 describe("useCoworkerSearch", () => {
   const sample: Coworker[] = [
@@ -19,6 +21,7 @@ describe("useCoworkerSearch", () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    mockUseConvex.mockReturnValue({ query: vi.fn(async () => null) } as never);
   });
 
   it("caches identical queries for the same session", async () => {
@@ -37,6 +40,21 @@ describe("useCoworkerSearch", () => {
     expect(action).toHaveBeenCalledTimes(1);
     expect(first).toEqual(sample);
     expect(second).toEqual(sample);
+  });
+
+  it("uses the Convex query cache before falling back to the action", async () => {
+    const action = vi.fn().mockResolvedValue(sample);
+    const query = vi.fn(async () => ({ results: sample }));
+    mockUseAction.mockReturnValue(action);
+    mockUseConvex.mockReturnValue({ query } as never);
+
+    const { result } = renderHook(() => useCoworkerSearch("session-query"));
+
+    const found = await act(async () => result.current("Alice"));
+
+    expect(found).toEqual(sample);
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(action).not.toHaveBeenCalled();
   });
 
   it("scopes cached fallback results by user access token", async () => {
@@ -72,6 +90,7 @@ describe("useCoworkerSearch", () => {
     const p1 = result.current("Manager");
     const p2 = result.current("manager");
     expect(p1).toBe(p2);
+    await Promise.resolve();
     expect(action).toHaveBeenCalledTimes(1);
 
     resolve(sample);

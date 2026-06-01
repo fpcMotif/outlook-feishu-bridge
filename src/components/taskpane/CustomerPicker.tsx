@@ -163,6 +163,12 @@ function SearchPanel({
 
   const runServerSearch = (nextQuery: string, nextShowMine: boolean) => {
     const nextQ = normalizedQuery(nextQuery);
+    if (searchTimer.current !== null) window.clearTimeout(searchTimer.current);
+    if (!nextQ || nextQ.length < MIN_SERVER_SEARCH_LENGTH) {
+      latestSearch.current += 1;
+      setServerMatches([]);
+      return;
+    }
     const nextLocalMatches = logLocalFilter(
       directory.records,
       nextQ,
@@ -170,12 +176,7 @@ function SearchPanel({
       currentUserOpenId,
       LOCAL_MATCH_DISPLAY_LIMIT,
     );
-    if (searchTimer.current !== null) window.clearTimeout(searchTimer.current);
-    if (
-      !nextQ ||
-      nextQ.length < MIN_SERVER_SEARCH_LENGTH ||
-      (directory.status === "ready" && nextLocalMatches.length > 0)
-    ) {
+    if (directory.status === "ready" && nextLocalMatches.length > 0) {
       latestSearch.current += 1;
       setServerMatches([]);
       return;

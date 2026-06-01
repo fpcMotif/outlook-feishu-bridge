@@ -183,6 +183,36 @@ describe("CustomerPicker server fallback", () => {
     expect(screen.getByRole("button", { name: /Bayer Pharma/i })).toBeInTheDocument();
   });
 
+  it("does not run an extra local scan for one-character no-match server guard", async () => {
+    vi.useFakeTimers();
+    let nameReads = 0;
+    const records = Array.from({ length: 100 }, (_, index) => ({
+      recordId: `rec_${index}`,
+      get name() {
+        nameReads += 1;
+        return `Customer ${index}`;
+      },
+      owner: null,
+    }));
+    render(
+      <CustomerPicker
+        directory={{ status: "ready", records }}
+        searchCustomers={vi.fn()}
+        emailDomain="unknown.io"
+        selectedCustomer={null}
+        onChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /search customer/i }));
+    fireEvent.change(screen.getByRole("combobox", { name: /search customers/i }), {
+      target: { value: "z" },
+    });
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(nameReads).toBe(100);
+  });
+
   it("debounces server search when the local Customer Directory has no match", async () => {
     vi.useFakeTimers();
     const searchCustomers = vi.fn(() => Promise.resolve([NOVO]));

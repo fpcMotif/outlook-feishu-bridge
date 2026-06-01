@@ -16,6 +16,8 @@ import { dtime } from "../debug";
 import { useCustomerDirectory } from "./useCustomerDirectory";
 import type { CustomerSearch } from "./customerSearch";
 
+const MIN_SERVER_SEARCH_LENGTH = 2;
+
 function filterByOwner(
   records: readonly CustomerRecord[],
   mineFor: string | undefined,
@@ -32,7 +34,7 @@ export function useCustomerSearchPreload(isLoggedIn: boolean): CustomerSearch {
   const search = useCallback(
     async (query: string, options?: CustomerSearchOptions): Promise<CustomerRecord[]> => {
       const q = query.trim();
-      if (!q) return [];
+      if (q.length < MIN_SERVER_SEARCH_LENGTH) return [];
       const started = performance.now();
       const { records } = await legacyAction({ query: q });
       const visibleRecords = filterByOwner(records, options?.mineFor);

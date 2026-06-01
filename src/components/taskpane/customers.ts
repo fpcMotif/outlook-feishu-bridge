@@ -33,7 +33,14 @@ export function findCustomerByEmail<R extends { domain?: string }>(
   directory: readonly R[],
   email: string,
 ): R | null {
-  const target = canonicalCustomerDomain(emailDomain(email));
+  return findCustomerByDomain(directory, emailDomain(email));
+}
+
+export function findCustomerByDomain<R extends { domain?: string }>(
+  directory: readonly R[],
+  domain: string | undefined | null,
+): R | null {
+  const target = canonicalCustomerDomain(domain);
   if (!target) return null;
   return (
     directory.find((customer) => canonicalCustomerDomain(customer.domain) === target) ?? null

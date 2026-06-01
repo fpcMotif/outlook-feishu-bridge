@@ -2,8 +2,9 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { useCustomerAutoMatch } from "./useCustomerAutoMatch";
+import type { CustomerRecord } from "../components/taskpane/customers";
 
-function renderAutoMatch(clientEmail: string) {
+function renderAutoMatch(clientEmail: string, records: CustomerRecord[] = []) {
   const matchEmail = vi.fn(async () => null);
   const triggerRefresh = vi.fn();
   const dispatch = vi.fn();
@@ -14,7 +15,7 @@ function renderAutoMatch(clientEmail: string) {
         clientEmail: email,
         customerTouched: false,
         selectedCustomer: null,
-        directory: { status: "ready", records: [] },
+        directory: { status: "ready", records },
         matchEmail,
         triggerRefresh,
         dispatch,
@@ -71,5 +72,25 @@ describe("useCustomerAutoMatch", () => {
       expect(matchEmail).toHaveBeenCalledTimes(1);
       expect(triggerRefresh).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it("does not repeat local directory domain scan when only the email local part changes", () => {
+    let domainReads = 0;
+    const records = Array.from({ length: 100 }, (_, index) => ({
+      recordId: `rec_${index}`,
+      name: `Customer ${index}`,
+      get domain() {
+        domainReads += 1;
+        return index === 99 ? "example.com" : `customer-${index}.test`;
+      },
+      owner: null,
+    }));
+    const { rerender } = renderAutoMatch("buyer@example.com", records);
+
+    expect(domainReads).toBe(100);
+
+    rerender({ email: "accounts@example.com" });
+
+    expect(domainReads).toBe(100);
   });
 });

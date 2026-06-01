@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useRef } from "react";
 
 import type { CustomerRecord } from "../components/taskpane/customers";
-import { emailDomain, findCustomerByEmail } from "../components/taskpane/customers";
+import { emailDomain, findCustomerByDomain } from "../components/taskpane/customers";
 import type { CustomerSearch } from "./customerSearch";
 import type { IntakeAction } from "../components/taskpane/intakeReducer";
 
@@ -77,8 +77,8 @@ export function useCustomerAutoMatch(args: UseCustomerAutoMatchArgs): CustomerAu
   // client email changes. The reducer guards against clobbering a user override
   // (customerTouched); we also skip dispatch when the match already matches.
   const autoMatch = useMemo(
-    () => (directory.status === "ready" ? findCustomerByEmail(directory.records, clientEmail) : null),
-    [directory.status, directory.records, clientEmail],
+    () => (directory.status === "ready" ? findCustomerByDomain(directory.records, emailDomainPart) : null),
+    [directory.status, directory.records, emailDomainPart],
   );
   if (
     !customerTouched &&

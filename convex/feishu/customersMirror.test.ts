@@ -10,7 +10,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { callFeishu } from "./call";
-import { applyPage, buildSearchBlob, kick, searchAndCacheMiss } from "./customersMirror";
+import { applyPage, buildSearchBlob, kick, search, searchAndCacheMiss } from "./customersMirror";
 
 vi.mock("./call", () => ({
   callFeishu: vi.fn(),
@@ -55,6 +55,16 @@ const searchAndCacheMissHandler = (searchAndCacheMiss as unknown as {
     },
     args: { q: string; mineFor?: string },
   ) => Promise<{ records: unknown[]; backfilled: number }>;
+})._handler;
+const searchHandler = (search as unknown as {
+  _handler: (
+    ctx: {
+      db: {
+        query: (table: "customersMirrorState" | "customers") => unknown;
+      };
+    },
+    args: { q: string; mineFor?: string; limit?: number },
+  ) => Promise<{ records: unknown[]; mirroredAt: number | null }>;
 })._handler;
 const applyPageHandler = (applyPage as unknown as {
   _handler: (
@@ -231,6 +241,27 @@ describe("customer mirror applyPage", () => {
     expect(result).toEqual({ inserted: 0, updated: 0, unchanged: 1, duplicateRows: 0 });
     expect(patch).not.toHaveBeenCalled();
     expect(insert).not.toHaveBeenCalled();
+  });
+});
+
+describe("customer mirror public search", () => {
+  it("skips the search index for one-character queries", async () => {
+    const customersQuery = vi.fn(() => {
+      throw new Error("customers search index should not be queried");
+    });
+    const query = vi.fn((table: "customersMirrorState" | "customers") => {
+      if (table === "customersMirrorState") {
+        return { first: vi.fn(async () => ({ lastFullSyncAt: 123 })) };
+      }
+      return customersQuery();
+    });
+
+    const result = await searchHandler({ db: { query } }, { q: " a " });
+
+    expect(result).toEqual({ records: [], mirroredAt: 123 });
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(query).toHaveBeenCalledWith("customersMirrorState");
+    expect(customersQuery).not.toHaveBeenCalled();
   });
 });
 

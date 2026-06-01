@@ -29,10 +29,10 @@ function FeishuGlyph({ className = "size-6" }: { className?: string }) {
 
 function ConnectVisual() {
   return (
-    <div className="bg-card-soft flex items-center justify-center gap-4 rounded-[20px] py-8 shadow-[var(--shadow-border)]">
+    <div className="bg-card-soft flex items-center justify-center gap-4 rounded-[20px] py-8 shadow-edge">
       <span
         aria-hidden="true"
-        className="bg-card flex size-14 items-center justify-center rounded-xl shadow-[var(--shadow-border)]"
+        className="bg-card flex size-14 items-center justify-center rounded-xl shadow-edge"
       >
         <OutlookLogo />
       </span>
@@ -43,7 +43,7 @@ function ConnectVisual() {
       </span>
       <span
         aria-hidden="true"
-        className="bg-primary text-primary-foreground flex size-14 items-center justify-center rounded-xl shadow-[var(--shadow-border)]"
+        className="bg-primary text-primary-foreground flex size-14 items-center justify-center rounded-xl shadow-edge"
       >
         <FeishuGlyph className="size-7" />
       </span>
@@ -61,7 +61,7 @@ export function ConnectCard({
   return (
     <section
       aria-label="Feishu sign in"
-      className="bg-card mx-auto flex aspect-square w-full max-w-[420px] flex-col justify-center rounded-[28px] p-6 shadow-[var(--shadow-floating)]"
+      className="bg-card mx-auto flex aspect-square w-full max-w-[420px] flex-col justify-center rounded-[28px] p-6 shadow-float"
     >
       <ConnectVisual />
       <div className="mt-6 flex flex-col gap-2">

@@ -6,13 +6,32 @@ vi.mock("./call", () => ({
   callFeishu: (...args: unknown[]) => callFeishu(...args),
 }));
 
-import { logServiceRecordIntake, matchClientRecordId, resolveClientRecordId } from "./bitable";
+import {
+  createServiceRecord,
+  logServiceRecordIntake,
+  matchClientRecordId,
+  resolveClientRecordId,
+} from "./bitable";
 import type { ServiceRowInput } from "./serviceRow";
 import type { ActionCtx } from "../_generated/server";
 
 const ctx = { _marker: "ctx" } as unknown as ActionCtx;
 const APP_TOKEN = "appToken123";
 const CLIENT_TABLE_ID = "tbl4TE2GV472sKzp";
+const SERVICE_TABLE_ID = "tbl_service";
+
+type CreateServiceRecordHandler = (
+  ctx: ActionCtx,
+  args: {
+    subject?: string;
+    selectedCoworkers?: { openId: string; name: string }[];
+    clientToken?: string;
+  },
+) => Promise<{ recordId: string }>;
+
+const createServiceRecordHandler = (
+  createServiceRecord as unknown as { _handler: CreateServiceRecordHandler }
+)._handler;
 
 beforeEach(() => {
   callFeishu.mockReset();
@@ -142,5 +161,42 @@ describe("logServiceRecordIntake", () => {
     expect(diag).toContain("[bitable] DIAG intake=");
     expect(diag).toContain("buyer@known.com");
     expect(diag).toContain("FOB pls");
+  });
+});
+
+describe("createServiceRecord idempotency", () => {
+  const originalAppToken = process.env.FEISHU_BITABLE_APP_TOKEN;
+  const originalTableId = process.env.FEISHU_BITABLE_TABLE_ID;
+
+  beforeEach(() => {
+    process.env.FEISHU_BITABLE_APP_TOKEN = APP_TOKEN;
+    process.env.FEISHU_BITABLE_TABLE_ID = SERVICE_TABLE_ID;
+  });
+
+  afterEach(() => {
+    if (originalAppToken === undefined) delete process.env.FEISHU_BITABLE_APP_TOKEN;
+    else process.env.FEISHU_BITABLE_APP_TOKEN = originalAppToken;
+    if (originalTableId === undefined) delete process.env.FEISHU_BITABLE_TABLE_ID;
+    else process.env.FEISHU_BITABLE_TABLE_ID = originalTableId;
+  });
+
+  it("passes the stored client_token to Feishu create so retries are idempotent", async () => {
+    callFeishu.mockResolvedValueOnce({ record: { record_id: "rec_service_1" } });
+
+    await expect(
+      createServiceRecordHandler(ctx, {
+        subject: "Need quote",
+        selectedCoworkers: [{ openId: "ou_jenny", name: "Jenny" }],
+        clientToken: "client-token-1",
+      }),
+    ).resolves.toEqual({ recordId: "rec_service_1" });
+
+    expect(callFeishu).toHaveBeenCalledWith(
+      ctx,
+      expect.objectContaining({
+        path: `/bitable/v1/apps/${APP_TOKEN}/tables/${SERVICE_TABLE_ID}/records`,
+        query: { client_token: "client-token-1" },
+      }),
+    );
   });
 });

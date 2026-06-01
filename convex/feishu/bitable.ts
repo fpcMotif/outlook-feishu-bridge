@@ -50,6 +50,10 @@ const serviceRowArgs = {
   // ADR-0017: Outlook `item.conversationId` lands in the Service row's
   // `Email Conversation ID` column as the Bitable-to-Outlook join key.
   emailConversationId: v.optional(v.string()),
+  // ADR-0012: Feishu create supports client_token for idempotent retries.
+  // The request-sync outbox stores one token per email so scheduler retries
+  // cannot create duplicate Base rows after a transient failure.
+  clientToken: v.optional(v.string()),
 };
 
 function requireBitableEnv() {
@@ -152,6 +156,7 @@ export const createServiceRecord = internalAction({
       method: "POST",
       auth: "tenant",
       json: { fields },
+      query: args.clientToken ? { client_token: args.clientToken } : undefined,
       label: "Bitable create service row",
     });
     return { recordId: data.record?.record_id ?? "" };

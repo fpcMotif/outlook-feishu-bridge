@@ -21,14 +21,20 @@ export function filterLocalCustomers(
   q: string,
   showMine: boolean,
   currentUserOpenId: string | undefined,
+  limit = Number.POSITIVE_INFINITY,
 ): CustomerRecord[] {
   if (!q && !showMine) return [];
-  return records.filter((customer) => {
+  const matches: CustomerRecord[] = [];
+  for (const customer of records) {
     const ownedByMe =
       !showMine ||
       (currentUserOpenId !== undefined && customer.owner?.openId === currentUserOpenId);
-    return ownedByMe && customerMatchesText(customer, q);
-  });
+    if (ownedByMe && customerMatchesText(customer, q)) {
+      matches.push(customer);
+      if (matches.length >= limit) break;
+    }
+  }
+  return matches;
 }
 
 export function logLocalFilter(
@@ -36,9 +42,10 @@ export function logLocalFilter(
   q: string,
   showMine: boolean,
   currentUserOpenId: string | undefined,
+  limit?: number,
 ): CustomerRecord[] {
   const started = performance.now();
-  const matches = filterLocalCustomers(records, q, showMine, currentUserOpenId);
+  const matches = filterLocalCustomers(records, q, showMine, currentUserOpenId, limit);
   dtime(
     `customer picker: local filter "${q.slice(0, 40)}"${showMine ? " +mine" : ""} -> ${matches.length}/${records.length}`,
     started,

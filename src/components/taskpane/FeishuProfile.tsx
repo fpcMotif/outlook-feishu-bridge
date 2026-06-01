@@ -38,7 +38,7 @@ export function FeishuProfile({ user, onLogout }: { user: FeishuUser; onLogout: 
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="focus-visible:ring-ring/30 relative inline-flex min-h-10 min-w-10 items-center justify-center rounded-full outline-none transition-[box-shadow,scale] duration-150 ease-[var(--ease-out-strong)] active:scale-[0.97] focus-visible:ring-[3px]"
+        className="focus-visible:ring-ring/20 relative inline-flex min-h-10 min-w-10 items-center justify-center rounded-full outline-none transition-[box-shadow,scale] duration-150 ease-[var(--ease-out-strong)] active:scale-[0.97] focus-visible:ring-[3px]"
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-label="Feishu profile"
@@ -58,7 +58,7 @@ export function FeishuProfile({ user, onLogout }: { user: FeishuUser; onLogout: 
         <dialog
           open
           aria-label="Feishu account"
-          className="bg-popover text-popover-foreground profile-pop absolute top-full right-0 left-auto z-50 m-0 mt-2 w-64 max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-xl border-0 p-0 shadow-[var(--shadow-floating)] backdrop:bg-transparent"
+          className="bg-popover text-popover-foreground profile-pop absolute top-full right-0 left-auto z-50 m-0 mt-2 w-64 max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-xl border-0 p-0 shadow-float backdrop:bg-transparent"
         >
           <div className="px-3.5 pt-3 pb-2.5">
             <div className="min-w-0">

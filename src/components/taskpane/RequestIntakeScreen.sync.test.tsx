@@ -147,7 +147,7 @@ describe("RequestIntakeScreen sync wiring", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: /change/i }));
-    fireEvent.change(screen.getByRole("searchbox", { name: /search customers/i }), {
+    fireEvent.change(screen.getByRole("combobox", { name: /search customers/i }), {
       target: { value: "stock" },
     });
     fireEvent.click(screen.getByRole("button", { name: /STOCKMEIER Chemie/i }));

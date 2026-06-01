@@ -6,7 +6,7 @@
 
 /* eslint-disable max-lines-per-function, require-unicode-regexp */
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CustomerPicker } from "./CustomerPicker";
 
@@ -23,6 +23,10 @@ const STOCKMEIER = {
   domain: "stockmeier.com",
   owner: null,
 };
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe("CustomerPicker", () => {
   it("renders the selected Customer's name as the chip", () => {
@@ -117,7 +121,7 @@ describe("CustomerPicker override search", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /change/i }));
 
-    const search = screen.getByRole("searchbox", { name: /search customers/i });
+    const search = screen.getByRole("combobox", { name: /search customers/i });
     fireEvent.change(search, { target: { value: "stock" } });
 
     expect(
@@ -137,6 +141,104 @@ describe("CustomerPicker server fallback", () => {
     owner: { openId: "ou_florian", name: "Florian Meurer" },
   };
 
+  it("does not call server search for one-character queries", async () => {
+    vi.useFakeTimers();
+    const searchCustomers = vi.fn(() => Promise.resolve([NOVO]));
+    render(
+      <CustomerPicker
+        directory={{ status: "ready", records: [BAYER] }}
+        searchCustomers={searchCustomers}
+        emailDomain="unknown.io"
+        selectedCustomer={null}
+        onChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /search customer/i }));
+    fireEvent.change(screen.getByRole("combobox", { name: /search customers/i }), {
+      target: { value: "n" },
+    });
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(searchCustomers).not.toHaveBeenCalled();
+    expect(screen.queryByRole("listbox", { name: /customer results/i })).not.toBeInTheDocument();
+  });
+
+  it("still shows one-character local customer matches", () => {
+    render(
+      <CustomerPicker
+        directory={{ status: "ready", records: [BAYER] }}
+        searchCustomers={vi.fn()}
+        emailDomain="unknown.io"
+        selectedCustomer={null}
+        onChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /search customer/i }));
+    fireEvent.change(screen.getByRole("combobox", { name: /search customers/i }), {
+      target: { value: "b" },
+    });
+
+    expect(screen.getByRole("button", { name: /Bayer Pharma/i })).toBeInTheDocument();
+  });
+
+  it("does not run an extra local scan for one-character no-match server guard", async () => {
+    vi.useFakeTimers();
+    let nameReads = 0;
+    const records = Array.from({ length: 100 }, (_, index) => ({
+      recordId: `rec_${index}`,
+      get name() {
+        nameReads += 1;
+        return `Customer ${index}`;
+      },
+      owner: null,
+    }));
+    render(
+      <CustomerPicker
+        directory={{ status: "ready", records }}
+        searchCustomers={vi.fn()}
+        emailDomain="unknown.io"
+        selectedCustomer={null}
+        onChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /search customer/i }));
+    fireEvent.change(screen.getByRole("combobox", { name: /search customers/i }), {
+      target: { value: "z" },
+    });
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(nameReads).toBe(100);
+  });
+
+  it("debounces server search when the local Customer Directory has no match", async () => {
+    vi.useFakeTimers();
+    const searchCustomers = vi.fn(() => Promise.resolve([NOVO]));
+    render(
+      <CustomerPicker
+        directory={{ status: "ready", records: [BAYER] }}
+        searchCustomers={searchCustomers}
+        emailDomain="unknown.io"
+        selectedCustomer={null}
+        onChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /search customer/i }));
+    const input = screen.getByRole("combobox", { name: /search customers/i });
+    fireEvent.change(input, { target: { value: "n" } });
+    fireEvent.change(input, { target: { value: "no" } });
+    fireEvent.change(input, { target: { value: "novo" } });
+
+    expect(searchCustomers).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(250);
+
+    expect(searchCustomers).toHaveBeenCalledTimes(1);
+    expect(searchCustomers).toHaveBeenCalledWith("novo", undefined);
+  });
+
   it("uses server search when the local Customer Directory has no match", async () => {
     const searchCustomers = vi.fn(() => Promise.resolve([NOVO]));
     render(
@@ -150,7 +252,7 @@ describe("CustomerPicker server fallback", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: /search customer/i }));
-    fireEvent.change(screen.getByRole("searchbox", { name: /search customers/i }), {
+    fireEvent.change(screen.getByRole("combobox", { name: /search customers/i }), {
       target: { value: "novo" },
     });
 
@@ -172,7 +274,7 @@ describe("CustomerPicker server fallback", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: /search customer/i }));
-    fireEvent.change(screen.getByRole("searchbox", { name: /search customers/i }), {
+    fireEvent.change(screen.getByRole("combobox", { name: /search customers/i }), {
       target: { value: "ddddd" },
     });
 
@@ -199,7 +301,7 @@ describe("CustomerPicker server fallback", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /search customer/i }));
     fireEvent.click(screen.getByRole("button", { name: /show mine/i }));
-    fireEvent.change(screen.getByRole("searchbox", { name: /search customers/i }), {
+    fireEvent.change(screen.getByRole("combobox", { name: /search customers/i }), {
       target: { value: "novo" },
     });
 
@@ -223,14 +325,14 @@ describe("CustomerPicker override commit", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: /change/i }));
-    fireEvent.change(screen.getByRole("searchbox", { name: /search customers/i }), {
+    fireEvent.change(screen.getByRole("combobox", { name: /search customers/i }), {
       target: { value: "stock" },
     });
     fireEvent.click(screen.getByRole("button", { name: /STOCKMEIER Chemie/i }));
 
     expect(onChange).toHaveBeenCalledWith(STOCKMEIER);
     // Back to chip view — search input is no longer rendered.
-    expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
   });
 });
 
@@ -265,7 +367,7 @@ describe("CustomerPicker owner filter", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: /search/i }));
-    fireEvent.change(screen.getByRole("searchbox", { name: /search customers/i }), {
+    fireEvent.change(screen.getByRole("combobox", { name: /search customers/i }), {
       target: { value: "florian" },
     });
 

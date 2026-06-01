@@ -16,7 +16,7 @@ function StatusOrb({
     <div className="flex min-w-0 flex-col items-center gap-2">
       <div
         className={cn(
-          "relative flex size-14 items-center justify-center rounded-full shadow-[var(--shadow-border)]",
+          "relative flex size-14 items-center justify-center rounded-full shadow-edge",
           active ? "bg-accent text-primary" : "bg-card-soft text-muted-foreground",
         )}
       >

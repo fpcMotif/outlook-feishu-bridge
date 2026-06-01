@@ -53,12 +53,21 @@ export const initiatorValidator = v.object({
 
 export type Initiator = Infer<typeof initiatorValidator>;
 
+export const bitableSyncStatusValidator = v.union(
+  v.literal("pending"),
+  v.literal("synced"),
+  v.literal("failed"),
+);
+
+export type BitableSyncStatus = Infer<typeof bitableSyncStatusValidator>;
+
 // Persisted fields of an Email Record (everything except the server-stamped
 // `createdAt`, which the table adds). Spread into defineTable and reused verbatim
 // as the storeEmailRecord args, so the table and the mutation cannot drift.
 export const emailRecordFields = {
   subject: v.string(),
   from: v.string(),
+  clientEmail: v.optional(v.string()),
   to: v.array(v.string()),
   cc: v.array(v.string()),
   bodyPreview: v.string(),
@@ -82,6 +91,12 @@ export const emailRecordFields = {
   attachmentFileKeys: v.optional(v.array(attachmentKeyValidator)),
   feishuDocUrl: v.optional(v.string()),
   feishuDocToken: v.optional(v.string()),
+  bitableClientToken: v.optional(v.string()),
+  bitableSyncStatus: v.optional(bitableSyncStatusValidator),
+  bitableLastError: v.optional(v.string()),
+  bitableLastAttemptAt: v.optional(v.number()),
+  bitableAttemptCount: v.optional(v.number()),
+  bitableNextRetryAt: v.optional(v.number()),
 };
 
 export const emailRecordValidator = v.object(emailRecordFields);
@@ -95,6 +110,7 @@ const BODY_PREVIEW_MAX = 500;
 export interface EmailRecordInput {
   subject: string;
   from: string;
+  clientEmail?: string;
   to: string[];
   cc: string[];
   body: string;
@@ -112,6 +128,7 @@ export interface EmailRecordInput {
 // The Feishu handle produced during sync.
 export interface EmailRecordResultIds {
   bitableRecordId?: string;
+  sentToBitable?: boolean;
 }
 
 // Map a completed Bitable Sync onto the Email Record to persist. The only logic
@@ -124,6 +141,7 @@ export function toEmailRecord(
   return {
     subject: input.subject,
     from: input.from,
+    clientEmail: input.clientEmail,
     to: input.to,
     cc: input.cc,
     bodyPreview: input.body.slice(0, BODY_PREVIEW_MAX),
@@ -134,7 +152,7 @@ export function toEmailRecord(
     dateTimeCreated: input.dateTimeCreated,
     sentToBot: false,
     sentToChat: false,
-    sentToBitable: true,
+    sentToBitable: ids.sentToBitable ?? true,
     sentToContacts: undefined,
     sentToGroups: undefined,
     requestSelections: input.requestSelections,
@@ -147,5 +165,11 @@ export function toEmailRecord(
     attachmentFileKeys: undefined,
     feishuDocUrl: undefined,
     feishuDocToken: undefined,
+    bitableClientToken: undefined,
+    bitableSyncStatus: undefined,
+    bitableLastError: undefined,
+    bitableLastAttemptAt: undefined,
+    bitableAttemptCount: undefined,
+    bitableNextRetryAt: undefined,
   };
 }

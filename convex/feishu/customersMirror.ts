@@ -33,6 +33,7 @@ import {
   dedupeRowsByRecordId,
   mirrorDocToCustomer,
   projectionToRow,
+  type CustomerUpsertRow,
 } from "./customerMirrorRows";
 import {
   DEV_CUSTOMER_FIXTURES,
@@ -45,6 +46,12 @@ export { buildSearchBlob } from "./customerMirrorRows";
 
 const CUSTOMER_TABLE_ID = "tbl4TE2GV472sKzp";
 const PAGE_SIZE = 500;
+// Cache-miss search only needs enough rows to fill the picker and warm the
+// mirror around the user's exact query. Keep the full-sync page size at
+// Feishu's documented max, but do not pull/write 500 rows on an interactive
+// miss when the UI returns at most 50.
+const CACHE_MISS_PAGE_SIZE = 50;
+const MIN_CUSTOMER_SEARCH_LENGTH = 2;
 // Official Feishu limits (open.feishu.cn only - no third-party wrapper, no
 // MAX_PAGES cap of our own). The earlier 20-page / 10,000-row ceiling was
 // purely ours and silently truncated once the Customer Table grew past it; the
@@ -109,6 +116,9 @@ export const applyPage = internalMutation({
       existingRows.map(async ({ row, existing }) => {
         const fields = { ...row, mirroredAt: args.mirroredAt };
         if (existing) {
+          if (!customerRowChanged(existing, row)) {
+            return "unchanged" as const;
+          }
           await ctx.db.patch(existing._id, fields);
           return "updated" as const;
         }
@@ -117,8 +127,9 @@ export const applyPage = internalMutation({
       }),
     );
     const inserted = writes.filter((result) => result === "inserted").length;
-    const updated = writes.length - inserted;
-    return { inserted, updated, duplicateRows };
+    const updated = writes.filter((result) => result === "updated").length;
+    const unchanged = writes.length - inserted - updated;
+    return { inserted, updated, unchanged, duplicateRows };
   },
 });
 
@@ -131,6 +142,7 @@ export const recordSyncCompletion = internalMutation({
     lastPageSize: v.number(),
     lastInsertedCount: v.number(),
     lastUpdatedCount: v.number(),
+    lastUnchangedCount: v.number(),
     lastDuplicateCount: v.number(),
     lastReportedTotal: v.number(),
     lastSourceRowCount: v.number(),
@@ -177,6 +189,7 @@ type MirrorStopReason =
 interface PageWriteStats {
   inserted: number;
   updated: number;
+  unchanged: number;
   duplicateRows: number;
 }
 
@@ -185,6 +198,7 @@ interface FullSyncResult {
   rows: number;
   inserted: number;
   updated: number;
+  unchanged: number;
   duplicateRows: number;
   sourceRows: number;
   reportedTotal: number;
@@ -209,6 +223,23 @@ interface AppliedPage extends PageWriteStats {
   rowCount: number;
   firstRecordId: string;
   lastRecordId: string;
+}
+
+function customerRowChanged(
+  existing: CustomerUpsertRow,
+  next: CustomerUpsertRow,
+): boolean {
+  return (
+    existing.recordId !== next.recordId ||
+    existing.name !== next.name ||
+    existing.domain !== next.domain ||
+    existing.fullName !== next.fullName ||
+    existing.accountNo !== next.accountNo ||
+    existing.countryRegion !== next.countryRegion ||
+    existing.ownerOpenId !== next.ownerOpenId ||
+    existing.ownerName !== next.ownerName ||
+    existing.searchBlob !== next.searchBlob
+  );
 }
 
 function sleep(ms: number): Promise<void> {
@@ -252,7 +283,15 @@ async function applyMirrorItems(
   const firstRecordId = items[0]?.record_id ?? "(none)";
   const lastRecordId = items.at(-1)?.record_id ?? "(none)";
   if (items.length === 0) {
-    return { inserted: 0, updated: 0, duplicateRows: 0, rowCount: 0, firstRecordId, lastRecordId };
+    return {
+      inserted: 0,
+      updated: 0,
+      unchanged: 0,
+      duplicateRows: 0,
+      rowCount: 0,
+      firstRecordId,
+      lastRecordId,
+    };
   }
   const projected = items.map((it) => projectionToRow(mapFeishuItemToCustomer(it)));
   const writeStats: PageWriteStats = await ctx.runMutation(
@@ -268,6 +307,7 @@ function addPageTotals(totals: SyncTotals, page: AppliedPage): void {
   totals.sourceRows += page.rowCount;
   totals.inserted += page.inserted;
   totals.updated += page.updated;
+  totals.unchanged += page.unchanged;
   totals.duplicateRows += page.duplicateRows;
 }
 
@@ -284,7 +324,7 @@ function stopReasonForPage(
 function logMirrorPage(pageNumber: number, page: AppliedPage, data: SearchResponse): void {
   console.log(
     `[customers-mirror] page=${pageNumber} items=${page.rowCount} inserted=${page.inserted} ` +
-      `updated=${page.updated} duplicateRows=${page.duplicateRows} ` +
+      `updated=${page.updated} unchanged=${page.unchanged} duplicateRows=${page.duplicateRows} ` +
       `hasMore=${data.has_more === true} nextToken=${Boolean(data.page_token)} ` +
       `first=${page.firstRecordId} last=${page.lastRecordId}`,
   );
@@ -319,6 +359,7 @@ async function applyDevFixtures(ctx: ActionCtx, totals: SyncTotals, mirroredAt: 
   totals.rows += DEV_CUSTOMER_FIXTURES.length;
   totals.inserted += fixtureStats.inserted;
   totals.updated += fixtureStats.updated;
+  totals.unchanged += fixtureStats.unchanged;
   totals.duplicateRows += fixtureStats.duplicateRows;
 }
 
@@ -335,6 +376,7 @@ async function recordMirrorCompletion(
     lastPageSize: PAGE_SIZE,
     lastInsertedCount: result.inserted,
     lastUpdatedCount: result.updated,
+    lastUnchangedCount: result.unchanged,
     lastDuplicateCount: result.duplicateRows,
     lastReportedTotal: result.reportedTotal,
     lastSourceRowCount: result.sourceRows,
@@ -403,6 +445,7 @@ async function runFullSync(ctx: ActionCtx): Promise<FullSyncResult> {
     rows: 0,
     inserted: 0,
     updated: 0,
+    unchanged: 0,
     duplicateRows: 0,
     sourceRows: 0,
     reportedTotal: 0,
@@ -439,8 +482,9 @@ export const fullSync = internalAction({
     const out = await runFullSync(ctx);
     console.log(
       `[customers-mirror] fullSync ok pages=${out.pages} rows=${out.rows} ` +
-        `inserted=${out.inserted} updated=${out.updated} duplicateRows=${out.duplicateRows} ` +
-        `sourceRows=${out.sourceRows} reportedTotal=${out.reportedTotal} ` +
+        `inserted=${out.inserted} updated=${out.updated} unchanged=${out.unchanged} ` +
+        `duplicateRows=${out.duplicateRows} sourceRows=${out.sourceRows} ` +
+        `reportedTotal=${out.reportedTotal} ` +
         `stopReason=${out.stopReason} duration=${Date.now() - started}ms`,
     );
     return out;
@@ -468,7 +512,7 @@ export const searchAndCacheMiss = action({
   args: { q: v.string(), mineFor: v.optional(v.string()) },
   handler: async (ctx, args): Promise<{ records: CustomerRecord[]; backfilled: number }> => {
     const q = args.q.trim();
-    if (!q) return { records: [], backfilled: 0 };
+    if (q.length < MIN_CUSTOMER_SEARCH_LENGTH) return { records: [], backfilled: 0 };
     const appToken = requireAppToken();
     const started = Date.now();
     const data: SearchResponse = await callFeishu<SearchResponse>(ctx, {
@@ -476,6 +520,7 @@ export const searchAndCacheMiss = action({
       method: "POST",
       auth: "tenant",
       json: {
+        field_names: CUSTOMER_FIELD_NAMES,
         filter: {
           conjunction: "or",
           conditions: [
@@ -484,7 +529,7 @@ export const searchAndCacheMiss = action({
           ],
         },
       },
-      query: { page_size: String(PAGE_SIZE) },
+      query: { page_size: String(CACHE_MISS_PAGE_SIZE) },
       label: "Customers mirror — live search on cache miss",
     });
     const backfilledRecords: CustomerRecord[] = (data.items ?? []).map((item) =>
@@ -555,7 +600,7 @@ export const search = query({
     const q = args.q.trim();
     const limit = Math.min(Math.max(args.limit ?? 20, 1), 50);
     const state = await ctx.db.query("customersMirrorState").first();
-    if (!q) {
+    if (q.length < MIN_CUSTOMER_SEARCH_LENGTH) {
       return { records: [], mirroredAt: state?.lastFullSyncAt ?? null };
     }
     const hits = await ctx.db

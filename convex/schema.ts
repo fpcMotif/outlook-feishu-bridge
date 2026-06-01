@@ -29,7 +29,32 @@ export default defineSchema({
   })
     .index("by_internetMessageId", ["internetMessageId"])
     .index("by_conversationId", ["conversationId"])
-    .index("by_userEmail", ["userEmail"]),
+    .index("by_userEmail", ["userEmail"])
+    .index("by_bitableSyncStatus_and_bitableNextRetryAt", [
+      "bitableSyncStatus",
+      "bitableNextRetryAt",
+    ]),
+
+  // Short-lived, per-session Feishu Search Users results. This keeps repeated
+  // Coworker Picker query bursts on Convex instead of paying a Feishu
+  // cross-region round-trip on every reopen or duplicate keystroke while still
+  // treating Feishu as source of truth after TTL expiry.
+  coworkerSearchCache: defineTable({
+    sessionId: v.string(),
+    query: v.string(),
+    results: v.array(
+      v.object({
+        openId: v.string(),
+        name: v.string(),
+        avatarUrl: v.optional(v.string()),
+      }),
+    ),
+    cachedAt: v.number(),
+    ttlMs: v.number(),
+  })
+    .index("by_session_query", ["sessionId", "query"])
+    .index("by_session_cachedAt", ["sessionId", "cachedAt"])
+    .index("by_cachedAt", ["cachedAt"]),
 
   // ADR-0016: server-indexed Customer search mode. The Customer Table from
   // Feishu Bitable (tbl4TE2GV472sKzp) is mirrored here on a weekly cron
@@ -67,6 +92,7 @@ export default defineSchema({
     lastPageSize: v.optional(v.number()),
     lastInsertedCount: v.optional(v.number()),
     lastUpdatedCount: v.optional(v.number()),
+    lastUnchangedCount: v.optional(v.number()),
     lastDuplicateCount: v.optional(v.number()),
     lastReportedTotal: v.optional(v.number()),
     lastSourceRowCount: v.optional(v.number()),

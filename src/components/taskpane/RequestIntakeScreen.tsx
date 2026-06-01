@@ -1,24 +1,20 @@
-/* eslint-disable max-lines-per-function, max-lines */
-import { useCallback, useEffect, useMemo, useReducer, useRef, type ReactNode } from "react";
-import { Loader2 } from "lucide-react";
+/* eslint-disable max-lines-per-function */
+import { useCallback, useMemo, useReducer, useRef, type ReactNode } from "react";
 
 import type { Coworker } from "./coworkers";
-import { findCustomerByEmail } from "./customers";
 import { initialIntakeState, intakeReducer } from "./intakeReducer";
 import type { MailItemData } from "../../office/useMailItem";
+import { useCustomerAutoMatch } from "../../hooks/useCustomerAutoMatch";
 import { useCustomerSearch } from "../../hooks/useCustomerSearch";
 import { useRequestSync } from "../../hooks/useRequestSync";
 import { useSelfForward, type SelfForwardResult } from "../../hooks/useSelfForward";
-import { Button } from "../ui/button";
 import { CoworkerPicker } from "./CoworkerPicker";
-import { ConnectCard } from "./ConnectCard";
 import { CustomerPicker } from "./CustomerPicker";
-import { ReceivedScreen } from "./ReceivedScreen";
 import { RequestCards } from "./RequestCards";
+import { resolveIntakeScreen } from "./RequestIntakeRouter";
 import { REQUESTS } from "./requests";
 import { TaskpaneSection } from "./TaskpaneSection";
 import { SubmitDock } from "./SubmitDock";
-import { SyncScreen } from "./SyncScreen";
 
 const CREATE_CUSTOMER_MOCK_URL = "https://example.com/";
 
@@ -27,6 +23,13 @@ function buildCreateCustomerTaskUrl(customerName: string) {
   url.searchParams.set("task", "create-customer");
   url.searchParams.set("name", customerName);
   return url.toString();
+}
+
+function buildFilledRequests(notes: Record<string, string>) {
+  return REQUESTS.flatMap((r) => {
+    const note = (notes[r.id] ?? "").trim();
+    return note ? [{ id: r.id, title: r.title, note }] : [];
+  });
 }
 
 function Hero() {
@@ -58,39 +61,6 @@ function NewRequestSection({
   );
 }
 
-function LoginScreen({
-  onLogin,
-  onLoginFallback,
-}: {
-  onLogin: () => void;
-  onLoginFallback: () => void;
-}) {
-  return (
-    <div
-      className="no-scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto px-5 py-8"
-      style={{ backgroundColor: "var(--login-background)" }}
-    >
-      <header className="shrink-0 px-1">
-        <div className="text-accent-foreground flex items-center gap-2 text-[11px] font-semibold uppercase">
-          <span className="bg-muted-foreground inline-block h-px w-3.5" />
-          Outlook handoff
-        </div>
-      </header>
-      <div className="flex flex-1 items-center py-7">
-        <ConnectCard onLogin={onLogin} onLoginFallback={onLoginFallback} />
-      </div>
-    </div>
-  );
-}
-
-function AuthResolvingScreen() {
-  return (
-    <div className="flex min-h-0 flex-1 items-center justify-center">
-      <Loader2 className="text-muted-foreground size-6 animate-spin" aria-label="Checking Feishu session" />
-    </div>
-  );
-}
-
 export function RequestIntakeScreen({
   isLoggedIn,
   isAuthLoading = false,
@@ -104,14 +74,12 @@ export function RequestIntakeScreen({
   onLoginFallback,
 }: {
   isLoggedIn: boolean;
-  // True only while the Convex session query is still in flight AND we don't
-  // already have a logged-in signal (real Feishu session or dev preview user).
-  // Used to suppress the LoginScreen flash on returning users with cached creds.
+  // True while the Convex session query is in flight without a logged-in signal;
+  // suppresses the LoginScreen flash for returning users with cached creds.
   isAuthLoading?: boolean;
   mailItem: MailItemData;
   sessionId: string;
-  // The signed-in Feishu user (the Initiator, ADR-0014). Optional because the
-  // dev-preview / browser path can render the screen without a real session.
+  // The signed-in Feishu user (the Initiator, ADR-0014); optional on dev-preview.
   user?: { openId: string; userName?: string; avatarUrl?: string };
   userAccessToken?: string;
   usePreviewCoworkers?: boolean;
@@ -122,17 +90,14 @@ export function RequestIntakeScreen({
   const { sync, correct } = useRequestSync();
   const { sendNote: sendSelfForwardNote } = useSelfForward();
   const [state, dispatch] = useReducer(intakeReducer, mailItem.from, initialIntakeState);
-  const customerRefreshAttemptedFor = useRef<string | null>(null);
   const generationRef = useRef(0);
 
   if (state.mailFrom !== mailItem.from) {
     dispatch({ type: "mailFromChanged", mailFrom: mailItem.from });
   }
 
-  // Customer Directory preload (ADR-0013). Non-blocking: while loading the
-  // CustomerPicker shows "Resolving customer for 鈥? and the rest of the
-  // screen stays interactive. One hook bundles the directory + the per-
-  // keystroke server fallback so a single vi.mock replaces both in tests.
+  // Customer Directory preload (ADR-0013). Non-blocking: one hook bundles the
+  // directory + per-keystroke server fallback so a single vi.mock covers both.
   const {
     directory: customerDirectory,
     search: searchCustomers,
@@ -140,62 +105,19 @@ export function RequestIntakeScreen({
     triggerRefresh: triggerCustomerRefresh,
   } = useCustomerSearch(isLoggedIn);
 
-  const emailDomainPart = state.clientEmail.includes("@")
-    ? state.clientEmail.split("@").pop() ?? state.clientEmail
-    : state.clientEmail;
+  const { emailDomainPart } = useCustomerAutoMatch({
+    isLoggedIn,
+    clientEmail: state.clientEmail,
+    customerTouched: state.customerTouched,
+    selectedCustomer: state.selectedCustomer,
+    directory: customerDirectory,
+    matchEmail: matchCustomerEmail,
+    triggerRefresh: triggerCustomerRefresh,
+    dispatch,
+  });
 
-  // Re-run the local auto-match whenever the directory finishes loading or
-  // the client email changes. The reducer guards against clobbering a user
-  // override (customerTouched).
-  const autoMatch = useMemo(
-    () =>
-      customerDirectory.status === "ready"
-        ? findCustomerByEmail(customerDirectory.records, state.clientEmail)
-        : null,
-    [customerDirectory.status, customerDirectory.records, state.clientEmail],
-  );
-  const autoMatchId = autoMatch?.recordId ?? null;
-  const currentMatchId = state.selectedCustomer?.recordId ?? null;
-  if (
-    !state.customerTouched &&
-    customerDirectory.status === "ready" &&
-    autoMatch !== null &&
-    autoMatchId !== currentMatchId
-  ) {
-    dispatch({ type: "customerAutoMatched", customer: autoMatch });
-  }
-
-  useEffect(() => {
-    if (!isLoggedIn || state.customerTouched || state.selectedCustomer) return;
-    if (!state.clientEmail.includes("@")) return;
-    let cancelled = false;
-    void matchCustomerEmail(state.clientEmail).then((customer) => {
-      if (!cancelled && customer) dispatch({ type: "customerAutoMatched", customer });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [isLoggedIn, matchCustomerEmail, state.clientEmail, state.customerTouched, state.selectedCustomer]);
-
-  useEffect(() => {
-    if (state.customerTouched || customerDirectory.status !== "ready" || autoMatch) return;
-    if (!emailDomainPart || customerRefreshAttemptedFor.current === emailDomainPart) return;
-    customerRefreshAttemptedFor.current = emailDomainPart;
-    triggerCustomerRefresh();
-  }, [autoMatch, customerDirectory.status, emailDomainPart, state.customerTouched, triggerCustomerRefresh]);
-
-  const filledRequests = useMemo(
-    () =>
-      REQUESTS.flatMap((r) => {
-        const note = (state.notes[r.id] ?? "").trim();
-        return note ? [{ id: r.id, title: r.title, note }] : [];
-      }),
-    [state.notes],
-  );
-  const requestSelections = useMemo(
-    () => filledRequests.map((r) => ({ requestType: r.title, note: r.note })),
-    [filledRequests],
-  );
+  const filledRequests = useMemo(() => buildFilledRequests(state.notes), [state.notes]);
+  const requestSelections = useMemo(() => filledRequests.map((r) => ({ requestType: r.title, note: r.note })), [filledRequests]);
   const selectedCustomerName = state.selectedCustomer?.name;
   const filledCount = filledRequests.length;
   const selectedCount = state.selectedCoworker ? 1 : 0;
@@ -209,10 +131,9 @@ export function RequestIntakeScreen({
     window.open(buildCreateCustomerTaskUrl(customerName), "_blank", "noopener,noreferrer");
   }, []);
 
-  // Sync = (a) the Base write that creates the Service row + the Convex
-  // Email Record, AND (b) the Self-Forward "Note to myself" copy into the
-  // Initiator's own mailbox plus audit recipient (ADR-0017). Both fire on submit; Base is
-  // authoritative, the Self-Forward soft-fails into a retry chip.
+  // Sync fires (a) the Base write (Service row + Convex Email Record) and (b)
+  // the Self-Forward "Note to myself" copy (ADR-0017). Base is authoritative;
+  // the Self-Forward soft-fails into a retry chip.
   const fireSelfForward = useCallback(async () => {
     const generation = generationRef.current;
     dispatch({ type: "selfForwardStarted" });
@@ -283,8 +204,7 @@ export function RequestIntakeScreen({
       .catch((e: unknown) => {
         dispatch({ type: "syncFailed", message: e instanceof Error ? e.message : "Sync failed" });
       });
-    // Parallel 鈥?Self-Forward never blocks the Base result; if it fails we
-    // surface the retry chip on the ReceivedScreen.
+    // Parallel — Self-Forward never blocks the Base result (retry chip on fail).
     if (state.selfForwardStatus !== "ok") void fireSelfForward();
     return baseWrite;
   }, [
@@ -306,47 +226,22 @@ export function RequestIntakeScreen({
     runSync();
   };
 
-  if (state.screen === "received") {
-    return (
-      <ReceivedScreen
-        coworkerCount={selectedCount}
-        selfForwardStatus={state.selfForwardStatus}
-        onRetrySelfForward={fireSelfForward}
-      />
-    );
-  }
-
-  if (state.screen === "sync") {
-    return (
-      <SyncScreen
-        requests={filledRequests}
-        clientEmail={state.clientEmail}
-        coworkerCount={selectedCount}
-      />
-    );
-  }
-
-  if (state.screen === "error") {
-    return (
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 px-8 text-center">
-        <h1 className="text-2xl">Sync failed</h1>
-        <p className="text-muted-foreground max-w-[34ch] text-sm leading-relaxed">
-          {state.syncError ?? "Could not sync to Feishu Base."}
-        </p>
-        <div className="flex gap-2">
-          <Button onClick={runSync}>Try again</Button>
-          <Button variant="secondary" onClick={() => dispatch({ type: "screenChanged", screen: "build" })}>
-            Back
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
-  if (!isLoggedIn) {
-    if (isAuthLoading) return <AuthResolvingScreen />;
-    return <LoginScreen onLogin={onLogin} onLoginFallback={onLoginFallback} />;
-  }
+  const overlay = resolveIntakeScreen({
+    screen: state.screen,
+    isLoggedIn,
+    isAuthLoading,
+    coworkerCount: selectedCount,
+    selfForwardStatus: state.selfForwardStatus,
+    syncError: state.syncError,
+    clientEmail: state.clientEmail,
+    filledRequests,
+    onRetrySelfForward: fireSelfForward,
+    onRetrySync: runSync,
+    onBackToBuild: () => dispatch({ type: "screenChanged", screen: "build" }),
+    onLogin,
+    onLoginFallback,
+  });
+  if (overlay) return overlay;
 
   const readyToSync = filledCount > 0 && selectedCount > 0;
   const submitHint = filledCount === 0 ? "Start a request above" : "Choose exactly one Feishu coworker";

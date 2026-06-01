@@ -59,15 +59,15 @@ function BaseRow({
   return (
     <div
       className={cn(
-        "flex h-11 items-center gap-2 rounded-lg px-2.5 text-xs shadow-[var(--shadow-border)] transition-[background-color,box-shadow] duration-300",
-        synced ? "bg-accent text-accent-foreground" : "bg-background text-muted-foreground",
+        "flex h-11 items-center gap-2 rounded-lg px-2.5 text-xs shadow-edge transition-[background-color,box-shadow] duration-300",
+        synced ? "bg-sage-soft text-sage" : "bg-background text-muted-foreground",
       )}
     >
       <span
         className={cn(
           "flex size-5 shrink-0 items-center justify-center rounded-full transition-[background-color,color,scale] duration-300",
           synced
-            ? "bg-primary text-primary-foreground scale-100"
+            ? "bg-sage text-background scale-100"
             : "bg-secondary text-muted-foreground scale-[0.92]",
         )}
       >
@@ -91,8 +91,8 @@ function BasePreview({
   const rows = requests.length > 0 ? requests.slice(0, 3) : [{ id: "empty", title: "Request", note: "Ready" }];
 
   return (
-    <div className="mt-5 rounded-2xl bg-card-soft p-2 shadow-[var(--shadow-border)]">
-      <div className="rounded-xl bg-card px-3 py-2 shadow-[var(--shadow-border)]">
+    <div className="mt-5 rounded-2xl bg-card-soft p-2 shadow-edge">
+      <div className="rounded-xl bg-card px-3 py-2 shadow-edge">
         <div className="flex items-center justify-between gap-3">
           <span className="text-muted-foreground inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase">
             <TableProperties className="size-3.5" />
@@ -169,7 +169,7 @@ function SyncPanel({
   return (
     <section
       aria-label="Feishu Base sync progress"
-      className="sync-enter bg-card flex aspect-square w-full max-w-[420px] flex-col justify-center rounded-2xl p-5 shadow-[var(--shadow-floating)]"
+      className="sync-enter bg-card flex aspect-square w-full max-w-[420px] flex-col justify-center rounded-2xl p-5 shadow-float"
       style={
         {
           "--enter-delay": "70ms",

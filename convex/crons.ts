@@ -24,4 +24,21 @@ crons.interval(
   {},
 );
 
+crons.interval(
+  "coworker search cache cleanup",
+  { hours: 6 },
+  internal.feishu.coworkers.cleanupExpiredCoworkerSearchCache,
+  {},
+);
+
+// Request intake outbox reconcile. The UI writes a pending Convex Email Record
+// before calling Feishu Base; this cron catches transient Base/create or
+// post-create marking failures and replays with the stored Feishu client_token.
+crons.interval(
+  "request bitable sync reconcile",
+  { minutes: 15 },
+  internal.feishu.requestSync.reconcilePendingBitableSync,
+  {},
+);
+
 export default crons;

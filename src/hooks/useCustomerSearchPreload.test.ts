@@ -39,6 +39,31 @@ describe("useCustomerSearchPreload", () => {
     expect(legacyAction).not.toHaveBeenCalled();
   });
 
+  it("coalesces duplicate in-flight legacy server searches", async () => {
+    let resolveAction!: (value: { records: { recordId: string; name: string; owner: null }[] }) => void;
+    const pendingAction = new Promise<{ records: { recordId: string; name: string; owner: null }[] }>(
+      (resolve) => {
+        resolveAction = resolve;
+      },
+    );
+    const legacyAction = vi.fn(() => pendingAction);
+    mockUseAction.mockReturnValue(legacyAction);
+
+    const { result } = renderHook(() => useCustomerSearchPreload(true));
+
+    const p1 = result.current.search("acme");
+    const p2 = result.current.search(" acme ");
+
+    expect(legacyAction).toHaveBeenCalledTimes(1);
+
+    resolveAction({ records: [{ recordId: "rec_acme", name: "Acme", owner: null }] });
+
+    await expect(Promise.all([p1, p2])).resolves.toEqual([
+      [{ recordId: "rec_acme", name: "Acme", owner: null }],
+      [{ recordId: "rec_acme", name: "Acme", owner: null }],
+    ]);
+  });
+
   it("still uses the legacy server action once the query is specific", async () => {
     const legacyAction = vi.fn(async () => ({
       records: [{ recordId: "rec_acme", name: "Acme", owner: null }],

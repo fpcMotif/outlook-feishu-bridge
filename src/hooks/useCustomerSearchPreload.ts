@@ -18,6 +18,21 @@ import type { CustomerSearch } from "./customerSearch";
 
 const MIN_SERVER_SEARCH_LENGTH = 2;
 
+const inFlightPreloadSearches = new Map<string, Promise<CustomerRecord[]>>();
+
+function preloadSearchKey(q: string, mineFor: string | undefined): string {
+  return `${q.toLowerCase()}\u0000${mineFor ?? ""}`;
+}
+
+function trackPreloadSearch(key: string, p: Promise<CustomerRecord[]>): Promise<CustomerRecord[]> {
+  inFlightPreloadSearches.set(key, p);
+  p.then(
+    () => inFlightPreloadSearches.delete(key),
+    () => inFlightPreloadSearches.delete(key),
+  );
+  return p;
+}
+
 function filterByOwner(
   records: readonly CustomerRecord[],
   mineFor: string | undefined,
@@ -32,14 +47,21 @@ export function useCustomerSearchPreload(isLoggedIn: boolean): CustomerSearch {
   const legacyAction = useAction(api.feishu.customers.searchCustomers);
 
   const search = useCallback(
-    async (query: string, options?: CustomerSearchOptions): Promise<CustomerRecord[]> => {
+    (query: string, options?: CustomerSearchOptions): Promise<CustomerRecord[]> => {
       const q = query.trim();
-      if (q.length < MIN_SERVER_SEARCH_LENGTH) return [];
+      if (q.length < MIN_SERVER_SEARCH_LENGTH) return Promise.resolve([]);
+      const key = preloadSearchKey(q, options?.mineFor);
+      const inFlight = inFlightPreloadSearches.get(key);
+      if (inFlight) return inFlight;
       const started = performance.now();
-      const { records } = await legacyAction({ query: q });
-      const visibleRecords = filterByOwner(records, options?.mineFor);
-      dtime(`customer search (server) "${q.slice(0, 40)}" -> ${visibleRecords.length}`, started);
-      return visibleRecords;
+      return trackPreloadSearch(
+        key,
+        legacyAction({ query: q }).then(({ records }) => {
+          const visibleRecords = filterByOwner(records, options?.mineFor);
+          dtime(`customer search (server) "${q.slice(0, 40)}" -> ${visibleRecords.length}`, started);
+          return visibleRecords;
+        }),
+      );
     },
     [legacyAction],
   );

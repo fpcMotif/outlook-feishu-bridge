@@ -226,10 +226,11 @@ export function CoworkerPicker({
       dispatchResults([]);
       return;
     }
-    const previewMatches = PREVIEW_COWORKERS.filter((c) =>
-      c.name.toLowerCase().includes(q.toLowerCase()),
-    );
     if (usePreviewCoworkers) {
+      const previewQuery = q.toLowerCase();
+      const previewMatches = PREVIEW_COWORKERS.filter((c) =>
+        c.name.toLowerCase().includes(previewQuery),
+      );
       dispatchResults(previewMatches);
       return;
     }

@@ -32,6 +32,36 @@ afterEach(() => {
 });
 
 describe("CoworkerPicker remote search", () => {
+  it("does not scan preview fixture names for one-character production queries", async () => {
+    const search = renderCoworkerPicker();
+    const input = screen.getByRole("combobox", { name: /search feishu coworkers/i });
+    const previewNames = new Set([
+      "Jenny Xu",
+      "Michael Chen",
+      "Sales Ops",
+      "Wei Liang",
+      "Maria Hoffmann",
+      "Carlos Mendez",
+      "Aiko Tanaka",
+      "Lena Fischer",
+    ]);
+    const originalToLowerCase = String.prototype.toLowerCase;
+    let previewNameLowercaseCalls = 0;
+    const lowerCaseSpy = vi
+      .spyOn(String.prototype, "toLowerCase")
+      .mockImplementation(function (this: string) {
+        const value = String(this);
+        if (previewNames.has(value)) previewNameLowercaseCalls += 1;
+        return originalToLowerCase.call(value);
+      });
+
+    fireEvent.change(input, { target: { value: "a" } });
+
+    expect(search).not.toHaveBeenCalled();
+    expect(previewNameLowercaseCalls).toBe(0);
+    lowerCaseSpy.mockRestore();
+  });
+
   it("does not debounce or call coworker search for one-character queries", async () => {
     vi.useFakeTimers();
     const search = renderCoworkerPicker();

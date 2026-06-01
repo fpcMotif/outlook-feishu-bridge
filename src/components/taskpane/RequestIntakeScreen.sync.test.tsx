@@ -2,10 +2,16 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mockSync = vi.fn((_payload: unknown) => Promise.resolve({ recordId: "recTEST" }));
+const mockSync = vi.fn((_payload: unknown) =>
+  Promise.resolve({
+    recordId: "recTEST",
+    detailUrl: "https://feishu.cn/base/app?table=tbl&record=recTEST",
+  }),
+);
 const mockCorrect = vi.fn((_payload: unknown) => Promise.resolve({ recordId: "recTEST" }));
+let mockExistingSync: { recordId: string; detailUrl: string | null } | null = null;
 vi.mock("../../hooks/useRequestSync", () => ({
-  useRequestSync: () => ({ sync: mockSync, correct: mockCorrect }),
+  useRequestSync: () => ({ sync: mockSync, correct: mockCorrect, existingSync: mockExistingSync }),
 }));
 const mockSendSelfForward = vi.fn(
   (_payload: unknown): Promise<{ ok: true } | { ok: false; step: string; code: string; message: string }> =>
@@ -92,6 +98,7 @@ describe("RequestIntakeScreen sync wiring", () => {
   beforeEach(() => {
     mockSync.mockClear();
     mockCorrect.mockClear();
+    mockExistingSync = null;
     mockSendSelfForward.mockClear();
     mockSendSelfForward.mockImplementation(() => Promise.resolve({ ok: true }));
     localStorage.clear();
@@ -107,6 +114,9 @@ describe("RequestIntakeScreen sync wiring", () => {
     fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
 
     await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(1));
+    expect(
+      await screen.findByRole("link", { name: /Open in Feishu/i }),
+    ).toHaveAttribute("href", "https://feishu.cn/base/app?table=tbl&record=recTEST");
     expect(mockSync.mock.calls[0][0]).toMatchObject({
       clientEmail: "m.hoffmann@bayerpharma.de",
       subject: "Inquiry - bulk L-Carnitine",
@@ -116,6 +126,55 @@ describe("RequestIntakeScreen sync wiring", () => {
       ],
       selectedCoworkers: [{ openId: "ou_jenny", name: "Jenny Xu", avatarUrl: "https://example.test/jenny.png" }],
     });
+  });
+
+  it("links to the existing Feishu Base record instead of syncing the same conversation again", () => {
+    const detailUrl = "https://feishu.cn/base/app?table=tbl&record=rec_existing";
+    mockExistingSync = { recordId: "rec_existing", detailUrl };
+
+    renderScreen();
+
+    expect(screen.getByRole("heading", { name: /^Already synced$/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Open in Feishu/i })).toHaveAttribute("href", detailUrl);
+    expect(screen.queryByRole("button", { name: /Sync with/i })).not.toBeInTheDocument();
+    expect(mockSync).not.toHaveBeenCalled();
+  });
+
+  it("keeps the fresh-sync success screen when existingSync loads after submit", async () => {
+    const { rerender } = render(
+      <RequestIntakeScreen
+        isLoggedIn={true}
+        mailItem={SAMPLE}
+        sessionId="test-session"
+        onLogin={vi.fn()}
+        onLoginFallback={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
+    fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
+      target: { value: "Need a quarterly L-Carnitine quote." },
+    });
+    fireEvent.click(await searchCoworker("Jenny Xu"));
+    fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
+
+    await screen.findByRole("heading", { name: /^Synced$/i });
+
+    mockExistingSync = {
+      recordId: "rec_existing",
+      detailUrl: "https://feishu.cn/base/app?table=tbl&record=rec_existing",
+    };
+    rerender(
+      <RequestIntakeScreen
+        isLoggedIn={true}
+        mailItem={SAMPLE}
+        sessionId="test-session"
+        onLogin={vi.fn()}
+        onLoginFallback={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: /^Synced$/i })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /^Already synced$/i })).not.toBeInTheDocument();
   });
 
   // Customer-matching wiring (ADR-0013): when the directory contains a row
@@ -241,7 +300,7 @@ describe("RequestIntakeScreen sync wiring", () => {
     fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
 
     expect(
-      await screen.findByRole("heading", { name: /Synced to Feishu/i }),
+      await screen.findByRole("heading", { name: /^Synced$/i }),
     ).toBeInTheDocument();
     expect(
       await screen.findByRole("button", { name: /Retry note-to-myself/i }),
@@ -298,7 +357,7 @@ describe("RequestIntakeScreen sync wiring", () => {
     expect(await screen.findByRole("heading", { name: /Sync failed/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Try again/i })).toBeInTheDocument();
     expect(
-      screen.queryByRole("heading", { name: /Synced to Feishu/i }),
+      screen.queryByRole("heading", { name: /^Synced$/i }),
     ).not.toBeInTheDocument();
   });
 });

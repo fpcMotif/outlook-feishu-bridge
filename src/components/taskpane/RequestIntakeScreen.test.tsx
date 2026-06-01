@@ -2,10 +2,13 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+let mockExistingSync: { recordId: string; detailUrl?: string | null; coworkerCount?: number } | null | undefined =
+  null;
 vi.mock("../../hooks/useRequestSync", () => ({
   useRequestSync: () => ({
     sync: vi.fn(() => Promise.resolve({ recordId: "rec1" })),
     correct: vi.fn(() => Promise.resolve({ recordId: "rec1" })),
+    existingSync: mockExistingSync,
   }),
 }));
 
@@ -110,10 +113,19 @@ async function searchCoworker(name: string) {
 beforeEach(() => {
   localStorage.clear();
   customerDirectoryRecords = [FANPC, MICROSOFT];
+  mockExistingSync = null;
   vi.restoreAllMocks();
 });
 
 describe("RequestIntakeScreen login gate", () => {
+  it("shows login while the existing-sync query is still loading", () => {
+    mockExistingSync = undefined;
+    renderRequestIntakeScreen(false);
+
+    expect(screen.getByRole("button", { name: /Continue with Feishu/i })).toBeInTheDocument();
+    expect(screen.queryByText(/Checking Feishu record/i)).not.toBeInTheDocument();
+  });
+
   it("keeps the Feishu login surface separate from the request builder", () => {
     renderRequestIntakeScreen(false);
 
@@ -133,8 +145,8 @@ describe("RequestIntakeScreen login gate", () => {
     expect(screen.getByRole("button", { name: /Quotation/i })).toBeInTheDocument();
     expect(screen.getByLabelText("Email")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Feishu coworker" })).toBeInTheDocument();
-    const routeCopy = screen.getByText("Route it to the right coworker in seconds.");
-    expect(routeCopy.compareDocumentPosition(screen.getByText("New request"))).toBe(
+    const coworkerSection = screen.getByText("Customer & coworker");
+    expect(coworkerSection.compareDocumentPosition(screen.getByText("New request"))).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
     expect(screen.queryByText("Search by name to choose a Feishu coworker")).not.toBeInTheDocument();
@@ -275,7 +287,7 @@ describe("RequestIntakeScreen sync flow", () => {
     expect(screen.getByRole("progressbar", { name: /Sync progress/i })).toBeInTheDocument();
 
     expect(
-      await screen.findByRole("heading", { name: /Synced to Feishu/i }),
+      await screen.findByRole("heading", { name: /^Synced$/i }),
     ).toBeInTheDocument();
   });
 });

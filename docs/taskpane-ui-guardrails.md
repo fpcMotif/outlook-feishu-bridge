@@ -58,12 +58,6 @@ tokens over ad-hoc values.
   unit-tested helper (`taskpaneSearchKeyboard.ts`); `scrollIntoView` is guarded
   with `?.` because jsdom does not implement it.
 
-## Dev affordances
-
-- A DEV-only dark-mode toggle (`devDarkToggle.ts`, gated by `import.meta.env.DEV`
-  in `main.tsx`) flips the `.dark` class on `<html>` for QA. It never ships in
-  production builds.
-
 ## Section structure (prior incident)
 
 Same visual role = same component and same DOM structure. First-level

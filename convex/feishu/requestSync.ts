@@ -14,6 +14,7 @@ import {
   toEmailRecord,
   type SelectedCoworker,
 } from "../emailRecord";
+import { buildConfiguredBitableRecordDetailUrl } from "./bitableUrl";
 
 // Shared intake the UI submits. `clientEmail` is the user-confirmed client email
 // used for the legacy backend domain-match against the Customer Table;
@@ -56,26 +57,25 @@ export function requireExactlyOneCoworker(coworkers: SelectedCoworker[] | undefi
   return coworkers;
 }
 
-function buildEmailRecordBackup(
-  args: {
-    subject: string;
-    from: string;
-    to: string[];
-    cc: string[];
-    body: string;
-    internetMessageId: string;
-    itemId?: string;
-    conversationId?: string;
-    userEmail?: string;
-    dateTimeCreated?: number;
-    clientEmail?: string;
-    selectedCustomer?: { recordId: string; name: string };
-    initiator?: { openId: string; name?: string };
-    requestSelections?: { requestType: string; note: string }[];
-    selectedCoworkers?: SelectedCoworker[];
-  },
-  sentToBitable: boolean,
-) {
+interface RequestSyncArgs {
+  subject: string;
+  from: string;
+  to: string[];
+  cc: string[];
+  body: string;
+  internetMessageId: string;
+  itemId?: string;
+  conversationId?: string;
+  userEmail?: string;
+  dateTimeCreated?: number;
+  clientEmail?: string;
+  selectedCustomer?: { recordId: string; name: string };
+  initiator?: { openId: string; name?: string };
+  requestSelections?: { requestType: string; note: string }[];
+  selectedCoworkers?: SelectedCoworker[];
+}
+
+function buildEmailRecordBackup(args: RequestSyncArgs, sentToBitable: boolean) {
   return toEmailRecord(
     {
       subject: args.subject,
@@ -98,63 +98,103 @@ function buildEmailRecordBackup(
   );
 }
 
-async function markFailure(ctx: ActionCtx, internetMessageId: string, e: unknown) {
+async function markFailure(
+  ctx: ActionCtx,
+  lookup: { internetMessageId: string; requestSyncKey?: string },
+  e: unknown,
+) {
   await ctx.runMutation(internal.emails.markBitableSyncFailed, {
-    internetMessageId,
+    ...lookup,
     error: errorMessage(e),
     attemptedAt: Date.now(),
   });
 }
 
+async function createServiceRow(
+  ctx: ActionCtx,
+  args: RequestSyncArgs,
+  selectedCoworkers: SelectedCoworker[],
+  clientToken: string,
+): Promise<string> {
+  const { recordId } = await ctx.runAction(internal.feishu.bitable.createServiceRecord, {
+    subject: args.subject,
+    clientEmail: args.clientEmail ?? args.from,
+    clientRecordId: args.selectedCustomer?.recordId,
+    dateOfOffer: args.dateTimeCreated,
+    requestSelections: args.requestSelections,
+    selectedCoworkers,
+    initiator: args.initiator,
+    emailConversationId: args.conversationId,
+    clientToken,
+  });
+  return recordId;
+}
+
+async function markSuccess(
+  ctx: ActionCtx,
+  backup: ReturnType<typeof buildEmailRecordBackup>,
+  bitableRecordId: string,
+  clientToken: string,
+): Promise<string | null> {
+  let detailUrl = buildConfiguredBitableRecordDetailUrl(bitableRecordId);
+  try {
+    const result: { detailUrl: string | null } = await ctx.runMutation(internal.emails.markBitableSyncSucceeded, {
+      internetMessageId: backup.internetMessageId,
+      requestSyncKey: backup.requestSyncKey,
+      bitableRecordId,
+      attemptedAt: Date.now(),
+    });
+    detailUrl = result.detailUrl;
+  } catch (e: unknown) {
+    console.error(
+      `[requestSync] markBitableSyncSucceeded failed; Bitable row ${bitableRecordId} ` +
+        `will be reconciled with client_token ${clientToken}: ${errorMessage(e)}`,
+    );
+  }
+  return detailUrl;
+}
+
 // First write: create the Bitable Service row, then store the recoverable Email
-// Record (carrying the new bitableRecordId). Returns the recordId so the UI can
-// offer the bounded in-sync correction.
+// Record (carrying the new bitableRecordId). Returns the record id and Feishu
+// detail link so later edits happen in Base, not in the add-in.
 export const syncRequest = action({
   args: intakeArgs,
-  handler: async (ctx, args): Promise<{ recordId: string }> => {
+  handler: async (ctx, args): Promise<{ recordId: string; detailUrl: string | null }> => {
     const selectedCoworkers = requireExactlyOneCoworker(args.selectedCoworkers);
     const backup = buildEmailRecordBackup({ ...args, selectedCoworkers }, false);
-    const beginResult: { bitableClientToken: string; bitableRecordId: string | null } =
+    const beginResult: {
+      bitableClientToken: string;
+      bitableRecordId: string | null;
+      detailUrl: string | null;
+    } =
       await ctx.runMutation(internal.emails.beginBitableSync, {
         ...backup,
         bitableClientToken: newBitableClientToken(),
       });
     if (beginResult.bitableRecordId) {
-      return { recordId: beginResult.bitableRecordId };
+      return { recordId: beginResult.bitableRecordId, detailUrl: beginResult.detailUrl };
     }
 
     let createdRecordId: string;
     try {
-      const { recordId } = await ctx.runAction(internal.feishu.bitable.createServiceRecord, {
-        subject: args.subject,
-        clientEmail: args.clientEmail ?? args.from,
-        clientRecordId: args.selectedCustomer?.recordId,
-        dateOfOffer: args.dateTimeCreated,
-        requestSelections: args.requestSelections,
+      createdRecordId = await createServiceRow(
+        ctx,
+        args,
         selectedCoworkers,
-        initiator: args.initiator,
-        emailConversationId: args.conversationId,
-        clientToken: beginResult.bitableClientToken,
-      });
-      createdRecordId = recordId;
+        beginResult.bitableClientToken,
+      );
     } catch (e: unknown) {
-      await markFailure(ctx, args.internetMessageId, e);
+      await markFailure(ctx, backup, e);
       throw e;
     }
 
-    try {
-      await ctx.runMutation(internal.emails.markBitableSyncSucceeded, {
-        internetMessageId: args.internetMessageId,
-        bitableRecordId: createdRecordId,
-        attemptedAt: Date.now(),
-      });
-    } catch (e: unknown) {
-      console.error(
-        `[requestSync] markBitableSyncSucceeded failed; Bitable row ${createdRecordId} ` +
-          `will be reconciled with client_token ${beginResult.bitableClientToken}: ${errorMessage(e)}`,
-      );
-    }
-    return { recordId: createdRecordId };
+    const detailUrl = await markSuccess(
+      ctx,
+      backup,
+      createdRecordId,
+      beginResult.bitableClientToken,
+    );
+    return { recordId: createdRecordId, detailUrl };
   },
 });
 
@@ -186,12 +226,13 @@ export const reconcilePendingBitableSync = internalAction({
         });
         await ctx.runMutation(internal.emails.markBitableSyncSucceeded, {
           internetMessageId: record.internetMessageId,
+          requestSyncKey: record.requestSyncKey,
           bitableRecordId: recordId,
           attemptedAt: Date.now(),
         });
         synced += 1;
       } catch (e: unknown) {
-        await markFailure(ctx, record.internetMessageId, e);
+        await markFailure(ctx, record, e);
         failed += 1;
       }
     }
@@ -209,7 +250,7 @@ export const reconcilePendingBitableSync = internalAction({
 // pre-existing row (ADR-0012 / the no-touch rule).
 export const correctRequest = action({
   args: { recordId: v.string(), ...intakeArgs },
-  handler: async (ctx, args): Promise<{ recordId: string }> => {
+  handler: async (ctx, args): Promise<{ recordId: string; detailUrl: string | null }> => {
     const selectedCoworkers = requireExactlyOneCoworker(args.selectedCoworkers);
     const { recordId } = await ctx.runAction(internal.feishu.bitable.correctServiceRecord, {
       recordId: args.recordId,
@@ -222,6 +263,6 @@ export const correctRequest = action({
       initiator: args.initiator,
       emailConversationId: args.conversationId,
     });
-    return { recordId };
+    return { recordId, detailUrl: buildConfiguredBitableRecordDetailUrl(recordId) };
   },
 });

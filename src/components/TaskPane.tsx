@@ -45,19 +45,16 @@ const DEV_REQUEST_PREVIEW = [
 function DevScreenPreview({ screen }: { screen: "sync" | "received" }) {
   if (screen === "sync") {
     return (
-      <SyncScreen
-        requests={DEV_REQUEST_PREVIEW}
-        clientEmail={DEV_SAMPLE.from}
-        coworkerCount={1}
-      />
+      <SyncScreen requests={DEV_REQUEST_PREVIEW} />
     );
   }
 
   return (
     <ReceivedScreen
       coworkerCount={1}
-      selfForwardStatus="ok"
-      onRetrySelfForward={() => {}}
+      recordId="rec_dev_preview"
+      detailUrl="https://feishu.cn/base/app?table=tbl&record=rec_dev_preview"
+      selfForwardStatus={null}
     />
   );
 }
@@ -112,8 +109,10 @@ export function TaskPane({ host }: { host: string | null }) {
   const params = new URLSearchParams(window.location.search);
   const useCoworkerFixtures = devPreview && params.has("e2eCoworkers");
   const requestedDevScreen = devPreview ? params.get("devScreen") : null;
+  // "send" is an informal alias for the sync progress screen (Act IV).
+  const normalizedDevScreen = requestedDevScreen === "send" ? "sync" : requestedDevScreen;
   const devScreen =
-    requestedDevScreen === "sync" || requestedDevScreen === "received" ? requestedDevScreen : null;
+    normalizedDevScreen === "sync" || normalizedDevScreen === "received" ? normalizedDevScreen : null;
   const item = mailItem ?? (devPreview ? DEV_SAMPLE : null);
 
   // Dev-only: clicking "Log in" advances straight to the logged-in UI (profile +

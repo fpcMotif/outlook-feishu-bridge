@@ -31,7 +31,8 @@ type KickHandler = (
     runMutation: (
       fn: unknown,
       args: Record<string, unknown>,
-    ) => Promise<{ inserted: number; updated: number; unchanged: number; duplicateRows: number } | null>;
+    ) => Promise<unknown>;
+    runQuery?: (fn: unknown, args: Record<string, unknown>) => Promise<unknown>;
   },
   args: Record<string, never>,
 ) => Promise<{
@@ -117,6 +118,7 @@ function feishuPage(index: number, hasMore: boolean) {
 function makeCtx() {
   const completions: Record<string, unknown>[] = [];
   const runMutation = vi.fn(async (_fn: unknown, args: Record<string, unknown>) => {
+    if (typeof args.cooldownMs === "number") return { started: true };
     if (Array.isArray(args.rows)) {
       return { inserted: args.rows.length, updated: 0, unchanged: 0, duplicateRows: 0 };
     }
@@ -267,6 +269,54 @@ describe("customer mirror public search", () => {
     expect(query).toHaveBeenCalledTimes(1);
     expect(query).toHaveBeenCalledWith("customersMirrorState");
     expect(customersQuery).not.toHaveBeenCalled();
+  });
+
+  it("skips the search index when a query collapses to no searchable tokens", async () => {
+    const customersQuery = vi.fn(() => {
+      throw new Error("customers search index should not be queried");
+    });
+    const query = vi.fn((table: "customersMirrorState" | "customers") => {
+      if (table === "customersMirrorState") {
+        return { first: vi.fn(async () => ({ lastFullSyncAt: 123 })) };
+      }
+      return customersQuery();
+    });
+
+    // Two punctuation chars clear the length guard but bigram-expand to "".
+    const result = await searchHandler({ db: { query } }, { q: "()" });
+
+    expect(result).toEqual({ records: [], mirroredAt: 123 });
+    expect(customersQuery).not.toHaveBeenCalled();
+  });
+
+  it("bigram-expands a CJK query before handing it to the search index", async () => {
+    let searchedTerm = "";
+    const take = vi.fn(async () => []);
+    const query = vi.fn((table: "customersMirrorState" | "customers") => {
+      if (table === "customersMirrorState") {
+        return { first: vi.fn(async () => ({ lastFullSyncAt: 123 })) };
+      }
+      return {
+        withSearchIndex: (
+          _name: "by_text",
+          callback: (b: { search: (field: string, value: string) => unknown }) => unknown,
+        ) => {
+          callback({
+            search: (_field, value) => {
+              searchedTerm = value;
+              return { eq: () => ({}) };
+            },
+          });
+          return { take };
+        },
+      };
+    });
+
+    await searchHandler({ db: { query } }, { q: "上海化妆品" });
+
+    // The raw query would prefix-match nothing; the expanded bigrams do.
+    expect(searchedTerm).toBe("上海 海化 化妆 妆品");
+    expect(take).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -427,5 +477,45 @@ describe("customer mirror full sync pagination", () => {
       lastSourceRowCount: 3,
       lastStopReason: "incompleteTotal",
     });
+  });
+
+  it("allows only one full re-page when two mirror kicks race before the cooldown stamp is visible", async () => {
+    mockCallFeishu.mockResolvedValue({
+      items: [
+        {
+          record_id: "rec_race",
+          fields: { "Account Name": [{ text: "Race", type: "text" }] },
+        },
+      ],
+      has_more: false,
+      total: 1,
+    });
+    const completions: Record<string, unknown>[] = [];
+    let refreshAlreadyStarted = false;
+    const runMutation = vi.fn(async (_fn: unknown, args: Record<string, unknown>) => {
+      if (typeof args.cooldownMs === "number") {
+        if (refreshAlreadyStarted) return { started: false, remainingMs: args.cooldownMs };
+        refreshAlreadyStarted = true;
+        return { started: true };
+      }
+      if (Array.isArray(args.rows)) {
+        return { inserted: args.rows.length, updated: 0, unchanged: 0, duplicateRows: 0 };
+      }
+      if (typeof args.startedAt === "number") return null;
+      completions.push(args);
+      return null;
+    });
+    const ctx = {
+      runMutation,
+      // Current implementation reads the timestamp outside the mutation. Return
+      // stale state for both racing actions to reproduce the production burst.
+      runQuery: vi.fn(async () => null),
+    };
+
+    const results = await Promise.all([kickHandler(ctx, {}), kickHandler(ctx, {})]);
+
+    expect(mockCallFeishu).toHaveBeenCalledTimes(1);
+    expect(results.map((result) => result.pages).sort()).toEqual([0, 1]);
+    expect(completions).toHaveLength(1);
   });
 });

@@ -68,7 +68,8 @@ export interface IntakeRouterProps {
   coworkerCount: number;
   selfForwardStatus: SelfForwardStatus;
   syncError: string | null;
-  clientEmail: string;
+  bitableRecordId: string | null;
+  bitableDetailUrl: string | null;
   filledRequests: { id: string; title: string; note: string }[];
   onRetrySelfForward: () => void;
   onRetrySync: () => void;
@@ -87,6 +88,8 @@ export function resolveIntakeScreen(props: IntakeRouterProps): ReactNode | null 
     return (
       <ReceivedScreen
         coworkerCount={props.coworkerCount}
+        recordId={props.bitableRecordId}
+        detailUrl={props.bitableDetailUrl}
         selfForwardStatus={props.selfForwardStatus}
         onRetrySelfForward={props.onRetrySelfForward}
       />
@@ -94,7 +97,7 @@ export function resolveIntakeScreen(props: IntakeRouterProps): ReactNode | null 
   }
   if (screen === "sync") {
     return (
-      <SyncScreen requests={props.filledRequests} clientEmail={props.clientEmail} coworkerCount={props.coworkerCount} />
+      <SyncScreen requests={props.filledRequests} />
     );
   }
   if (screen === "error") {

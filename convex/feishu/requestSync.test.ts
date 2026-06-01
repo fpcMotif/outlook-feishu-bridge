@@ -53,7 +53,7 @@ type SyncRequestHandler = (
     runAction: (fn: unknown, args: Record<string, unknown>) => Promise<{ recordId: string }>;
   },
   args: typeof baseArgs,
-) => Promise<{ recordId: string }>;
+) => Promise<{ recordId: string; detailUrl: string | null }>;
 
 const syncRequestHandler = (syncRequest as unknown as { _handler: SyncRequestHandler })._handler;
 
@@ -61,13 +61,16 @@ describe("syncRequest durable dual sync", () => {
   it("writes a pending Convex backup before creating the Feishu Base row", async () => {
     const runMutation = vi
       .fn()
-      .mockResolvedValueOnce({ bitableClientToken: "client-token-1", bitableRecordId: null })
-      .mockResolvedValueOnce(null);
+      .mockResolvedValueOnce({ bitableClientToken: "client-token-1", bitableRecordId: null, detailUrl: null })
+      .mockResolvedValueOnce({ detailUrl: "https://feishu.cn/base/app?table=tbl&record=rec_service_1" });
     const runAction = vi.fn().mockResolvedValueOnce({ recordId: "rec_service_1" });
 
     const result = await syncRequestHandler({ runMutation, runAction }, baseArgs);
 
-    expect(result).toEqual({ recordId: "rec_service_1" });
+    expect(result).toEqual({
+      recordId: "rec_service_1",
+      detailUrl: "https://feishu.cn/base/app?table=tbl&record=rec_service_1",
+    });
     expect(runMutation.mock.invocationCallOrder[0]).toBeLessThan(
       runAction.mock.invocationCallOrder[0],
     );
@@ -92,11 +95,13 @@ describe("syncRequest durable dual sync", () => {
     const runMutation = vi.fn().mockResolvedValueOnce({
       bitableClientToken: "client-token-1",
       bitableRecordId: "rec_existing",
+      detailUrl: "https://feishu.cn/base/app?table=tbl&record=rec_existing",
     });
     const runAction = vi.fn();
 
     await expect(syncRequestHandler({ runMutation, runAction }, baseArgs)).resolves.toEqual({
       recordId: "rec_existing",
+      detailUrl: "https://feishu.cn/base/app?table=tbl&record=rec_existing",
     });
 
     expect(runAction).not.toHaveBeenCalled();
@@ -105,7 +110,7 @@ describe("syncRequest durable dual sync", () => {
   it("records a retryable failure when the Feishu Base create fails", async () => {
     const runMutation = vi
       .fn()
-      .mockResolvedValueOnce({ bitableClientToken: "client-token-1", bitableRecordId: null })
+      .mockResolvedValueOnce({ bitableClientToken: "client-token-1", bitableRecordId: null, detailUrl: null })
       .mockResolvedValueOnce(null);
     const runAction = vi.fn().mockRejectedValueOnce(new Error("Feishu unavailable"));
 

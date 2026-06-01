@@ -34,7 +34,7 @@ test("browser preview keeps login separate and shows merged request routing", as
 
   await page.goto("/?e2eCoworkers=1");
   await expect(page).toHaveTitle("feishu-sync");
-  await expect(page.getByRole("heading", { name: "Connect to Feishu" })).toBeVisible({
+  await expect(page.getByRole("region", { name: "Feishu sign in" })).toBeVisible({
     timeout: 12_000,
   });
   await expect(page.getByRole("button", { name: "Quotation" })).toHaveCount(0);
@@ -42,7 +42,7 @@ test("browser preview keeps login separate and shows merged request routing", as
 
   await page.getByRole("button", { name: "Continue with Feishu" }).click();
 
-  await expect(page.getByRole("heading", { name: "Connect to Feishu" })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Feishu sign in" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Quotation" })).toBeVisible();
   await expect(page.getByLabel("Email")).toBeVisible();
   await expect(page.getByText("Search by name to choose a Feishu coworker")).toHaveCount(0);
@@ -58,7 +58,7 @@ test("browser preview keeps login separate and shows merged request routing", as
   await page.getByLabel("Search Feishu coworkers").fill("Jenny");
   await page.getByRole("button", { name: /^Jenny Xu/ }).click();
   await expect(page.getByRole("button", { name: "Sync with Jenny Xu" })).toBeEnabled();
-  await expect(page.getByRole("heading", { name: "Connect to Feishu" })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Feishu sign in" })).toHaveCount(0);
   await screenshot(page, "outlook-sales-merged-routing.png");
   expect(consoleErrors).toEqual([]);
 });

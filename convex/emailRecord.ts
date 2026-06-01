@@ -61,6 +61,16 @@ export const bitableSyncStatusValidator = v.union(
 
 export type BitableSyncStatus = Infer<typeof bitableSyncStatusValidator>;
 
+export function buildRequestSyncKey(
+  userEmail: string | undefined,
+  conversationId: string | undefined,
+): string | null {
+  const normalizedEmail = userEmail?.trim().toLowerCase() ?? "";
+  const normalizedConversationId = conversationId?.trim() ?? "";
+  if (!normalizedEmail || !normalizedConversationId) return null;
+  return `${normalizedEmail}\n${normalizedConversationId}`;
+}
+
 // Persisted fields of an Email Record (everything except the server-stamped
 // `createdAt`, which the table adds). Spread into defineTable and reused verbatim
 // as the storeEmailRecord args, so the table and the mutation cannot drift.
@@ -75,6 +85,7 @@ export const emailRecordFields = {
   itemId: v.optional(v.string()),
   conversationId: v.optional(v.string()),
   userEmail: v.optional(v.string()),
+  requestSyncKey: v.optional(v.string()),
   dateTimeCreated: v.optional(v.number()),
   sentToBot: v.boolean(),
   sentToChat: v.boolean(),
@@ -149,6 +160,7 @@ export function toEmailRecord(
     itemId: input.itemId,
     conversationId: input.conversationId,
     userEmail: input.userEmail,
+    requestSyncKey: buildRequestSyncKey(input.userEmail, input.conversationId) ?? undefined,
     dateTimeCreated: input.dateTimeCreated,
     sentToBot: false,
     sentToChat: false,

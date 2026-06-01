@@ -1,7 +1,15 @@
-import { internalMutation, internalQuery, query } from "./_generated/server";
+import {
+  internalMutation,
+  internalQuery,
+  query,
+  type MutationCtx,
+  type QueryCtx,
+} from "./_generated/server";
 import { v } from "convex/values";
 
-import { emailRecordFields } from "./emailRecord";
+import { buildRequestSyncKey, emailRecordFields } from "./emailRecord";
+import type { Doc } from "./_generated/dataModel";
+import { buildConfiguredBitableRecordDetailUrl } from "./feishu/bitableUrl";
 
 const RECONCILE_BATCH_LIMIT = 20;
 const ERROR_PREVIEW_MAX = 500;
@@ -9,6 +17,49 @@ const ERROR_PREVIEW_MAX = 500;
 function nextRetryAt(attemptCount: number, attemptedAt: number): number {
   const minutes = attemptCount <= 1 ? 5 : attemptCount === 2 ? 15 : 60;
   return attemptedAt + minutes * 60_000;
+}
+
+interface EmailRecordLookup {
+  requestSyncKey?: string;
+  internetMessageId?: string;
+  userEmail?: string;
+  conversationId?: string;
+}
+
+async function findExistingEmailRecord(
+  ctx: QueryCtx | MutationCtx,
+  lookup: EmailRecordLookup,
+): Promise<Doc<"emailRecords"> | null> {
+  if (lookup.requestSyncKey) {
+    const bySyncKey = await ctx.db
+      .query("emailRecords")
+      .withIndex("by_requestSyncKey", (q) => q.eq("requestSyncKey", lookup.requestSyncKey))
+      .first();
+    if (bySyncKey) return bySyncKey;
+  }
+
+  const internetMessageId = lookup.internetMessageId;
+  if (internetMessageId) {
+    const byMessage = await ctx.db
+      .query("emailRecords")
+      .withIndex("by_internetMessageId", (q) => q.eq("internetMessageId", internetMessageId))
+      .first();
+    if (byMessage) return byMessage;
+  }
+
+  const normalizedEmail = lookup.userEmail?.trim().toLowerCase();
+  const conversationId = lookup.conversationId?.trim();
+  if (!normalizedEmail || !conversationId) return null;
+
+  const candidates = await ctx.db
+    .query("emailRecords")
+    .withIndex("by_conversationId", (q) => q.eq("conversationId", conversationId))
+    .order("desc")
+    .take(20);
+  return (
+    candidates.find((record) => record.userEmail?.trim().toLowerCase() === normalizedEmail) ??
+    null
+  );
 }
 
 export const storeEmailRecord = internalMutation({
@@ -28,49 +79,47 @@ export const beginBitableSync = internalMutation({
   },
   handler: async (ctx, args) => {
     const now = Date.now();
-    const existing = await ctx.db
-      .query("emailRecords")
-      .withIndex("by_internetMessageId", (q) =>
-        q.eq("internetMessageId", args.internetMessageId),
-      )
-      .first();
+    const existing = await findExistingEmailRecord(ctx, args);
     const bitableClientToken = existing?.bitableClientToken ?? args.bitableClientToken;
-    const bitableRecordId = existing?.bitableRecordId ?? null;
+    if (existing?.bitableRecordId) {
+      return {
+        bitableClientToken,
+        bitableRecordId: existing.bitableRecordId,
+        detailUrl: buildConfiguredBitableRecordDetailUrl(existing.bitableRecordId),
+      };
+    }
+
     const recordFields = {
       ...args,
       bitableClientToken,
-      bitableSyncStatus: bitableRecordId ? ("synced" as const) : ("pending" as const),
-      bitableNextRetryAt: bitableRecordId ? undefined : now,
+      bitableSyncStatus: "pending" as const,
+      bitableNextRetryAt: now,
       bitableAttemptCount: existing?.bitableAttemptCount ?? 0,
-      sentToBitable: bitableRecordId ? true : args.sentToBitable,
+      sentToBitable: args.sentToBitable,
     };
 
     if (existing) {
       await ctx.db.patch(existing._id, recordFields);
-      return { bitableClientToken, bitableRecordId };
+      return { bitableClientToken, bitableRecordId: null, detailUrl: null };
     }
 
     await ctx.db.insert("emailRecords", {
       ...recordFields,
       createdAt: now,
     });
-    return { bitableClientToken, bitableRecordId };
+    return { bitableClientToken, bitableRecordId: null, detailUrl: null };
   },
 });
 
 export const markBitableSyncSucceeded = internalMutation({
   args: {
     internetMessageId: v.string(),
+    requestSyncKey: v.optional(v.string()),
     bitableRecordId: v.string(),
     attemptedAt: v.number(),
   },
   handler: async (ctx, args) => {
-    const existing = await ctx.db
-      .query("emailRecords")
-      .withIndex("by_internetMessageId", (q) =>
-        q.eq("internetMessageId", args.internetMessageId),
-      )
-      .first();
+    const existing = await findExistingEmailRecord(ctx, args);
     if (!existing) {
       throw new Error(`No Email Record backup found for ${args.internetMessageId}`);
     }
@@ -82,22 +131,19 @@ export const markBitableSyncSucceeded = internalMutation({
       bitableLastError: undefined,
       bitableNextRetryAt: undefined,
     });
+    return { detailUrl: buildConfiguredBitableRecordDetailUrl(args.bitableRecordId) };
   },
 });
 
 export const markBitableSyncFailed = internalMutation({
   args: {
     internetMessageId: v.string(),
+    requestSyncKey: v.optional(v.string()),
     error: v.string(),
     attemptedAt: v.number(),
   },
   handler: async (ctx, args) => {
-    const existing = await ctx.db
-      .query("emailRecords")
-      .withIndex("by_internetMessageId", (q) =>
-        q.eq("internetMessageId", args.internetMessageId),
-      )
-      .first();
+    const existing = await findExistingEmailRecord(ctx, args);
     if (!existing) return;
     const attemptCount = (existing.bitableAttemptCount ?? 0) + 1;
     await ctx.db.patch(existing._id, {
@@ -143,6 +189,29 @@ export const getByInternetMessageId = query({
         q.eq("internetMessageId", args.internetMessageId),
       )
       .first();
+  },
+});
+
+export const getBitableSyncByConversation = query({
+  args: {
+    userEmail: v.string(),
+    conversationId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const requestSyncKey = buildRequestSyncKey(args.userEmail, args.conversationId);
+    if (!requestSyncKey) return null;
+    const existing = await findExistingEmailRecord(ctx, {
+      requestSyncKey,
+      userEmail: args.userEmail,
+      conversationId: args.conversationId,
+    });
+    if (!existing?.bitableRecordId) return null;
+    return {
+      recordId: existing.bitableRecordId,
+      detailUrl: buildConfiguredBitableRecordDetailUrl(existing.bitableRecordId),
+      coworkerCount: existing.selectedCoworkers?.length ?? 0,
+      syncedAt: existing.bitableLastAttemptAt ?? existing.createdAt,
+    };
   },
 });
 

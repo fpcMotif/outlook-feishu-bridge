@@ -19,12 +19,12 @@ import {
   action,
   internalAction,
   internalMutation,
-  internalQuery,
   query,
   type ActionCtx,
 } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { callFeishu } from "./call";
+import { toSearchQueryString } from "./cjkSearch";
 import {
   canonicalCustomerDomain,
   mapFeishuItemToCustomer,
@@ -158,11 +158,27 @@ export const markRefreshStarted = internalMutation({
   },
 });
 
-export const getMirrorRefreshStartedAt = internalQuery({
-  args: {},
-  handler: async (ctx): Promise<number | null> => {
-    const state = await ctx.db.query("customersMirrorState").first();
-    return state?.lastRefreshStartedAt ?? null;
+export const startRefreshIfAllowed = internalMutation({
+  args: { startedAt: v.number(), cooldownMs: v.number() },
+  handler: async (ctx, args): Promise<{ started: true } | { started: false; remainingMs: number }> => {
+    const existing = await ctx.db.query("customersMirrorState").first();
+    const lastStartedAt = existing?.lastRefreshStartedAt ?? null;
+    if (lastStartedAt !== null) {
+      const elapsedMs = Math.max(0, args.startedAt - lastStartedAt);
+      if (elapsedMs < args.cooldownMs) {
+        return { started: false, remainingMs: args.cooldownMs - elapsedMs };
+      }
+    }
+    if (existing) {
+      await ctx.db.patch(existing._id, { lastRefreshStartedAt: args.startedAt });
+    } else {
+      await ctx.db.insert("customersMirrorState", {
+        lastFullSyncAt: 0,
+        lastRowCount: 0,
+        lastRefreshStartedAt: args.startedAt,
+      });
+    }
+    return { started: true };
   },
 });
 
@@ -468,15 +484,20 @@ function completenessStopReason(
 // Page through the live Customer Table → upsert into the Convex mirror.
 // Tenant-token; runs on the Convex action runtime; called from the cron and
 // (optionally) from `kick` for an on-demand refresh.
-async function runFullSync(ctx: ActionCtx): Promise<FullSyncResult> {
+async function runFullSync(
+  ctx: ActionCtx,
+  options: { markStarted?: boolean; startedAt?: number } = {},
+): Promise<FullSyncResult> {
   const appToken = requireAppToken();
   let pageToken: string | undefined;
-  const mirroredAt = Date.now();
+  const mirroredAt = options.startedAt ?? Date.now();
   // Stamp the refresh start so the on-demand Mirror Kick can rate-limit against
   // it (ADR-0016 amendment). Both the weekly cron and a kick reach here.
-  await ctx.runMutation(internal.feishu.customersMirror.markRefreshStarted, {
-    startedAt: mirroredAt,
-  });
+  if (options.markStarted !== false) {
+    await ctx.runMutation(internal.feishu.customersMirror.markRefreshStarted, {
+      startedAt: mirroredAt,
+    });
+  }
   const seenPageTokens = new Set<string>();
   const totals: SyncTotals = {
     pages: 0,
@@ -556,17 +577,17 @@ function skippedKickResult(): FullSyncResult {
 export const kick = action({
   args: {},
   handler: async (ctx): Promise<FullSyncResult> => {
-    const lastStartedAt = await ctx.runQuery(
-      internal.feishu.customersMirror.getMirrorRefreshStartedAt,
-      {},
-    );
     const now = Date.now();
-    if (lastStartedAt !== null && now - lastStartedAt < MIRROR_KICK_COOLDOWN_MS) {
-      const remainingS = Math.round((MIRROR_KICK_COOLDOWN_MS - (now - lastStartedAt)) / 1000);
+    const start = await ctx.runMutation(
+      internal.feishu.customersMirror.startRefreshIfAllowed,
+      { startedAt: now, cooldownMs: MIRROR_KICK_COOLDOWN_MS },
+    );
+    if (!start.started) {
+      const remainingS = Math.round(start.remainingMs / 1000);
       console.log(`[customers-mirror] kick skipped (cooldown, ${remainingS}s remaining)`);
       return skippedKickResult();
     }
-    return await runFullSync(ctx);
+    return await runFullSync(ctx, { markStarted: false, startedAt: now });
   },
 });
 
@@ -669,13 +690,17 @@ export const search = query({
     const q = args.q.trim();
     const limit = Math.min(Math.max(args.limit ?? 20, 1), 50);
     const state = await ctx.db.query("customersMirrorState").first();
-    if (q.length < MIN_CUSTOMER_SEARCH_LENGTH) {
+    // CJK queries are bigram-expanded so they match the bigram-augmented blob
+    // (cjkSearch.ts); a query with no searchable content (e.g. all punctuation)
+    // collapses to "" and is treated as a miss.
+    const searchTokens = toSearchQueryString(q);
+    if (q.length < MIN_CUSTOMER_SEARCH_LENGTH || searchTokens === "") {
       return { records: [], mirroredAt: state?.lastFullSyncAt ?? null };
     }
     const hits = await ctx.db
       .query("customers")
       .withSearchIndex("by_text", (b) => {
-        let s = b.search("searchBlob", q);
+        let s = b.search("searchBlob", searchTokens);
         if (args.mineFor) s = s.eq("ownerOpenId", args.mineFor);
         return s;
       })

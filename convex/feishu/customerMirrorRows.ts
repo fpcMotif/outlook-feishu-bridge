@@ -1,3 +1,4 @@
+import { cjkBigramBlob } from "./cjkSearch";
 import type { CustomerRecord } from "./customers";
 
 export interface CustomerUpsertRow {
@@ -26,17 +27,26 @@ export interface CustomerMirrorDoc {
 // Build the single searchable text column. Convex's search index ranks tokens
 // across one column; concatenating the searchable fields gives salespeople
 // "type anything that identifies the Customer" behavior.
+//
+// We append per-field CJK character bigrams after the plain concatenation so
+// substring / cross-punctuation queries over Chinese names also match — Convex's
+// SimpleTokenizer otherwise indexes each CJK run as a single prefix-only token
+// (see cjkSearch.ts). Latin tokens are untouched and keep prefix matching.
 export function buildSearchBlob(customer: CustomerRecord): string {
-  return [
+  const fields = [
     customer.name,
     customer.fullName ?? "",
     customer.accountNo ?? "",
     customer.domain ?? "",
     customer.countryRegion ?? "",
     customer.owner?.name ?? "",
-  ]
+  ].filter(Boolean);
+  const base = fields.join(" ");
+  const bigrams = fields
+    .map((field) => cjkBigramBlob(field))
     .filter(Boolean)
     .join(" ");
+  return bigrams ? `${base} ${bigrams}` : base;
 }
 
 export function projectionToRow(customer: CustomerRecord): CustomerUpsertRow {

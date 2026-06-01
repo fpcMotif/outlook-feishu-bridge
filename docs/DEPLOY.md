@@ -97,6 +97,7 @@ bunx convex env set FEISHU_APP_ID <app-id>
 bunx convex env set FEISHU_APP_SECRET <secret>
 bunx convex env set FEISHU_BITABLE_APP_TOKEN <token>   # the base/<…> segment of the Base URL
 bunx convex env set FEISHU_BITABLE_TABLE_ID <id>       # the ?table=<…> param
+bunx convex env set FEISHU_BITABLE_WEB_BASE_URL https://<tenant>.feishu.cn/base/<token> # optional detail-link host
 ```
 
 Permissions ([ADR-0011](adr/0011-feishu-permission-set.md)) — batch-import in 权限管理 →

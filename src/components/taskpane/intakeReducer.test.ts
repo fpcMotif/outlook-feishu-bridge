@@ -107,6 +107,12 @@ describe("intakeReducer sync and self-forward state", () => {
     });
   });
 
+  it("syncStarted keeps a prior successful Self-Forward status across sync retries", () => {
+    const ok = intakeReducer(base, { type: "selfForwardSucceeded" });
+    const next = intakeReducer(ok, { type: "syncStarted" });
+    expect(next.selfForwardStatus).toBe("ok");
+  });
+
   it("syncSucceeded captures the bitableRecordId so a retry can correct in place", () => {
     const next = intakeReducer(base, { type: "syncSucceeded", recordId: "rec_123" });
     expect(next.screen).toBe("received");

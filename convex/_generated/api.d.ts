@@ -15,6 +15,7 @@ import type * as feishu_auth from "../feishu/auth.js";
 import type * as feishu_bitable from "../feishu/bitable.js";
 import type * as feishu_bitableUrl from "../feishu/bitableUrl.js";
 import type * as feishu_call from "../feishu/call.js";
+import type * as feishu_cjkSearch from "../feishu/cjkSearch.js";
 import type * as feishu_client from "../feishu/client.js";
 import type * as feishu_coworkers from "../feishu/coworkers.js";
 import type * as feishu_customerMirrorRows from "../feishu/customerMirrorRows.js";
@@ -49,6 +50,7 @@ declare const fullApi: ApiFromModules<{
   "feishu/bitable": typeof feishu_bitable;
   "feishu/bitableUrl": typeof feishu_bitableUrl;
   "feishu/call": typeof feishu_call;
+  "feishu/cjkSearch": typeof feishu_cjkSearch;
   "feishu/client": typeof feishu_client;
   "feishu/coworkers": typeof feishu_coworkers;
   "feishu/customerMirrorRows": typeof feishu_customerMirrorRows;

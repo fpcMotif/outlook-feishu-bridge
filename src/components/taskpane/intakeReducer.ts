@@ -18,6 +18,7 @@ export interface IntakeState {
   selectedCustomer: CustomerRecord | null;
   customerTouched: boolean;
   bitableRecordId: string | null;
+  bitableDetailUrl: string | null;
   syncError: string | null;
   selfForwardStatus: SelfForwardStatus;
   selfForwardError: { code: string; message: string } | null;
@@ -32,7 +33,7 @@ export type IntakeAction =
   | { type: "customerAutoMatched"; customer: CustomerRecord | null }
   | { type: "customerOverridden"; customer: CustomerRecord | null }
   | { type: "syncStarted" }
-  | { type: "syncSucceeded"; recordId: string }
+  | { type: "syncSucceeded"; recordId: string; detailUrl?: string | null }
   | { type: "syncFailed"; message: string }
   | { type: "selfForwardStarted" }
   | { type: "selfForwardSucceeded" }
@@ -49,6 +50,7 @@ export function initialIntakeState(mailFrom: string): IntakeState {
     selectedCustomer: null,
     customerTouched: false,
     bitableRecordId: null,
+    bitableDetailUrl: null,
     syncError: null,
     selfForwardStatus: null,
     selfForwardError: null,
@@ -90,11 +92,17 @@ export function intakeReducer(state: IntakeState, action: IntakeAction): IntakeS
         ...state,
         screen: "sync",
         syncError: null,
-        selfForwardStatus: "pending",
+        // Keep a prior successful Note-to-myself across sync retries (ADR-0017).
+        selfForwardStatus: state.selfForwardStatus === "ok" ? "ok" : "pending",
         selfForwardError: null,
       };
     case "syncSucceeded":
-      return { ...state, screen: "received", bitableRecordId: action.recordId };
+      return {
+        ...state,
+        screen: "received",
+        bitableRecordId: action.recordId,
+        bitableDetailUrl: action.detailUrl ?? null,
+      };
     case "syncFailed":
       return { ...state, screen: "error", syncError: action.message };
     case "selfForwardStarted":
@@ -116,6 +124,7 @@ export function intakeReducer(state: IntakeState, action: IntakeAction): IntakeS
         selectedCustomer: null,
         customerTouched: false,
         bitableRecordId: null,
+        bitableDetailUrl: null,
         syncError: null,
         selfForwardStatus: null,
         selfForwardError: null,

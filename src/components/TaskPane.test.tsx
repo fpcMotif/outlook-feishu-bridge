@@ -17,6 +17,7 @@ vi.mock("../hooks/useRequestSync", () => ({
   useRequestSync: () => ({
     sync: vi.fn(() => Promise.resolve({ recordId: "rec1" })),
     correct: vi.fn(() => Promise.resolve({ recordId: "rec1" })),
+    existingSync: null,
   }),
 }));
 
@@ -140,8 +141,8 @@ describe("TaskPane browser preview auth flow", () => {
 });
 
 describe("TaskPane browser preview request flow", () => {
-  it("opens the direct dev preview for the sync screen", () => {
-    window.history.replaceState({}, "", "/?devScreen=sync");
+  it.each(["sync", "send"])("opens the direct dev preview for the sync screen (?devScreen=%s)", (devScreen) => {
+    window.history.replaceState({}, "", `/?devScreen=${devScreen}`);
 
     renderPreview();
 
@@ -157,7 +158,11 @@ describe("TaskPane browser preview request flow", () => {
 
     renderPreview();
 
-    expect(screen.getByRole("heading", { name: /Synced to Feishu/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /^Synced$/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Open in Feishu/i })).toHaveAttribute(
+      "href",
+      expect.stringContaining("rec_dev_preview"),
+    );
     expect(screen.queryByText(/Note to myself sent/i)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Route another email/i })).not.toBeInTheDocument();
   });
@@ -180,7 +185,7 @@ describe("TaskPane browser preview request flow", () => {
     expect(screen.getByRole("progressbar", { name: /Sync progress/i })).toBeInTheDocument();
 
     expect(
-      await screen.findByRole("heading", { name: /Synced to Feishu/i }),
+      await screen.findByRole("heading", { name: /^Synced$/i }),
     ).toBeInTheDocument();
   });
 
@@ -195,7 +200,7 @@ describe("TaskPane browser preview request flow", () => {
     fireEvent.click(await searchCoworker("Jenny Xu"));
     fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
 
-    expect(await screen.findByRole("heading", { name: /Synced to Feishu/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /^Synced$/i })).toBeInTheDocument();
 
     expect(screen.queryByRole("region", { name: /Feishu account controls/i })).not.toBeInTheDocument();
   });

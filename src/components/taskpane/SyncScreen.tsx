@@ -169,7 +169,7 @@ function SyncPanel({
   return (
     <section
       aria-label="Feishu Base sync progress"
-      className="sync-enter bg-card flex aspect-square w-full max-w-[420px] flex-col justify-center rounded-2xl p-5 shadow-float"
+      className="sync-enter bg-card flex aspect-square w-full max-w-[420px] max-h-[min(100%,28rem)] flex-col justify-center overflow-y-auto rounded-2xl p-5 shadow-float"
       style={
         {
           "--enter-delay": "70ms",
@@ -184,13 +184,7 @@ function SyncPanel({
   );
 }
 
-export function SyncScreen({
-  requests,
-}: {
-  requests: SyncRequest[];
-  clientEmail: string;
-  coworkerCount: number;
-}) {
+export function SyncScreen({ requests }: { requests: SyncRequest[] }) {
   const progress = useSyncProgress();
 
   return (

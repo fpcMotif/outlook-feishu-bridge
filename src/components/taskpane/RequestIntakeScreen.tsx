@@ -10,51 +10,16 @@ import { useRequestSync } from "../../hooks/useRequestSync";
 import { useSelfForward, type SelfForwardResult } from "../../hooks/useSelfForward";
 import { CoworkerPicker } from "./CoworkerPicker";
 import { CustomerPicker } from "./CustomerPicker";
-import { RequestCards } from "./RequestCards";
+import { ReceivedScreen } from "./ReceivedScreen";
+import {
+  buildCreateCustomerTaskUrl,
+  buildFilledRequests,
+  ExistingSyncCheckingScreen,
+  Hero,
+  NewRequestSection,
+} from "./RequestIntakeScaffold";
 import { resolveIntakeScreen } from "./RequestIntakeRouter";
-import { REQUESTS } from "./requests";
-import { TaskpaneSection } from "./TaskpaneSection";
 import { SubmitDock } from "./SubmitDock";
-
-const CREATE_CUSTOMER_MOCK_URL = "https://example.com/";
-
-function buildCreateCustomerTaskUrl(customerName: string) {
-  const url = new URL(CREATE_CUSTOMER_MOCK_URL);
-  url.searchParams.set("task", "create-customer");
-  url.searchParams.set("name", customerName);
-  return url.toString();
-}
-
-function buildFilledRequests(notes: Record<string, string>) {
-  return REQUESTS.flatMap((r) => {
-    const note = (notes[r.id] ?? "").trim();
-    return note ? [{ id: r.id, title: r.title, note }] : [];
-  });
-}
-
-function Hero() {
-  return (
-    <header className="px-1 pt-3 pb-5">
-      <h1 className="text-[34px] leading-[0.98] tracking-tight">
-        Sales Services
-      </h1>
-    </header>
-  );
-}
-
-function NewRequestSection({
-  values,
-  onChange,
-}: {
-  values: Record<string, string>;
-  onChange: (id: string, value: string) => void;
-}) {
-  return (
-    <TaskpaneSection id="new-request-title" title="New request">
-      <RequestCards values={values} onChange={onChange} />
-    </TaskpaneSection>
-  );
-}
 
 export function RequestIntakeScreen({
   isLoggedIn,
@@ -82,7 +47,11 @@ export function RequestIntakeScreen({
   onLogin: () => void;
   onLoginFallback: () => void;
 }) {
-  const { sync, correct } = useRequestSync();
+  const { sync, existingSync } = useRequestSync({
+    userEmail: mailItem.userEmail,
+    conversationId: mailItem.conversationId,
+    enabled: isLoggedIn,
+  });
   const { sendNote: sendSelfForwardNote } = useSelfForward();
   const [state, dispatch] = useReducer(intakeReducer, mailItem.from, initialIntakeState);
   const generationRef = useRef(0);
@@ -193,9 +162,14 @@ export function RequestIntakeScreen({
       requestSelections,
       selectedCoworkers: state.selectedCoworker ? [state.selectedCoworker] : [],
     };
-    const write = state.bitableRecordId ? correct({ recordId: state.bitableRecordId, ...payload }) : sync(payload);
-    const baseWrite = write
-      .then((result) => dispatch({ type: "syncSucceeded", recordId: result.recordId }))
+    const baseWrite = sync(payload)
+      .then((result) =>
+        dispatch({
+          type: "syncSucceeded",
+          recordId: result.recordId,
+          detailUrl: result.detailUrl ?? null,
+        }),
+      )
       .catch((e: unknown) => {
         dispatch({ type: "syncFailed", message: e instanceof Error ? e.message : "Sync failed" });
       });
@@ -204,11 +178,9 @@ export function RequestIntakeScreen({
     return baseWrite;
   }, [
     sync,
-    correct,
     mailItem,
     state.clientEmail,
     state.selectedCustomer,
-    state.bitableRecordId,
     state.selfForwardStatus,
     user,
     requestSelections,
@@ -228,7 +200,8 @@ export function RequestIntakeScreen({
     coworkerCount: selectedCount,
     selfForwardStatus: state.selfForwardStatus,
     syncError: state.syncError,
-    clientEmail: state.clientEmail,
+    bitableRecordId: state.bitableRecordId,
+    bitableDetailUrl: state.bitableDetailUrl,
     filledRequests,
     onRetrySelfForward: fireSelfForward,
     onRetrySync: runSync,
@@ -236,7 +209,30 @@ export function RequestIntakeScreen({
     onLogin,
     onLoginFallback,
   });
+  // Auth + flow overlays (login, sync, received, error) win over Convex lookups so
+  // a loading existing-sync query never masks the login surface or sync progress.
   if (overlay) return overlay;
+  // Only short-circuit the builder when Convex already has a row for this
+  // conversation. A fresh sync sets screen to "received" — keep the overlay so
+  // the success copy and Self-Forward chip do not flash to "Already synced".
+  if (existingSync?.recordId && state.screen === "build") {
+    return (
+      <ReceivedScreen
+        coworkerCount={existingSync.coworkerCount ?? 1}
+        recordId={existingSync.recordId}
+        detailUrl={existingSync.detailUrl}
+        alreadySynced={true}
+      />
+    );
+  }
+  if (
+    isLoggedIn &&
+    existingSync === undefined &&
+    mailItem.userEmail &&
+    mailItem.conversationId
+  ) {
+    return <ExistingSyncCheckingScreen />;
+  }
 
   const readyToSync = filledCount > 0 && selectedCount > 0;
   const submitHint = filledCount === 0 ? "Start a request above" : "Choose exactly one Feishu coworker";
@@ -245,8 +241,8 @@ export function RequestIntakeScreen({
     : "";
 
   return (
-    <>
-      <div className="no-scrollbar relative flex-1 overflow-y-auto px-5 pt-0 pb-24">
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="no-scrollbar relative min-h-0 flex-1 overflow-y-auto px-5 pt-0 pb-24">
         {profileSlot}
         <Hero />
         <div className="space-y-5">
@@ -288,6 +284,6 @@ export function RequestIntakeScreen({
         footer={submitFooter}
         onSubmit={handleSubmit}
       />
-    </>
+    </div>
   );
 }

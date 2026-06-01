@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useRef } from "react";
 
 import type { CustomerRecord } from "../components/taskpane/customers";
-import { findCustomerByEmail } from "../components/taskpane/customers";
+import { emailDomain, findCustomerByEmail } from "../components/taskpane/customers";
 import type { CustomerSearch } from "./customerSearch";
 import type { IntakeAction } from "../components/taskpane/intakeReducer";
 
@@ -30,7 +30,7 @@ interface CustomerAutoMatchResult {
 }
 
 function deriveEmailDomainPart(clientEmail: string): string {
-  return clientEmail.includes("@") ? clientEmail.split("@").pop() ?? clientEmail : clientEmail;
+  return emailDomain(clientEmail) ?? "";
 }
 
 // Async fallback to the Convex mirror when the preloaded directory has no hit
@@ -39,7 +39,7 @@ function useAsyncMirrorMatch(args: UseCustomerAutoMatchArgs) {
   const { isLoggedIn, clientEmail, customerTouched, selectedCustomer, matchEmail, dispatch } = args;
   useEffect(() => {
     if (!isLoggedIn || customerTouched || selectedCustomer) return;
-    if (!clientEmail.includes("@")) return;
+    if (!emailDomain(clientEmail)) return;
     let cancelled = false;
     void matchEmail(clientEmail).then((customer) => {
       if (!cancelled && customer) dispatch({ type: "customerAutoMatched", customer });

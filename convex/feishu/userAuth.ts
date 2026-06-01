@@ -4,21 +4,29 @@ import {
   query,
   mutation,
   type ActionCtx,
+  type QueryCtx,
+  type MutationCtx,
 } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import { getTenantAccessToken } from "./auth";
 import { feishuFetch, FEISHU_BASE } from "./client";
 
+// Single source of the feishuUserTokens by_sessionId lookup, shared by the
+// query + mutation handlers below so the index read isn't duplicated four ways.
+function getSession(ctx: QueryCtx | MutationCtx, sessionId: string) {
+  return ctx.db
+    .query("feishuUserTokens")
+    .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
+    .unique();
+}
+
 // ── Queries ──────────────────────────────────────────────────────────
 
 export const getSessionBySessionId = internalQuery({
   args: { sessionId: v.string() },
   handler: async (ctx, args) => {
-    return await ctx.db
-      .query("feishuUserTokens")
-      .withIndex("by_sessionId", (q) => q.eq("sessionId", args.sessionId))
-      .unique();
+    return await getSession(ctx, args.sessionId);
   },
 });
 
@@ -51,10 +59,7 @@ export function toPublicSession(
 export const getUserSession = query({
   args: { sessionId: v.string() },
   handler: async (ctx, args) => {
-    const session = await ctx.db
-      .query("feishuUserTokens")
-      .withIndex("by_sessionId", (q) => q.eq("sessionId", args.sessionId))
-      .unique();
+    const session = await getSession(ctx, args.sessionId);
     if (!session) return null;
     return toPublicSession(session, Date.now());
   },
@@ -75,10 +80,7 @@ export const storeUserToken = internalMutation({
   },
   handler: async (ctx, args) => {
     // Remove any existing session for this sessionId
-    const existing = await ctx.db
-      .query("feishuUserTokens")
-      .withIndex("by_sessionId", (q) => q.eq("sessionId", args.sessionId))
-      .unique();
+    const existing = await getSession(ctx, args.sessionId);
     if (existing) {
       await ctx.db.delete(existing._id);
     }
@@ -98,10 +100,7 @@ export const storeUserToken = internalMutation({
 export const logoutUser = mutation({
   args: { sessionId: v.string() },
   handler: async (ctx, args) => {
-    const session = await ctx.db
-      .query("feishuUserTokens")
-      .withIndex("by_sessionId", (q) => q.eq("sessionId", args.sessionId))
-      .unique();
+    const session = await getSession(ctx, args.sessionId);
     if (session) {
       await ctx.db.delete(session._id);
     }

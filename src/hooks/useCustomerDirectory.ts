@@ -14,10 +14,16 @@ import type {
 } from "../components/taskpane/customers";
 import { dlog, dtime } from "../debug";
 
+// Opening the CustomerPicker is an explicit freshness signal, but repeated
+// open/close cycles should not re-read the full Feishu Customer Table every
+// time. Cache-miss search remains the per-query freshness path.
+const MANUAL_REFRESH_COOLDOWN_MS = 15 * 60 * 1000;
+
 // Singleton — survives component remounts within a session. Re-set to "idle"
 // on logout via {@link resetCustomerDirectory}.
 let cache: CustomerDirectoryState = { status: "idle", records: [] };
 let inflight: Promise<void> | null = null;
+let lastManualRefreshStartedAt = 0;
 const listeners = new Set<() => void>();
 
 function publish(next: CustomerDirectoryState) {
@@ -38,6 +44,7 @@ function getSnapshot(): CustomerDirectoryState {
 
 export function resetCustomerDirectory() {
   inflight = null;
+  lastManualRefreshStartedAt = 0;
   publish({ status: "idle", records: [] });
 }
 
@@ -91,6 +98,16 @@ export function useCustomerDirectory(isLoggedIn: boolean): UseCustomerDirectory 
   const refresh = useCallback(() => {
     // Already refreshing → leave the in-flight call alone; it'll publish soon.
     if (inflight) return;
+    const now = Date.now();
+    if (
+      cache.status === "ready" &&
+      lastManualRefreshStartedAt > 0 &&
+      now - lastManualRefreshStartedAt < MANUAL_REFRESH_COOLDOWN_MS
+    ) {
+      dlog("customer directory: manual refresh skipped (cooldown)");
+      return;
+    }
+    lastManualRefreshStartedAt = now;
     setRefreshNonce((n) => n + 1);
   }, []);
 

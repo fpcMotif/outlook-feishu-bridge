@@ -112,6 +112,10 @@ export default defineSchema({
     lastDurationMs: v.optional(v.number()),
     lastFinishedAt: v.optional(v.number()),
     lastSourceTableId: v.optional(v.string()),
+    // Mirror Prune (ADR-0020): rows scanned + orphans tombstoned on the last
+    // complete sync. Optional so existing deployment rows keep validating.
+    lastPruneScannedCount: v.optional(v.number()),
+    lastDeletedStaleCount: v.optional(v.number()),
   }),
 
   returnRequests: defineTable({

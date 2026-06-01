@@ -43,6 +43,8 @@ type KickHandler = (
   unchanged: number;
   duplicateRows: number;
   stopReason: string;
+  pruneScanned: number;
+  deletedStale: number;
 }>;
 
 const kickHandler = (kick as unknown as { _handler: KickHandler })._handler;
@@ -122,14 +124,23 @@ function makeCtx() {
     if (Array.isArray(args.rows)) {
       return { inserted: args.rows.length, updated: 0, unchanged: 0, duplicateRows: 0 };
     }
+    // deleteRowsById (Mirror Prune) — never called for an empty mirror, but keep
+    // it out of `completions` so a populated-table test does not see a phantom.
+    if (Array.isArray(args.ids)) return { deleted: args.ids.length };
     // markRefreshStarted (Mirror Kick rate-limit, ADR-0016) stamps a start time;
     // it is not a watermark completion, so keep it out of `completions`.
     if (typeof args.startedAt === "number") return null;
     completions.push(args);
     return null;
   });
-  // getMirrorRefreshStartedAt — no prior refresh, so the kick gate never skips.
-  const runQuery = vi.fn(async () => null);
+  // listRowsForPrune — empty mirror in the unit ctx, so the prune scans and
+  // deletes nothing. (The legacy getMirrorRefreshStartedAt path returns null.)
+  const runQuery = vi.fn(async (_fn: unknown, args?: Record<string, unknown>) => {
+    if (args && "paginationOpts" in args) {
+      return { page: [], isDone: true, continueCursor: "" };
+    }
+    return null;
+  });
   return { ctx: { runMutation, runQuery }, completions };
 }
 
@@ -479,6 +490,88 @@ describe("customer mirror full sync pagination", () => {
     });
   });
 
+  it("tombstones mirror rows whose recordId was not seen during a complete sync", async () => {
+    // Feishu returns one live row; the mirror also holds two orphans left behind
+    // by earlier Feishu deletes/re-imports that the upsert-only mirror never removed.
+    mockCallFeishu.mockResolvedValueOnce({
+      items: [{ record_id: "rec_live", fields: { "Account Name": [{ text: "Live", type: "text" }] } }],
+      has_more: false,
+      total: 1,
+    });
+    const mirrorRows = [
+      { _id: "d_live", recordId: "rec_live" },
+      { _id: "d_orphan1", recordId: "rec_old1" },
+      { _id: "d_orphan2", recordId: "rec_old2" },
+    ];
+    const deleted: string[][] = [];
+    const completions: Record<string, unknown>[] = [];
+    const runMutation = vi.fn(async (_fn: unknown, args: Record<string, unknown>) => {
+      if (typeof args.cooldownMs === "number") return { started: true };
+      if (Array.isArray(args.rows)) {
+        return { inserted: args.rows.length, updated: 0, unchanged: 0, duplicateRows: 0 };
+      }
+      if (Array.isArray(args.ids)) {
+        deleted.push(args.ids as string[]);
+        return { deleted: args.ids.length };
+      }
+      if (typeof args.startedAt === "number") return null;
+      completions.push(args);
+      return null;
+    });
+    const runQuery = vi.fn(async (_fn: unknown, args?: Record<string, unknown>) =>
+      args && "paginationOpts" in args
+        ? { page: mirrorRows, isDone: true, continueCursor: "" }
+        : null,
+    );
+
+    const result = await kickHandler({ runMutation, runQuery }, {});
+
+    expect(result.stopReason).toBe("complete");
+    expect(deleted).toEqual([["d_orphan1", "d_orphan2"]]);
+    expect(result.pruneScanned).toBe(3);
+    expect(result.deletedStale).toBe(2);
+    expect(completions[0]).toMatchObject({
+      lastPruneScannedCount: 3,
+      lastDeletedStaleCount: 2,
+      lastStopReason: "complete",
+    });
+  });
+
+  it("never prunes when the sync stops incomplete, so a partial fetch cannot wipe the mirror", async () => {
+    // has_more=true with no page_token -> missingPageToken (incomplete). An orphan
+    // is present in the mirror, but the prune MUST be skipped entirely.
+    mockCallFeishu.mockResolvedValueOnce({
+      items: [{ record_id: "rec_1", fields: { "Account Name": [{ text: "One", type: "text" }] } }],
+      has_more: true,
+    });
+    const deleted: string[][] = [];
+    const runMutation = vi.fn(async (_fn: unknown, args: Record<string, unknown>) => {
+      if (typeof args.cooldownMs === "number") return { started: true };
+      if (Array.isArray(args.rows)) {
+        return { inserted: args.rows.length, updated: 0, unchanged: 0, duplicateRows: 0 };
+      }
+      if (Array.isArray(args.ids)) {
+        deleted.push(args.ids as string[]);
+        return { deleted: args.ids.length };
+      }
+      if (typeof args.startedAt === "number") return null;
+      return null;
+    });
+    const runQuery = vi.fn(async (_fn: unknown, args?: Record<string, unknown>) =>
+      args && "paginationOpts" in args
+        ? { page: [{ _id: "d_orphan", recordId: "rec_old" }], isDone: true, continueCursor: "" }
+        : null,
+    );
+
+    await expect(kickHandler({ runMutation, runQuery }, {})).rejects.toThrow(
+      "Customers mirror stopped before completion",
+    );
+
+    // The prune scan never ran and nothing was deleted (safety gate held).
+    expect(runQuery).not.toHaveBeenCalled();
+    expect(deleted).toEqual([]);
+  });
+
   it("allows only one full re-page when two mirror kicks race before the cooldown stamp is visible", async () => {
     mockCallFeishu.mockResolvedValue({
       items: [
@@ -501,6 +594,7 @@ describe("customer mirror full sync pagination", () => {
       if (Array.isArray(args.rows)) {
         return { inserted: args.rows.length, updated: 0, unchanged: 0, duplicateRows: 0 };
       }
+      if (Array.isArray(args.ids)) return { deleted: args.ids.length };
       if (typeof args.startedAt === "number") return null;
       completions.push(args);
       return null;
@@ -508,8 +602,13 @@ describe("customer mirror full sync pagination", () => {
     const ctx = {
       runMutation,
       // Current implementation reads the timestamp outside the mutation. Return
-      // stale state for both racing actions to reproduce the production burst.
-      runQuery: vi.fn(async () => null),
+      // stale state for both racing actions to reproduce the production burst;
+      // the prune scan (listRowsForPrune) sees an empty mirror.
+      runQuery: vi.fn(async (_fn: unknown, qArgs?: Record<string, unknown>) =>
+        qArgs && "paginationOpts" in qArgs
+          ? { page: [], isDone: true, continueCursor: "" }
+          : null,
+      ),
     };
 
     const results = await Promise.all([kickHandler(ctx, {}), kickHandler(ctx, {})]);

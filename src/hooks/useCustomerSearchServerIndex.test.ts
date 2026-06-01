@@ -49,6 +49,33 @@ describe("useCustomerSearchServerIndex", () => {
     expect(query).not.toHaveBeenCalled();
   });
 
+  it("coalesces repeated in-flight match-by-email calls for the same domain", async () => {
+    let resolveQuery!: (value: { customer: { recordId: string; name: string; owner: null } }) => void;
+    const pendingQuery = new Promise<{ customer: { recordId: string; name: string; owner: null } }>((resolve) => {
+      resolveQuery = resolve;
+    });
+    const query = vi.fn(() => pendingQuery);
+    const kick = vi.fn(async () => ({ pages: 1, rows: 1 }));
+    const searchAndCacheMiss = vi.fn();
+    mockUseConvex.mockReturnValue({ query } as never);
+    mockUseAction.mockReturnValueOnce(kick).mockReturnValueOnce(searchAndCacheMiss);
+
+    const { result } = renderHook(() => useCustomerSearchServerIndex());
+
+    const p1 = result.current.matchEmail("buyer@example.com");
+    const p2 = result.current.matchEmail("accounts@example.com");
+
+    expect(p1).toBe(p2);
+    expect(query).toHaveBeenCalledTimes(1);
+
+    resolveQuery({ customer: { recordId: "rec_example", name: "Example", owner: null } });
+
+    await expect(Promise.all([p1, p2])).resolves.toEqual([
+      { recordId: "rec_example", name: "Example", owner: null },
+      { recordId: "rec_example", name: "Example", owner: null },
+    ]);
+  });
+
   it("coalesces repeated in-flight customer searches", async () => {
     let resolveQuery!: (value: { records: Array<{ recordId: string; name: string; owner: null }> }) => void;
     const pendingQuery = new Promise<{ records: Array<{ recordId: string; name: string; owner: null }> }>((resolve) => {

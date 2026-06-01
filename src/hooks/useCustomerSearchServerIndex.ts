@@ -27,6 +27,7 @@ const MIN_SERVER_SEARCH_LENGTH = 2;
 const EMPTY_LIVE_MISS_TTL_MS = 30 * 1000;
 let lastMirrorKickStartedAt = 0;
 const inFlightSearches = new Map<string, Promise<CustomerRecord[]>>();
+const inFlightEmailMatches = new Map<string, Promise<CustomerRecord | null>>();
 const emptyLiveMisses = new Map<string, number>();
 
 type ConvexClient = ReturnType<typeof useConvex>;
@@ -46,6 +47,15 @@ function trackSearch(key: string, p: Promise<CustomerRecord[]>): Promise<Custome
   p.then(
     () => inFlightSearches.delete(key),
     () => inFlightSearches.delete(key),
+  );
+  return p;
+}
+
+function trackEmailMatch(key: string, p: Promise<CustomerRecord | null>): Promise<CustomerRecord | null> {
+  inFlightEmailMatches.set(key, p);
+  p.then(
+    () => inFlightEmailMatches.delete(key),
+    () => inFlightEmailMatches.delete(key),
   );
   return p;
 }
@@ -132,10 +142,15 @@ export function useCustomerSearchServerIndex(): CustomerSearch {
   );
 
   const matchEmail = useCallback(
-    async (email: string): Promise<CustomerRecord | null> => {
-      if (!emailDomain(email)) return null;
-      const result = await convex.query(api.feishu.customersMirror.matchByEmail, { email });
-      return result.customer;
+    (email: string): Promise<CustomerRecord | null> => {
+      const domain = emailDomain(email);
+      if (!domain) return Promise.resolve(null);
+      const inFlight = inFlightEmailMatches.get(domain);
+      if (inFlight) return inFlight;
+      return trackEmailMatch(
+        domain,
+        convex.query(api.feishu.customersMirror.matchByEmail, { email }).then((result) => result.customer),
+      );
     },
     [convex],
   );

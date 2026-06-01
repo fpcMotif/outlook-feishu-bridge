@@ -13,6 +13,7 @@ import type * as emailRecord from "../emailRecord.js";
 import type * as emails from "../emails.js";
 import type * as feishu_auth from "../feishu/auth.js";
 import type * as feishu_bitable from "../feishu/bitable.js";
+import type * as feishu_bitableUrl from "../feishu/bitableUrl.js";
 import type * as feishu_call from "../feishu/call.js";
 import type * as feishu_client from "../feishu/client.js";
 import type * as feishu_coworkers from "../feishu/coworkers.js";
@@ -46,6 +47,7 @@ declare const fullApi: ApiFromModules<{
   emails: typeof emails;
   "feishu/auth": typeof feishu_auth;
   "feishu/bitable": typeof feishu_bitable;
+  "feishu/bitableUrl": typeof feishu_bitableUrl;
   "feishu/call": typeof feishu_call;
   "feishu/client": typeof feishu_client;
   "feishu/coworkers": typeof feishu_coworkers;

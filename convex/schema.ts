@@ -30,6 +30,7 @@ export default defineSchema({
     .index("by_internetMessageId", ["internetMessageId"])
     .index("by_conversationId", ["conversationId"])
     .index("by_userEmail", ["userEmail"])
+    .index("by_requestSyncKey", ["requestSyncKey"])
     .index("by_bitableSyncStatus_and_bitableNextRetryAt", [
       "bitableSyncStatus",
       "bitableNextRetryAt",
@@ -88,6 +89,9 @@ export default defineSchema({
   customersMirrorState: defineTable({
     lastFullSyncAt: v.number(),
     lastRowCount: v.number(),
+    // When the last full refresh STARTED (Mirror Kick rate-limit, ADR-0016
+    // amendment). Stamped by any refresh; only the on-demand kick gates on it.
+    lastRefreshStartedAt: v.optional(v.number()),
     lastPageCount: v.optional(v.number()),
     lastPageSize: v.optional(v.number()),
     lastInsertedCount: v.optional(v.number()),

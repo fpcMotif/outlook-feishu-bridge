@@ -55,7 +55,7 @@ import {
 
 export { buildSearchBlob } from "./customerMirrorRows";
 
-export const CUSTOMER_TABLE_ID = "tbl4TE2GV472sKzp";
+const CUSTOMER_TABLE_ID = "tbl4TE2GV472sKzp";
 const PAGE_SIZE = 500;
 // Cache-miss search only needs enough rows to fill the picker and warm the
 // mirror around the user's exact query. Keep the full-sync page size at
@@ -176,62 +176,6 @@ export const deleteRowsById = internalMutation({
   handler: async (ctx, args) => {
     await Promise.all(args.ids.map((id) => ctx.db.delete(id)));
     return { deleted: args.ids.length };
-  },
-});
-
-// --- Real-time webhook sync (ADR-0020) --------------------------------------
-// Driven by the Feishu Event Subscription for drive.file.bitable_record_changed_v1
-// (see ../http.ts + recordChangedEvent.ts). A delete propagates instantly here
-// instead of waiting for the weekly Mirror Prune, so the mirror cannot drift
-// above the live Customer Table between full syncs. HARD RULE intact: these
-// only READ Bitable and WRITE the Convex mirror.
-
-// Tombstone a single mirror row by its Bitable recordId (record_deleted event).
-export const deleteByRecordId = internalMutation({
-  args: { recordId: v.string() },
-  handler: async (ctx, args): Promise<{ deleted: number }> => {
-    const existing = await ctx.db
-      .query("customers")
-      .withIndex("by_recordId", (q) => q.eq("recordId", args.recordId))
-      .unique();
-    if (!existing) return { deleted: 0 };
-    await ctx.db.delete(existing._id);
-    console.log(`[customers-mirror] webhook tombstoned recordId=${args.recordId}`);
-    return { deleted: 1 };
-  },
-});
-
-// Refetch one Customer row from Feishu by recordId and upsert it into the mirror
-// (record_added / record_edited event). The event payload only carries field_id
-// diffs, so we re-read the named fields from the source of truth.
-//   Official: GET /bitable/v1/apps/{app}/tables/{table}/records/{record_id}
-//   https://open.feishu.cn/document/server-docs/docs/bitable-v1/app-table-record/get
-export const refreshRecordById = internalAction({
-  args: { recordId: v.string() },
-  handler: async (ctx, args): Promise<{ upserted: number }> => {
-    const appToken = requireAppToken();
-    try {
-      const data = await callFeishu<{ record?: FeishuRecord }>(ctx, {
-        path: `/bitable/v1/apps/${appToken}/tables/${CUSTOMER_TABLE_ID}/records/${args.recordId}`,
-        method: "GET",
-        auth: "tenant",
-        label: "Customers mirror — webhook single-record refresh",
-      });
-      if (!data.record) return { upserted: 0 };
-      await ctx.runMutation(internal.feishu.customersMirror.applyPage, {
-        rows: [projectionToRow(mapFeishuItemToCustomer(data.record))],
-        mirroredAt: Date.now(),
-      });
-      return { upserted: 1 };
-    } catch (error: unknown) {
-      // Non-fatal: a transient fetch failure (or a record deleted between the
-      // event and this refresh) is reconciled by the weekly full sync + prune.
-      console.error(
-        `[customers-mirror] webhook refresh failed for recordId=${args.recordId}: ` +
-          `${error instanceof Error ? error.message : String(error)}`,
-      );
-      return { upserted: 0 };
-    }
   },
 });
 

@@ -35,11 +35,13 @@ function deriveEmailDomainPart(clientEmail: string): string {
 
 // Async fallback to the Convex mirror when the preloaded directory has no hit
 // yet (e.g. directory still empty / not loaded). Cancellable on re-run.
-function useAsyncMirrorMatch(args: UseCustomerAutoMatchArgs) {
+function useAsyncMirrorMatch(args: UseCustomerAutoMatchArgs, emailDomainPart: string) {
   const { isLoggedIn, clientEmail, customerTouched, selectedCustomer, matchEmail, dispatch } = args;
+  const attemptedFor = useRef<string | null>(null);
   useEffect(() => {
     if (!isLoggedIn || customerTouched || selectedCustomer) return;
-    if (!emailDomain(clientEmail)) return;
+    if (!emailDomainPart || attemptedFor.current === emailDomainPart) return;
+    attemptedFor.current = emailDomainPart;
     let cancelled = false;
     void matchEmail(clientEmail).then((customer) => {
       if (!cancelled && customer) dispatch({ type: "customerAutoMatched", customer });
@@ -47,7 +49,7 @@ function useAsyncMirrorMatch(args: UseCustomerAutoMatchArgs) {
     return () => {
       cancelled = true;
     };
-  }, [isLoggedIn, matchEmail, clientEmail, customerTouched, selectedCustomer, dispatch]);
+  }, [isLoggedIn, matchEmail, clientEmail, emailDomainPart, customerTouched, selectedCustomer, dispatch]);
 }
 
 // One-shot directory/mirror refresh per domain when a ready directory has no
@@ -87,7 +89,7 @@ export function useCustomerAutoMatch(args: UseCustomerAutoMatchArgs): CustomerAu
     dispatch({ type: "customerAutoMatched", customer: autoMatch });
   }
 
-  useAsyncMirrorMatch(args);
+  useAsyncMirrorMatch(args, emailDomainPart);
   useRefreshOnNoMatch(args, autoMatch, emailDomainPart);
 
   return {

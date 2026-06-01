@@ -7,17 +7,19 @@ function renderAutoMatch(clientEmail: string) {
   const matchEmail = vi.fn(async () => null);
   const triggerRefresh = vi.fn();
   const dispatch = vi.fn();
-  const result = renderHook(() =>
-    useCustomerAutoMatch({
-      isLoggedIn: true,
-      clientEmail,
-      customerTouched: false,
-      selectedCustomer: null,
-      directory: { status: "ready", records: [] },
-      matchEmail,
-      triggerRefresh,
-      dispatch,
-    }),
+  const result = renderHook(
+    ({ email }) =>
+      useCustomerAutoMatch({
+        isLoggedIn: true,
+        clientEmail: email,
+        customerTouched: false,
+        selectedCustomer: null,
+        directory: { status: "ready", records: [] },
+        matchEmail,
+        triggerRefresh,
+        dispatch,
+      }),
+    { initialProps: { email: clientEmail } },
   );
   return { ...result, matchEmail, triggerRefresh, dispatch };
 }
@@ -51,6 +53,22 @@ describe("useCustomerAutoMatch", () => {
     await waitFor(() => {
       expect(result.current.emailDomainPart).toBe("example.com");
       expect(matchEmail).toHaveBeenCalledWith("buyer@example.com");
+      expect(triggerRefresh).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("does not repeat mirror match or refresh when only the email local part changes", async () => {
+    const { rerender, matchEmail, triggerRefresh } = renderAutoMatch("buyer@example.com");
+
+    await waitFor(() => {
+      expect(matchEmail).toHaveBeenCalledTimes(1);
+      expect(triggerRefresh).toHaveBeenCalledTimes(1);
+    });
+
+    rerender({ email: "accounts@example.com" });
+
+    await waitFor(() => {
+      expect(matchEmail).toHaveBeenCalledTimes(1);
       expect(triggerRefresh).toHaveBeenCalledTimes(1);
     });
   });

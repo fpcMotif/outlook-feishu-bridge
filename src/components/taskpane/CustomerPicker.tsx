@@ -14,7 +14,6 @@ import type {
 } from "./customers";
 import {
   filterLocalCustomers,
-  logLocalFilter,
   normalizedQuery,
   ownerFilter,
 } from "./customerSearchHelpers";
@@ -161,22 +160,22 @@ function SearchPanel({
     };
   }, []);
 
+  useEffect(() => {
+    if (q.length < MIN_SERVER_SEARCH_LENGTH || directory.status !== "ready" || localMatches.length === 0) {
+      return;
+    }
+    if (searchTimer.current !== null) {
+      window.clearTimeout(searchTimer.current);
+      searchTimer.current = null;
+    }
+    latestSearch.current += 1;
+    setServerMatches([]);
+  }, [directory.status, localMatches.length, q]);
+
   const runServerSearch = (nextQuery: string, nextShowMine: boolean) => {
     const nextQ = normalizedQuery(nextQuery);
     if (searchTimer.current !== null) window.clearTimeout(searchTimer.current);
     if (!nextQ || nextQ.length < MIN_SERVER_SEARCH_LENGTH) {
-      latestSearch.current += 1;
-      setServerMatches([]);
-      return;
-    }
-    const nextLocalMatches = logLocalFilter(
-      directory.records,
-      nextQ,
-      nextShowMine,
-      currentUserOpenId,
-      LOCAL_MATCH_DISPLAY_LIMIT,
-    );
-    if (directory.status === "ready" && nextLocalMatches.length > 0) {
       latestSearch.current += 1;
       setServerMatches([]);
       return;

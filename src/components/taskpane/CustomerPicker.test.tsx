@@ -183,6 +183,40 @@ describe("CustomerPicker server fallback", () => {
     expect(screen.getByRole("button", { name: /Bayer Pharma/i })).toBeInTheDocument();
   });
 
+  it("does not run an extra local scan before cancelling a two-character local-hit server guard", async () => {
+    vi.useFakeTimers();
+    let accountNoReads = 0;
+    const records = Array.from({ length: 100 }, (_, index) => ({
+      recordId: `rec_${index}`,
+      name: index === 99 ? "Needles GmbH" : `Customer ${index}`,
+      get accountNo() {
+        accountNoReads += 1;
+        return index === 99 ? "AC-99" : `ZZ-${index}`;
+      },
+      owner: null,
+    }));
+    const searchCustomers = vi.fn(() => Promise.resolve([]));
+    render(
+      <CustomerPicker
+        directory={{ status: "ready", records }}
+        searchCustomers={searchCustomers}
+        emailDomain="unknown.io"
+        selectedCustomer={null}
+        onChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /search customer/i }));
+    fireEvent.change(screen.getByRole("combobox", { name: /search customers/i }), {
+      target: { value: "ac" },
+    });
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(screen.getByRole("button", { name: /Needles GmbH/i })).toBeInTheDocument();
+    expect(searchCustomers).not.toHaveBeenCalled();
+    expect(accountNoReads).toBe(100);
+  });
+
   it("does not run an extra local scan for one-character no-match server guard", async () => {
     vi.useFakeTimers();
     let nameReads = 0;

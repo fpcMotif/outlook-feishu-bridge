@@ -8,16 +8,14 @@
 //   record data structure overview:
 //     https://open.feishu.cn/document/docs/bitable-v1/app-table-record/bitable-record-data-structure-overview
 //   SDK reference: https://github.com/larksuite/oapi-sdk-go
-// MultiSelect -> string[]; Text -> string; DateTime -> epoch ms;
-// User -> [{ id: open_id }]; DuplexLink -> [record_id].
+// Text -> string; DateTime -> epoch ms; User -> [{ id: open_id }];
+// DuplexLink -> [record_id].
+//
+// FORBIDDEN: the "Request Type" MultiSelect is NOT written from the add-in. It
+// is owned inside Feishu (set manually / by a Base automation). Writing it here
+// duplicated the Feishu-managed value (live cells showed extra "+N" chips), so
+// the mapping was removed. Do not re-add a Request Type write.
 
-// Request-card title -> "Request Type" MultiSelect option. The Bitable option is
-// literally "Qutation" (misspelled) — it must match exactly or Feishu rejects it.
-const REQUEST_TYPE_OPTION: Record<string, string> = {
-  Quotation: "Qutation",
-  Sample: "Sample",
-  "R&D Support": "R&D Support",
-};
 // Request-card title -> its note Text column.
 const NOTE_FIELD: Record<string, string> = {
   Quotation: "Quotation Note",
@@ -59,7 +57,8 @@ function readSkipSet(): Set<string> {
  * Build the Service row's `fields` — "derivable only" (ADR-0010) plus the
  * additions ADR-0014 introduced (`Sales` Initiator + `Email Subject`).
  * Business Branch / Service Type are intentionally left blank (filled
- * manually in Bitable).
+ * manually in Bitable). The `Request Type` MultiSelect is likewise NOT written
+ * — Feishu owns that column (see the FORBIDDEN note at the top of the file).
  */
 export function buildServiceFields(
   input: ServiceRowInput,
@@ -69,10 +68,8 @@ export function buildServiceFields(
   const skip = readSkipSet();
   if (skip.size > 0) console.log(`[bitable] DIAG_SKIP_FIELDS active: ${[...skip].join("|")}`);
 
-  const types = (input.requestSelections ?? [])
-    .map((r) => REQUEST_TYPE_OPTION[r.requestType])
-    .filter((t): t is string => t !== undefined);
-  if (types.length > 0 && !skip.has("Request Type")) fields["Request Type"] = types;
+  // Request Type is FORBIDDEN to write from here — Feishu owns that column.
+  // Only the per-card Note Text columns are derived from the selections.
   for (const r of input.requestSelections ?? []) {
     const noteField = NOTE_FIELD[r.requestType];
     if (noteField && r.note.trim() && !skip.has(noteField)) fields[noteField] = r.note;

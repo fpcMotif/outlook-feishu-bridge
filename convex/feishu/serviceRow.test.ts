@@ -50,6 +50,51 @@ describe("buildServiceFields", () => {
   });
 });
 
+// The "Request Type" MultiSelect is FORBIDDEN for the add-in to write — Feishu
+// owns that column (set manually / by a Base automation). Writing it from here
+// duplicated the Feishu-managed value (live cells showed extra "+N" chips), so
+// the mapping was removed. These tests lock that in: no matter what selections
+// arrive, the builder must never emit a `Request Type` key.
+describe("buildServiceFields — Request Type is never written (Feishu owns it)", () => {
+  it("omits Request Type even when request cards are filled", () => {
+    const fields = buildServiceFields(
+      {
+        ...BASE,
+        requestSelections: [
+          { requestType: "Quotation", note: "FOB pls" },
+          { requestType: "Sample", note: "50g" },
+          { requestType: "R&D Support", note: "spec sheet" },
+        ],
+      },
+      null,
+    );
+    expect("Request Type" in fields).toBe(false);
+  });
+
+  // Removing the Request Type write must NOT drop the per-card Note Text columns
+  // — those still carry the salesperson's typed content.
+  it("still writes the per-card Note Text columns from the selections", () => {
+    const fields = buildServiceFields(
+      {
+        ...BASE,
+        requestSelections: [
+          { requestType: "Quotation", note: "FOB pls" },
+          { requestType: "R&D Support", note: "spec sheet" },
+        ],
+      },
+      null,
+    );
+    expect(fields["Quotation Note"]).toBe("FOB pls");
+    expect(fields["R&D Support Note"]).toBe("spec sheet");
+    expect("Request Type" in fields).toBe(false);
+  });
+
+  it("omits Request Type when there are no selections", () => {
+    const fields = buildServiceFields(BASE, null);
+    expect("Request Type" in fields).toBe(false);
+  });
+});
+
 // ADR-0017: the Mail Item's Outlook conversationId rides into the
 // `Email Conversation ID` Text column as the join key from the Bitable row
 // back to the salesperson's mailbox view of the original client thread.

@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { toEmailRecord, type EmailRecord, type EmailRecordInput } from "./emailRecord";
+import {
+  buildRequestSyncKey,
+  toEmailRecord,
+  type EmailRecord,
+  type EmailRecordInput,
+} from "./emailRecord";
 
 const syncInput: EmailRecordInput = {
   subject: "Q3 numbers",
@@ -25,6 +30,7 @@ const syncRecord: EmailRecord = {
   cc: ["dave@corp.com"],
   bodyPreview: "Here are the figures.",
   internetMessageId: "<msg-1@corp.com>",
+  requestSyncKey: "me@corp.com\nconv-1",
   itemId: "AAItem1",
   conversationId: "conv-1",
   userEmail: "me@corp.com",
@@ -53,6 +59,12 @@ const syncRecord: EmailRecord = {
 };
 
 describe("toEmailRecord", () => {
+  it("derives the idempotency key from user mailbox plus Outlook conversation id", () => {
+    expect(buildRequestSyncKey(" Me@Corp.COM ", " conv-1 ")).toBe("me@corp.com\nconv-1");
+    expect(buildRequestSyncKey("", "conv-1")).toBeNull();
+    expect(buildRequestSyncKey("me@corp.com", "")).toBeNull();
+  });
+
   it("maps a Bitable Sync onto the persisted Email Record", () => {
     expect(toEmailRecord(syncInput, { bitableRecordId: "rec_1" })).toEqual(syncRecord);
   });

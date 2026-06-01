@@ -56,8 +56,12 @@ A single categorized ask captured from the client email — one of **Quotation**
 _Avoid_: "ticket", "channel" (an earlier word for these cards).
 
 **Coworker**:
-A real Feishu directory user, found via **Search Users** (`/search/v1/user`, scope `contact:user:search`) and selected as the single **assignee** written into the **Base** row. Exactly one **Coworker** is required per **Base Sync**; made-up fixture users are not Coworkers and belong only in automated tests. The app sends them **no message** — assignment is metadata; any alerting is Base's own feature.
+A real Feishu directory user, found either from the **Coworker Directory** read model or directly via **Search Users** (`/search/v1/user`, scope `contact:user:search`) and selected as the single **assignee** written into the **Base** row. Exactly one **Coworker** is required per **Base Sync**; made-up fixture users are not Coworkers and belong only in automated tests. The app sends them **no message** — assignment is metadata; any alerting is Base's own feature.
 _Avoid_: "recipient" / "contact" (we don't deliver anything to them), "sample coworker", "preview user", "channel".
+
+**Coworker Directory**:
+The Convex-held read model of real Feishu **Coworkers** used to make small-org coworker search local after a background refresh. It is never authoritative: Feishu remains the source of truth, and the app falls back to live **Search Users** when the directory is absent, stale, disabled, or unauthorized. Made-up fixture users never enter this read model.
+_Avoid_: "contact cache" (too vague), "coworker database" (sounds authoritative), "sample directory".
 
 **Initiator**:
 The signed-in Feishu user who clicks **Sync** — the salesperson who triggered the **Base Sync**. Distinct from the **Coworker** (the assignee). Written into the Base Service row's `Sales` (User) column and mirrored onto the **Email Record** as the audit trail of *who* synced it.

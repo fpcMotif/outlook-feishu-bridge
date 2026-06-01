@@ -109,6 +109,19 @@ Permissions ([ADR-0011](adr/0011-feishu-permission-set.md)) — batch-import in 
 `offline_access` is sent in the authorize URL (not a console permission). The app must
 also be a **collaborator with edit rights** on the target Base.
 
+Optional Coworker Directory mirror ([ADR-0003](adr/0003-feishu-user-scopes-and-search-v1.md),
+[ADR-0011](adr/0011-feishu-permission-set.md)): to make coworker search local for the
+small org, grant the official Contact API read permissions required by Feishu's
+`/contact/v3/departments/0/children` and `/contact/v3/users/find_by_department`
+docs, set the app's contact visibility range to all members, then enable:
+
+```bash
+bunx convex env set FEISHU_COWORKER_DIRECTORY_SYNC 1
+```
+
+Leave it unset until the Feishu console permission/range change is complete; the cron records
+`disabled` and falls back to Search Users when this flag is absent.
+
 The **app secret is backend-only** — never put it in a `VITE_*` var (those ship
 to every browser in plain text). Only the public `VITE_FEISHU_APP_ID` is baked
 into the SPA.

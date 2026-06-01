@@ -6,7 +6,7 @@ _Last updated: 2026-06-01_
 
 - **Customer search:** keep the Convex **server-indexed Customer Mirror** as the production path for large Customer Tables (`VITE_CUSTOMER_SEARCH_MODE=server-index`). The hot query is `convex/feishu/customersMirror.ts:search`, backed by `convex/schema.ts` search index `customers.by_text`.
 - **Customer mirror refresh latency/cost:** `applyPage` now skips no-op writes when mirrored rows are unchanged. This avoids unnecessary Convex invalidation, search-index rewrites, replication work, and reactive subscriber churn during weekly full refreshes.
-- **Coworker/contact search:** keep Feishu's official Search Users API (`GET /open-apis/search/v1/user`) as the source of truth, but add a two-character frontend guard, session-validated Convex query cache, and frontend in-flight de-dup/TTL cache to avoid broad or repeated Feishu round-trips and action runtime overhead.
+- **Coworker/contact search:** keep Feishu's official Search Users API (`GET /open-apis/search/v1/user`) as the source of truth, but add two-character guards at the hook and action boundaries, session-validated Convex query cache, and frontend in-flight de-dup/TTL cache to avoid broad or repeated Feishu round-trips and action runtime overhead.
 - **Experiment loop:** `scripts/search-latency-experiment.mjs` plus `bun run search:experiment` provide repeatable Convex-backed p50/p95 probes for customer mirror search and coworker cache-hit search.
 
 ## Official-doc constraints used
@@ -74,6 +74,7 @@ sequenceDiagram
    - Adds internal cache query/mutation plus public `searchCoworkersCached` query for warm Search Users results.
    - Validates the primary server-side Feishu session before returning cached results; fallback browser-held tokens bypass the shared server cache.
    - Keeps Feishu as source of truth on cold/stale cache misses.
+   - Returns before token resolution/cache lookup/Feishu work for one-character action queries.
    - Preserves avatar fallback order: `avatar_72`, `avatar_240`, `avatar_640`, `avatar_origin`, `avatar_url`.
 4. `src/hooks/useCoworkerSearch.ts`
    - Adds a two-character minimum search guard, module-level TTL cache, LRU-style pruning, token-scoped fallback cache keys, in-flight promise coalescing, and a public-query warm-cache check before the action fallback.

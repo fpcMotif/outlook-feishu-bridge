@@ -514,4 +514,21 @@ describe("searchCoworkers action cache behavior", () => {
     expect(runMutation).not.toHaveBeenCalled();
     expect(callFeishuMock).not.toHaveBeenCalled();
   });
+
+  it("returns [] for one-character query before token, cache, or Feishu work", async () => {
+    const runQuery = vi.fn(async () => null);
+    const runMutation = vi.fn(async () => undefined);
+    const ctx = { runQuery, runMutation } as unknown as ActionCtx;
+
+    const found = await searchCoworkersHandler(ctx, {
+      sessionId: "sess-short",
+      query: " a ",
+    });
+
+    expect(found).toEqual([]);
+    expect(resolveFeishuTokenMock).not.toHaveBeenCalled();
+    expect(runQuery).not.toHaveBeenCalled();
+    expect(runMutation).not.toHaveBeenCalled();
+    expect(callFeishuMock).not.toHaveBeenCalled();
+  });
 });

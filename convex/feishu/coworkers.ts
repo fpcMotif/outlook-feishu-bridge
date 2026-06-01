@@ -13,6 +13,7 @@ import { callFeishu, resolveFeishuToken } from "./call";
 
 const COWORKER_SEARCH_CACHE_TTL_MS = 5 * 60 * 1000;
 const COWORKER_SEARCH_CACHE_MAX_ENTRIES_PER_SESSION = 24;
+const MIN_COWORKER_SEARCH_LENGTH = 2;
 const COWORKER_SEARCH_CACHE_CLEANUP_BATCH_SIZE = 200;
 
 // Search Users response (open.feishu.cn GET /open-apis/search/v1/user): each
@@ -269,7 +270,7 @@ export const searchCoworkers = action({
   handler: async (ctx, args): Promise<Coworker[]> => {
     const cacheKey = makeCacheLookupQuery(args.query);
     const searchQuery = normalizeCoworkerQuery(args.query);
-    if (!searchQuery) return [];
+    if (searchQuery.length < MIN_COWORKER_SEARCH_LENGTH) return [];
 
     // Primary login stores the token in Convex. Resolve it before checking the
     // cache so deleted/expired sessions cannot keep reading cached directory

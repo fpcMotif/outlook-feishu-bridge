@@ -366,6 +366,17 @@ describe("searchCoworkersCached query behavior", () => {
     vi.restoreAllMocks();
   });
 
+  it("returns [] for one-character queries before session or cache reads", async () => {
+    const db = makeFakeDb([], [{ _id: "session-1", sessionId: "sess-valid", expiresAt: 20000 }]);
+    const querySpy = vi.spyOn(db, "query");
+
+    await expect(
+      searchCoworkersCachedHandler({ db }, { sessionId: "sess-valid", query: " a " }),
+    ).resolves.toEqual({ results: [] });
+
+    expect(querySpy).not.toHaveBeenCalled();
+  });
+
   it("returns warm cache only when the server session is still valid", async () => {
     const db = makeFakeDb(
       [

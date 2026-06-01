@@ -130,7 +130,7 @@ export const searchCoworkersCached = convexQuery({
   },
   handler: async (ctx, args): Promise<{ results: Coworker[] } | null> => {
     const q = normalizeCoworkerQuery(args.query);
-    if (!q) return { results: [] };
+    if (q.length < MIN_COWORKER_SEARCH_LENGTH) return { results: [] };
     const session = await ctx.db
       .query("feishuUserTokens")
       .withIndex("by_sessionId", (idx) => idx.eq("sessionId", args.sessionId))

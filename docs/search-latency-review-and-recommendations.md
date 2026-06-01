@@ -72,6 +72,7 @@ sequenceDiagram
    - Adds optional `lastUnchangedCount` to `customersMirrorState`.
 3. `convex/feishu/coworkers.ts`
    - Adds internal cache query/mutation plus public `searchCoworkersCached` query for warm Search Users results.
+   - Returns from warm-cache public queries before session/cache reads for one-character input.
    - Validates the primary server-side Feishu session before returning cached results; fallback browser-held tokens bypass the shared server cache.
    - Keeps Feishu as source of truth on cold/stale cache misses.
    - Returns before token resolution/cache lookup/Feishu work for one-character action queries.

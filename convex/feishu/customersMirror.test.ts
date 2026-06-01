@@ -519,3 +519,42 @@ describe("customer mirror full sync pagination", () => {
     expect(completions).toHaveLength(1);
   });
 });
+
+describe("customer mirror identity key", () => {
+  // ADR-0020 RC2: the mirror must upsert on the immutable API `record_id`, never
+  // the user-facing "Record Id" column. This captures the rows handed to
+  // `applyPage` from a Feishu page whose "Record Id" column DIVERGES from the
+  // API id and pins that the persisted dedup key is the API id.
+  it("upserts on the API record_id even when the human `Record Id` column diverges", async () => {
+    mockCallFeishu.mockResolvedValueOnce({
+      items: [
+        {
+          record_id: "recAPIimmutable",
+          fields: {
+            "Account Name": [{ text: "Divergent Co", type: "text" }],
+            "Record Id": [{ text: "recHumanColumn", type: "text" }],
+          },
+        },
+      ],
+      has_more: false,
+      total: 1,
+    });
+
+    const appliedRows: Array<{ recordId: string }> = [];
+    const runMutation = vi.fn(async (_fn: unknown, args: Record<string, unknown>) => {
+      if (typeof args.cooldownMs === "number") return { started: true };
+      if (Array.isArray(args.rows)) {
+        appliedRows.push(...(args.rows as Array<{ recordId: string }>));
+        return { inserted: args.rows.length, updated: 0, unchanged: 0, duplicateRows: 0 };
+      }
+      if (typeof args.startedAt === "number") return null;
+      return null;
+    });
+
+    await kickHandler({ runMutation, runQuery: vi.fn(async () => null) }, {});
+
+    expect(appliedRows).toHaveLength(1);
+    expect(appliedRows[0].recordId).toBe("recAPIimmutable");
+    expect(appliedRows[0].recordId).not.toBe("recHumanColumn");
+  });
+});

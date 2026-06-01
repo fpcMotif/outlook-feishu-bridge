@@ -3,7 +3,7 @@ import { internalAction, type ActionCtx } from "../_generated/server";
 import { v } from "convex/values";
 import { callFeishu } from "./call";
 import { buildServiceFields, type ServiceRowInput } from "./serviceRow";
-import { emailDomain, recordIdFromCustomerInfoRow } from "./customers";
+import { emailDomain } from "./customers";
 import { isDevFixtureRecordId } from "./devCustomerFixtures";
 import {
   initiatorValidator,
@@ -89,7 +89,11 @@ export async function matchClientRecordId(
     label: "Bitable client domain search",
   });
   const first = data.items?.[0];
-  return first ? recordIdFromCustomerInfoRow(first) : null;
+  // The Client DuplexLink links by the IMMUTABLE Feishu API record_id, never the
+  // user-facing "Record Id" column (which only equals the API id while it stays a
+  // RECORD_ID() formula — ADR-0020 RC2). Use record_id directly so the link is
+  // robust to that column being changed to a manual field.
+  return first?.record_id ?? null;
 }
 
 // Resolve the Client DuplexLink target for a sync: prefer the override picked

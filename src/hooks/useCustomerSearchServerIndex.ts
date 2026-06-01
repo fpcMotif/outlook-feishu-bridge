@@ -10,11 +10,7 @@ import { useCallback } from "react";
 import { useAction, useConvex } from "convex/react";
 
 import { api } from "../../convex/_generated/api";
-import type {
-  CustomerDirectoryState,
-  CustomerRecord,
-  CustomerSearchOptions,
-} from "../components/taskpane/customers";
+import { emailDomain, type CustomerDirectoryState, type CustomerRecord, type CustomerSearchOptions } from "../components/taskpane/customers";
 import { dlog, dtime } from "../debug";
 import type { CustomerSearch } from "./customerSearch";
 
@@ -137,7 +133,7 @@ export function useCustomerSearchServerIndex(): CustomerSearch {
 
   const matchEmail = useCallback(
     async (email: string): Promise<CustomerRecord | null> => {
-      if (!email.trim()) return null;
+      if (!emailDomain(email)) return null;
       const result = await convex.query(api.feishu.customersMirror.matchByEmail, { email });
       return result.customer;
     },

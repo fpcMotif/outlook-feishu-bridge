@@ -35,6 +35,20 @@ describe("useCustomerSearchServerIndex", () => {
     expect(searchAndCacheMiss).not.toHaveBeenCalled();
   });
 
+  it("skips Convex match-by-email for invalid email domains", async () => {
+    const query = vi.fn();
+    const kick = vi.fn(async () => ({ pages: 1, rows: 1 }));
+    const searchAndCacheMiss = vi.fn();
+    mockUseConvex.mockReturnValue({ query } as never);
+    mockUseAction.mockReturnValueOnce(kick).mockReturnValueOnce(searchAndCacheMiss);
+
+    const { result } = renderHook(() => useCustomerSearchServerIndex());
+
+    await expect(result.current.matchEmail("buyer@")).resolves.toBeNull();
+
+    expect(query).not.toHaveBeenCalled();
+  });
+
   it("coalesces repeated in-flight customer searches", async () => {
     let resolveQuery!: (value: { records: Array<{ recordId: string; name: string; owner: null }> }) => void;
     const pendingQuery = new Promise<{ records: Array<{ recordId: string; name: string; owner: null }> }>((resolve) => {

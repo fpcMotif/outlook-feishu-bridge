@@ -22,6 +22,7 @@ import { dlog, dtime } from "../../debug";
 import { TaskpaneSearchDropdown } from "./TaskpaneSearchDropdown";
 
 const MIN_SERVER_SEARCH_LENGTH = 2;
+const LOCAL_MATCH_DISPLAY_LIMIT = 8;
 
 export interface CustomerPickerProps {
   directory: CustomerDirectoryState;
@@ -145,7 +146,13 @@ function SearchPanel({
   const q = normalizedQuery(query);
 
   const localMatches = useMemo<CustomerRecord[]>(() => {
-    return filterLocalCustomers(directory.records, q, showMine, currentUserOpenId);
+    return filterLocalCustomers(
+      directory.records,
+      q,
+      showMine,
+      currentUserOpenId,
+      LOCAL_MATCH_DISPLAY_LIMIT,
+    );
   }, [q, showMine, currentUserOpenId, directory.records]);
 
   useEffect(() => {
@@ -161,6 +168,7 @@ function SearchPanel({
       nextQ,
       nextShowMine,
       currentUserOpenId,
+      LOCAL_MATCH_DISPLAY_LIMIT,
     );
     if (searchTimer.current !== null) window.clearTimeout(searchTimer.current);
     if (
@@ -228,7 +236,7 @@ function SearchPanel({
         emptyMessage={`No customers match "${query}"`}
       >
         {matches.length > 0
-          ? matches.slice(0, 8).map((customer) => (
+          ? matches.map((customer) => (
             <button
               key={customer.recordId}
               type="button"

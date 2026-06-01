@@ -38,7 +38,7 @@ export function FeishuProfile({ user, onLogout }: { user: FeishuUser; onLogout: 
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="focus-visible:ring-ring/20 relative inline-flex min-h-10 min-w-10 items-center justify-center rounded-full outline-none transition-[box-shadow,scale] duration-150 ease-[var(--ease-out-strong)] active:scale-[0.97] focus-visible:ring-[3px]"
+        className="focus-visible:ring-ring/20 relative inline-flex min-h-10 min-w-10 items-center justify-center rounded-full outline-none transition-[box-shadow,scale] duration-150 ease-[var(--ease-out-strong)] active:scale-[0.96] focus-visible:ring-[3px]"
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-label="Feishu profile"

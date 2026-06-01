@@ -1,13 +1,16 @@
 /* eslint-disable max-lines-per-function, max-lines */
 import * as React from "react";
 import { useEffect, useMemo, useReducer, useState } from "react";
-import { AtSign, Check, UserRound } from "lucide-react";
+import { AtSign, Check } from "lucide-react";
+
+import { CoworkerIcon } from "./icons/CoworkerIcon";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import type { Coworker } from "./coworkers";
 import { useCoworkerSearch } from "../../hooks/useCoworkerSearch";
 import { TaskpaneSearchDropdown } from "./TaskpaneSearchDropdown";
 import { TaskpaneSection } from "./TaskpaneSection";
+import { TaskpaneSelectionRow } from "./TaskpaneSelectionRow";
 
 // Test fixture directory. These made-up coworkers are allowed only when an
 // e2e/dev-test harness explicitly opts in; production search must never fall
@@ -51,6 +54,21 @@ function sameCoworkers(a: Coworker[], b: Coworker[]) {
 
 function searchResultsReducer(state: Coworker[], results: Coworker[]) {
   return sameCoworkers(state, results) ? state : results;
+}
+
+const COWORKER_FALLBACK_ICON = (
+  <CoworkerIcon className="size-4 translate-y-px" strokeWidth={2} />
+);
+
+function CoworkerSelectedLeading({ avatarUrl }: { avatarUrl: string }) {
+  return (
+    <Avatar className="size-8 bg-secondary">
+      <AvatarImage src={avatarUrl} alt="" />
+      <AvatarFallback className="bg-secondary text-muted-foreground">
+        {COWORKER_FALLBACK_ICON}
+      </AvatarFallback>
+    </Avatar>
+  );
 }
 
 function ClientInfo({
@@ -130,8 +148,8 @@ function CoworkerOption({
     >
       <Avatar className="size-10 bg-secondary">
         {coworker.avatarUrl ? <AvatarImage src={coworker.avatarUrl} alt="" /> : null}
-        <AvatarFallback className="bg-secondary text-primary">
-          <UserRound className="size-5" />
+        <AvatarFallback className="bg-secondary text-muted-foreground">
+          <CoworkerIcon className="size-5" strokeWidth={2} />
         </AvatarFallback>
       </Avatar>
       <span className="min-w-0 flex-1">
@@ -143,17 +161,7 @@ function CoworkerOption({
   );
 }
 
-function SelectedCoworkerCard({ coworker }: { coworker: Coworker }) {
-  return (
-    <div className="bg-accent text-accent-foreground border-accent-foreground/15 mt-2 flex items-center gap-2 rounded-xl border px-3 py-2 shadow-edge">
-      <Check className="text-primary size-4 shrink-0" />
-      <span className="text-muted-foreground text-[11px] font-semibold uppercase">Selected</span>
-      <span className="min-w-0 truncate text-sm font-semibold">{coworker.name}</span>
-    </div>
-  );
-}
-
-function CoworkerSearchSection({
+function CoworkerSearchPanel({
   query,
   onQueryChange,
   open,
@@ -165,17 +173,14 @@ function CoworkerSearchSection({
   children?: React.ReactNode;
 }) {
   return (
-    <section
-      aria-labelledby="coworker-search-title"
-      className="bg-card-soft mt-3 rounded-xl px-3 py-2 shadow-edge"
-    >
+    <div className="px-3 py-2" aria-labelledby="coworker-search-title">
       <div className="flex items-center justify-between gap-2 pb-2">
-        <h2
+        <span
           id="coworker-search-title"
           className="text-muted-foreground text-[11px] font-semibold uppercase"
         >
-          Feishu coworker
-        </h2>
+          Pick a coworker
+        </span>
       </div>
       <TaskpaneSearchDropdown
         label="Search Feishu coworkers"
@@ -188,7 +193,7 @@ function CoworkerSearchSection({
       >
         {children}
       </TaskpaneSearchDropdown>
-    </section>
+    </div>
   );
 }
 
@@ -198,7 +203,7 @@ export function CoworkerPicker({
   customerSlot,
   sessionId,
   userAccessToken,
-  selectedOpenId,
+  selectedCoworker: selectedCoworkerProp,
   onSelect,
   usePreviewCoworkers = false,
 }: {
@@ -207,12 +212,14 @@ export function CoworkerPicker({
   customerSlot?: React.ReactNode;
   sessionId: string;
   userAccessToken?: string;
-  selectedOpenId?: string;
+  /** Authoritative selection from intake state (survives outside search/recents maps). */
+  selectedCoworker?: Coworker | null;
   onSelect: (coworker: Coworker) => void;
   usePreviewCoworkers?: boolean;
 }) {
   const search = useCoworkerSearch(sessionId, userAccessToken);
   const [query, setQuery] = useState("");
+  const [changingCoworker, setChangingCoworker] = useState(false);
   const [recents, setRecents] = useState<Coworker[]>(loadRecents);
   const [results, dispatchResults] = useReducer(searchResultsReducer, []);
 
@@ -256,7 +263,8 @@ export function CoworkerPicker({
   }, [recents, results, usePreviewCoworkers]);
 
   const searching = q.length > 0;
-  const selectedCoworker = selectedOpenId ? directoryById.get(selectedOpenId) : undefined;
+  const selectedCoworker = selectedCoworkerProp ?? undefined;
+  const showCoworkerSearch = !selectedCoworker || changingCoworker;
 
   const handleSelect = (coworker: Coworker) => {
     const next = [coworker, ...loadRecents().filter((c) => c.openId !== coworker.openId)].slice(0, 6);
@@ -267,6 +275,7 @@ export function CoworkerPicker({
     }
     setRecents(next);
     setQuery("");
+    setChangingCoworker(false);
     onSelect(coworker);
   };
 
@@ -275,22 +284,40 @@ export function CoworkerPicker({
       <section className="bg-card-soft overflow-visible rounded-xl shadow-edge">
         <ClientInfo clientEmail={clientEmail} onClientEmailChange={onClientEmailChange} />
         {customerSlot ? <div className="border-border border-t">{customerSlot}</div> : null}
+        {selectedCoworker && !showCoworkerSearch ? (
+          <div className="border-border border-t">
+            <TaskpaneSelectionRow
+              dataRow="coworker"
+              leading={
+                selectedCoworker.avatarUrl ? (
+                  <CoworkerSelectedLeading avatarUrl={selectedCoworker.avatarUrl} />
+                ) : undefined
+              }
+              icon={selectedCoworker.avatarUrl ? undefined : COWORKER_FALLBACK_ICON}
+              label={selectedCoworker.name}
+              onChange={() => {
+                setChangingCoworker(true);
+                setQuery("");
+              }}
+            />
+          </div>
+        ) : showCoworkerSearch ? (
+          <div className="border-border border-t">
+            <CoworkerSearchPanel query={query} onQueryChange={setQuery} open={searching}>
+              {results.length > 0
+                ? results.map((coworker) => (
+                    <CoworkerOption
+                      key={coworker.openId}
+                      coworker={directoryById.get(coworker.openId) ?? coworker}
+                      selected={selectedCoworker?.openId === coworker.openId}
+                      onSelect={handleSelect}
+                    />
+                  ))
+                : null}
+            </CoworkerSearchPanel>
+          </div>
+        ) : null}
       </section>
-
-      <CoworkerSearchSection query={query} onQueryChange={setQuery} open={searching}>
-        {results.length > 0
-          ? results.map((coworker) => (
-                  <CoworkerOption
-                    key={coworker.openId}
-                    coworker={directoryById.get(coworker.openId) ?? coworker}
-                    selected={selectedOpenId === coworker.openId}
-                    onSelect={handleSelect}
-                  />
-                ))
-          : null}
-      </CoworkerSearchSection>
-
-      {!searching && selectedCoworker ? <SelectedCoworkerCard coworker={selectedCoworker} /> : null}
     </TaskpaneSection>
   );
 }

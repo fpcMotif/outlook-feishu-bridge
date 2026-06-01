@@ -90,6 +90,13 @@ beforeEach(() => {
 });
 
 describe("TaskPane browser preview auth flow", () => {
+  it("renders a single dev theme toggle in the profile header", () => {
+    renderPreview();
+
+    expect(document.querySelectorAll("#dev-dark-toggle")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: /Switch to (dark|light) mode/i })).toBeInTheDocument();
+  });
+
   it("starts on a standalone login page and unlocks the request builder after dev login", () => {
     renderPreview();
 
@@ -123,8 +130,7 @@ describe("TaskPane browser preview auth flow", () => {
     unlockRequestBuilder();
     const profileHeader = screen.getByRole("region", { name: /Feishu account controls/i });
     expect(profileHeader).toHaveAttribute("data-profile-header", "true");
-    expect(profileHeader).toHaveClass("absolute", "top-1", "right-5");
-    expect(profileHeader).not.toHaveClass("sticky", "top-0");
+    expect(profileHeader).toHaveClass("flex", "items-center", "gap-2");
 
     fireEvent.click(screen.getByRole("button", { name: /Feishu profile/i }));
 
@@ -184,7 +190,7 @@ describe("TaskPane browser preview request flow", () => {
     ).toBeInTheDocument();
   });
 
-  it("does not keep the profile header pinned after leaving the request builder", async () => {
+  it("leaves the build shell after sync and keeps a single dev theme toggle on the overlay", async () => {
     renderPreview();
 
     unlockRequestBuilder();
@@ -196,7 +202,7 @@ describe("TaskPane browser preview request flow", () => {
     fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
 
     expect(await screen.findByRole("heading", { name: /Synced to Feishu/i })).toBeInTheDocument();
-
-    expect(screen.queryByRole("region", { name: /Feishu account controls/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /Sales Services/i })).not.toBeInTheDocument();
+    expect(document.querySelectorAll("#dev-dark-toggle")).toHaveLength(1);
   });
 });

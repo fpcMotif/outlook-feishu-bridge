@@ -29,7 +29,7 @@ function FeishuGlyph({ className = "size-6" }: { className?: string }) {
 
 function ConnectVisual() {
   return (
-    <div className="bg-card-soft flex items-center justify-center gap-4 rounded-[20px] py-8 shadow-edge">
+    <div className="bg-card-soft flex items-center justify-center gap-4 rounded-2xl py-8 shadow-edge">
       <span
         aria-hidden="true"
         className="bg-card flex size-14 items-center justify-center rounded-xl shadow-edge"
@@ -61,7 +61,7 @@ export function ConnectCard({
   return (
     <section
       aria-label="Feishu sign in"
-      className="bg-card mx-auto flex aspect-square w-full max-w-[420px] flex-col justify-center rounded-[28px] p-6 shadow-float"
+      className="sync-enter bg-card mx-auto flex aspect-square w-full max-w-[420px] flex-col justify-center rounded-[28px] p-3 shadow-float"
     >
       <ConnectVisual />
       <div className="mt-6 flex flex-col gap-2">
@@ -72,7 +72,7 @@ export function ConnectCard({
         <button
           type="button"
           onClick={onLoginFallback}
-          className="text-muted-foreground hover:text-primary inline-flex min-h-10 items-center justify-center text-xs font-medium underline-offset-2 transition-[color,scale] duration-150 ease-[var(--ease-out-strong)] hover:underline active:scale-[0.97]"
+          className="text-muted-foreground hover:text-primary inline-flex min-h-10 items-center justify-center text-xs font-medium underline-offset-2 transition-[color,scale] duration-150 ease-[var(--ease-out-strong)] hover:underline active:scale-[0.96]"
         >
           Use backup login (email code)
         </button>

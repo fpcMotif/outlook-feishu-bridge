@@ -12,9 +12,9 @@ import { CoworkerPicker } from "./CoworkerPicker";
 import { CustomerPicker } from "./CustomerPicker";
 import { RequestCards } from "./RequestCards";
 import { resolveIntakeScreen } from "./RequestIntakeRouter";
-import { REQUESTS } from "./requests";
 import { TaskpaneSection } from "./TaskpaneSection";
 import { SubmitDock } from "./SubmitDock";
+import { buildFilledRequests, canSubmitSync, submitSyncHint } from "./submitSyncGate";
 
 const CREATE_CUSTOMER_MOCK_URL = "https://example.com/";
 
@@ -25,24 +25,13 @@ function buildCreateCustomerTaskUrl(customerName: string) {
   return url.toString();
 }
 
-function buildFilledRequests(notes: Record<string, string>) {
-  return REQUESTS.flatMap((r) => {
-    const note = (notes[r.id] ?? "").trim();
-    return note ? [{ id: r.id, title: r.title, note }] : [];
-  });
-}
-
-function Hero() {
+function IntakeHeader({ profileSlot }: { profileSlot?: ReactNode }) {
   return (
-    <header className="px-1 pt-3 pb-5">
-      <h1 className="text-[34px] leading-[0.98] tracking-tight">
-        How can we
-        <br />
-        help today?
+    <header className="intake-stagger flex items-start justify-between gap-3 px-1 pt-3 pb-8">
+      <h1 className="sync-enter min-w-0 flex-1 text-[34px] leading-[0.98] tracking-tight text-balance">
+        Sales Services
       </h1>
-      <p className="text-foreground/70 mt-2 max-w-[32ch] text-sm leading-relaxed">
-        Route it to the right coworker in seconds.
-      </p>
+      {profileSlot ? <div className="pt-0.5">{profileSlot}</div> : null}
     </header>
   );
 }
@@ -121,7 +110,13 @@ export function RequestIntakeScreen({
   const selectedCustomerName = state.selectedCustomer?.name;
   const filledCount = filledRequests.length;
   const selectedCount = state.selectedCoworker ? 1 : 0;
-  const selectedOpenId = state.selectedCoworker?.openId;
+
+  // Submit dock: customer ∧ coworker ∧ fulfilled request — see `./submitSyncGate`.
+  const syncGate = {
+    hasCustomer: state.selectedCustomer !== null,
+    hasCoworker: state.selectedCoworker !== null,
+    fulfilledRequestCount: filledCount,
+  };
 
   const selectCoworker = (coworker: Coworker) => {
     dispatch({ type: "coworkerSelected", coworker });
@@ -222,7 +217,7 @@ export function RequestIntakeScreen({
   ]);
 
   const handleSubmit = () => {
-    if (filledCount === 0 || selectedCount === 0) return;
+    if (!canSubmitSync(syncGate)) return;
     runSync();
   };
 
@@ -241,24 +236,27 @@ export function RequestIntakeScreen({
     onLogin,
     onLoginFallback,
   });
-  if (overlay) return overlay;
+  if (overlay) {
+    return (
+      <>
+        {profileSlot ? (
+          <div className="pointer-events-none absolute top-1 right-5 z-20">
+            <div className="pointer-events-auto">{profileSlot}</div>
+          </div>
+        ) : null}
+        {overlay}
+      </>
+    );
+  }
 
-  const readyToSync = filledCount > 0 && selectedCount > 0;
-  const submitHint = filledCount === 0 ? "Start a request above" : "Choose exactly one Feishu coworker";
-  const submitFooter = readyToSync
-    ? `${filledCount} request${filledCount > 1 ? "s" : ""} + 1 coworker ready for Base + Convex sync`
-    : "Request details, client, and coworker stay on one screen";
+  const readyToSync = canSubmitSync(syncGate);
+  const submitHint = submitSyncHint(syncGate);
 
   return (
     <>
-      <div className="no-scrollbar relative flex-1 overflow-y-auto px-5 pt-0 pb-24">
-        {profileSlot}
-        <Hero />
-        <div className="space-y-5">
-          <NewRequestSection
-            values={state.notes}
-            onChange={(id, value) => dispatch({ type: "noteChanged", id, value })}
-          />
+      <div className="no-scrollbar relative flex-1 overflow-y-auto px-5 pt-1 pb-[calc(8rem+1.5rem)]">
+        <IntakeHeader profileSlot={profileSlot} />
+        <div className="space-y-7">
           <CoworkerPicker
             clientEmail={state.clientEmail}
             onClientEmailChange={(value) => dispatch({ type: "clientEmailChanged", value })}
@@ -277,9 +275,13 @@ export function RequestIntakeScreen({
             }
             sessionId={sessionId}
             userAccessToken={userAccessToken}
-            selectedOpenId={selectedOpenId}
+            selectedCoworker={state.selectedCoworker}
             onSelect={selectCoworker}
             usePreviewCoworkers={usePreviewCoworkers}
+          />
+          <NewRequestSection
+            values={state.notes}
+            onChange={(id, value) => dispatch({ type: "noteChanged", id, value })}
           />
         </div>
       </div>
@@ -290,7 +292,6 @@ export function RequestIntakeScreen({
         sending={false}
         hint={submitHint}
         label={readyToSync && state.selectedCoworker ? `Sync with ${state.selectedCoworker.name}` : undefined}
-        footer={submitFooter}
         onSubmit={handleSubmit}
       />
     </>

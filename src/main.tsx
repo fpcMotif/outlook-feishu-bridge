@@ -5,13 +5,13 @@ import * as Sentry from "@sentry/react";
 import App from "./App";
 import { initDebug } from "./debug";
 import { initSentry } from "./sentry";
-import { mountDevDarkToggle } from "./devDarkToggle";
+import { initDevDarkModeFromStorage } from "./lib/devDarkMode";
 import "./index.css";
 
 initDebug();
 initSentry();
 
-if (import.meta.env.DEV) mountDevDarkToggle();
+if (import.meta.env.DEV) initDevDarkModeFromStorage();
 
 const convex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL);
 // Expose the Convex client on window so the DebugPanel can show WebSocket

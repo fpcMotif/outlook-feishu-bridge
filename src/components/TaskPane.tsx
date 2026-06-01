@@ -6,6 +6,7 @@ import { dload } from "../debug";
 import { useFeishuAuth } from "../hooks/useFeishuAuth";
 import { useMailItem, type MailItemData } from "../office/useMailItem";
 import { Button } from "./ui/button";
+import { DevThemeToggle } from "./DevThemeToggle";
 import { RequestIntakeScreen } from "./taskpane/RequestIntakeScreen";
 import { FeishuProfile } from "./taskpane/FeishuProfile";
 import { ReceivedScreen } from "./taskpane/ReceivedScreen";
@@ -73,11 +74,16 @@ function EmptyState({
 }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center px-8 text-center">
-      <span className="bg-secondary text-muted-foreground mb-4 flex size-14 items-center justify-center rounded-2xl">
+      <span className="sync-enter bg-card text-muted-foreground mb-4 flex size-14 items-center justify-center rounded-2xl shadow-edge">
         {loading ? <Loader2 className="size-6 animate-spin" /> : <MailOpen className="size-6" />}
       </span>
-      <h2 className="text-2xl">{loading ? "Reading your email..." : "No message open"}</h2>
-      <p className="text-muted-foreground mt-1.5 max-w-[32ch] text-sm leading-relaxed">
+      <h2 className="sync-enter text-2xl text-balance" style={{ animationDelay: "70ms" }}>
+        {loading ? "Reading your email..." : "No message open"}
+      </h2>
+      <p
+        className="sync-enter text-muted-foreground mt-1.5 max-w-[32ch] text-sm leading-relaxed text-pretty"
+        style={{ animationDelay: "140ms" }}
+      >
         {error ?? "Open a received message in Outlook, then sync it to Feishu from here."}
       </p>
       {loading ? null : (
@@ -114,7 +120,11 @@ export function TaskPane({ host }: { host: string | null }) {
   const requestedDevScreen = devPreview ? params.get("devScreen") : null;
   const devScreen =
     requestedDevScreen === "sync" || requestedDevScreen === "received" ? requestedDevScreen : null;
-  const item = mailItem ?? (devPreview ? DEV_SAMPLE : null);
+  // E2E: fanpc@fenchem.com auto-matches the fanpc customer fixture so the dock
+  // gate exercises coworker + request, not the no-customer path.
+  const devMailItem =
+    useCoworkerFixtures ? { ...DEV_SAMPLE, from: "fanpc@fenchem.com" } : DEV_SAMPLE;
+  const item = mailItem ?? (devPreview ? devMailItem : null);
 
   // Dev-only: clicking "Log in" advances straight to the logged-in UI (profile +
   // coworker picker) without the real OAuth popup. ?devUser=1 starts logged in.
@@ -131,14 +141,16 @@ export function TaskPane({ host }: { host: string | null }) {
   const handleLogin = devPreview ? () => setDevLoggedIn(true) : feishuAuth.login;
   const handleLoginFallback = devPreview ? () => setDevLoggedIn(true) : feishuAuth.loginFallback;
   const handleLogout = devPreview ? () => setDevLoggedIn(false) : feishuAuth.logout;
+  const showDevThemeToggle = import.meta.env.DEV;
   const profileHeader =
-    isLoggedIn && user ? (
+    showDevThemeToggle || (isLoggedIn && user) ? (
       <section
-        aria-label="Feishu account controls"
-        className="absolute top-1 right-5 z-20"
+        aria-label={isLoggedIn && user ? "Feishu account controls" : "Developer controls"}
+        className="flex shrink-0 items-center gap-2"
         data-profile-header="true"
       >
-        <FeishuProfile user={user} onLogout={handleLogout} />
+        {showDevThemeToggle ? <DevThemeToggle /> : null}
+        {isLoggedIn && user ? <FeishuProfile user={user} onLogout={handleLogout} /> : null}
       </section>
     ) : null;
 

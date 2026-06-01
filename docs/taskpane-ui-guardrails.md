@@ -60,9 +60,11 @@ tokens over ad-hoc values.
 
 ## Dev affordances
 
-- A DEV-only dark-mode toggle (`devDarkToggle.ts`, gated by `import.meta.env.DEV`
-  in `main.tsx`) flips the `.dark` class on `<html>` for QA. It never ships in
-  production builds.
+- A DEV-only dark-mode toggle (`DevThemeToggle` in the taskpane profile header;
+  `initDevDarkModeFromStorage()` in `main.tsx` applies the persisted class before
+  React paints) flips `.dark` on `<html>` for QA. It never ships in production
+  builds. Do not reintroduce a second injector (`document.createElement`, a fixed
+  FAB in `App`, or `mountDevDarkToggle`).
 
 ## Section structure (prior incident)
 
@@ -93,6 +95,11 @@ hero is intentionally not a `TaskpaneSection`. Inner labels (e.g. the
 For pixel-sensitive changes, unit tests that only assert text exists are not
 enough — capture screenshots (`E2E_SCREENSHOT_DIR`) and compare computed styles /
 bounding boxes for `#new-request-title` and `#client-coworker-title`.
+
+## Submit dock sync gate
+
+The bottom Sync button requires customer, coworker, and at least one request
+note with non-empty text. See [submit-dock-sync-gate.md](./submit-dock-sync-gate.md).
 
 ## Open questions
 

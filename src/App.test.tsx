@@ -102,6 +102,12 @@ describe('App debug-panel hotkey gate', () => {
     expect(screen.queryByTestId('debug-panel')).not.toBeInTheDocument()
   })
 
+  it('does not mount a dev theme toggle (TaskPane owns the single control)', () => {
+    mockUseOffice.mockReturnValue({ isReady: true, host: 'Outlook', error: null })
+    render(<App />)
+    expect(document.querySelector('#dev-dark-toggle')).not.toBeInTheDocument()
+  })
+
   it('toggles the DebugPanel on/off when Ctrl+Alt+D is pressed', () => {
     mockUseOffice.mockReturnValue({ isReady: true, host: 'Outlook', error: null })
     render(<App />)

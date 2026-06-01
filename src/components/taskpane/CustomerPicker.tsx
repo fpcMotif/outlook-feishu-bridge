@@ -20,6 +20,7 @@ import {
 } from "./customerSearchHelpers";
 import { dlog, dtime } from "../../debug";
 import { TaskpaneSearchDropdown } from "./TaskpaneSearchDropdown";
+import { TaskpaneSelectionRow } from "./TaskpaneSelectionRow";
 
 export interface CustomerPickerProps {
   directory: CustomerDirectoryState;
@@ -80,34 +81,30 @@ export function CustomerPicker({
 
   return (
     <section className={embedded ? "" : "bg-card-soft rounded-xl shadow-edge"}>
-      <div className="flex min-h-14 min-w-0 items-center gap-3 px-3 py-2" data-customer-row="true">
-        <span
-          className="text-muted-foreground flex size-8 shrink-0 items-center justify-center"
-          aria-hidden="true"
-        >
-          <UserRound className="size-4" />
-        </span>
-        {selectedCustomer ? (
-          <>
-            <span className="min-w-0 flex-1 whitespace-normal break-words text-xs leading-4 font-semibold">
-              {selectedCustomer.name}
-            </span>
-            <button
-              type="button"
-              onClick={openSearch}
-              className="text-primary inline-flex min-h-8 items-center rounded-md px-2 text-[11px] font-semibold"
-            >
-              Change
-            </button>
-          </>
-        ) : directory.status === "loading" || directory.status === "idle" ? (
-          <span className="text-muted-foreground min-w-0 flex-1 whitespace-normal break-words text-xs leading-4">
-            Resolving customer for {emailDomain}...
+      {selectedCustomer ? (
+        <TaskpaneSelectionRow
+          dataRow="customer"
+          icon={<UserRound className="size-4" />}
+          label={selectedCustomer.name}
+          onChange={openSearch}
+        />
+      ) : (
+        <div className="flex min-h-14 min-w-0 items-center gap-3 px-3 py-2" data-customer-row="true">
+          <span
+            className="text-muted-foreground flex size-8 shrink-0 items-center justify-center"
+            aria-hidden="true"
+          >
+            <UserRound className="size-4" />
           </span>
-        ) : (
-          <NoMatch onSearch={openSearch} />
-        )}
-      </div>
+          {directory.status === "loading" || directory.status === "idle" ? (
+            <span className="text-muted-foreground min-w-0 flex-1 whitespace-normal break-words text-xs leading-4">
+              Resolving customer for {emailDomain}...
+            </span>
+          ) : (
+            <NoMatch onSearch={openSearch} />
+          )}
+        </div>
+      )}
     </section>
   );
 }

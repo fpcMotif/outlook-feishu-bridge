@@ -118,16 +118,25 @@ export function ReceivedScreen({
 
   return (
     <div className="no-scrollbar flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-6 pt-12 pb-6">
-      <SuccessHalo />
+      <div className="sync-enter">
+        <SuccessHalo />
+      </div>
 
-      <h1 className="text-3xl text-balance">Synced to Feishu</h1>
-      <p className="text-muted-foreground mt-1.5 max-w-[34ch] text-center text-sm leading-relaxed text-pretty">
+      <h1 className="sync-enter text-3xl text-balance" style={{ animationDelay: "80ms" }}>
+        Synced to Feishu
+      </h1>
+      <p
+        className="sync-enter text-muted-foreground mt-1.5 max-w-[34ch] text-center text-sm leading-relaxed text-pretty"
+        style={{ animationDelay: "150ms" }}
+      >
         The request is synced to Base, backed up in Convex, and ready for the selected coworker.
       </p>
 
-      <SelfForwardChip status={selfForwardStatus} onRetry={onRetrySelfForward} />
+      <div className="sync-enter" style={{ animationDelay: "210ms" }}>
+        <SelfForwardChip status={selfForwardStatus} onRetry={onRetrySelfForward} />
+      </div>
 
-      <div className="mt-9 w-full max-w-[320px]">
+      <div className="sync-enter mt-9 w-full max-w-[320px]" style={{ animationDelay: "280ms" }}>
         {steps.map((s, i) => (
           <StepRow key={s.title} step={s} last={i === steps.length - 1} />
         ))}

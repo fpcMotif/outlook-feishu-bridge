@@ -94,6 +94,20 @@ Doc URLs: `/document/server-docs/docs/bitable-v1/app-table-record/search`, `/doc
 
 **Cron correction.** The mirror cron is **weekly** (`crons.ts`, 168 h), not the 15-min interval this ADR's body (and the old schema comment) stated. On-demand `kick` + cache-miss backfill cover freshness between weekly ticks.
 
+## Amendment (2026-06-01) — Mirror Kick rate-limit moves server-side
+
+**Incident.** `convex logs --history` showed `customersMirror:kick` running a full ~29-page (~14.5k-row) re-page of the Customer Table and **restarting every ~2 s**. Root cause: the "on-search refresh throttling" above (the 15-min cooldown) was held in **frontend module state** (`lastMirrorKickStartedAt` in `useCustomerSearchServerIndex.ts`). That state resets on every taskpane reload and is not shared across tabs, so reloads/HMR/multiple panes each restart the cooldown at zero — it cannot throttle a **shared** resource. `kick` itself had no server-side guard and called `runFullSync` unconditionally.
+
+**Decision — the cooldown is authoritative on the server, and it is global.**
+- The **Mirror Kick** (the canonical name for the on-demand trigger — see CONTEXT.md) reads a single shared "last refresh started" timestamp on the existing `customersMirrorState` row and **returns early without paging Feishu** if a full refresh started within the cooldown window.
+- **Global, not per-user.** The **Customer Mirror** is a single shared read model and a **Mirror Refresh** re-pages the *entire* Customer Table regardless of who triggered it — so the cost and the freshness benefit are both global. A per-user cooldown would let N salespeople each trigger a full global re-page for identical shared benefit.
+- **Any full refresh stamps the timestamp; only the kick gates on it.** Both the weekly cron (`fullSync`) and an on-demand `kick` record "last refresh started"; only `kick` checks it. The **weekly cron always runs unconditionally** — it is the guaranteed freshness floor and must never skip. (So a kick fired minutes after the weekly cron correctly no-ops and the user still gets the just-rebuilt mirror.)
+- The frontend module-level cooldown may stay as a cheap first gate, but it is **advisory**; correctness lives on the server.
+
+**Rejected — `reportedTotal`-unchanged short-circuit.** Skipping the re-page when Feishu reports the same `total` would miss **same-count in-place edits** (e.g. a corrected `域名`), leaving the mirror — and email auto-match — stale until the weekly cron. `applyPage`'s change-detection already makes the *write* cost near-zero, and the cooldown already bounds the *read* cost; a total-based skip trades correctness for marginal savings. Not adopted.
+
+**HARD RULE intact.** The rate-limit timestamp and every mirror write stay in Convex (`customersMirrorState` / `customers`); the **Customer Table** in Bitable is only ever read, never written.
+
 ## References
 
 - Convex search indexes: https://docs.convex.dev/database/text-search

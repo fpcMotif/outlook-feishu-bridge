@@ -130,7 +130,7 @@ function CoworkerOption({
       className="bg-card flex w-full cursor-pointer items-center gap-3 rounded-[14px] px-4 py-3 text-left shadow-edge transition-[background-color,box-shadow,scale] duration-150 ease-[var(--ease-out-strong)] outline-none active:scale-[0.97] data-[selected=true]:bg-accent data-[selected=true]:shadow-[0_0_0_1.5px_var(--primary)] focus-visible:ring-[3px] focus-visible:ring-ring/20"
       data-selected={selected}
     >
-      <Avatar className="size-10 bg-secondary">
+      <Avatar aria-hidden="true" className="size-10 bg-secondary">
         {coworker.avatarUrl ? (
           <AvatarImage
             src={coworker.avatarUrl}

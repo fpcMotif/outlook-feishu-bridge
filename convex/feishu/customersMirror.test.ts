@@ -120,10 +120,15 @@ function makeCtx() {
     if (Array.isArray(args.rows)) {
       return { inserted: args.rows.length, updated: 0, unchanged: 0, duplicateRows: 0 };
     }
+    // markRefreshStarted (Mirror Kick rate-limit, ADR-0016) stamps a start time;
+    // it is not a watermark completion, so keep it out of `completions`.
+    if (typeof args.startedAt === "number") return null;
     completions.push(args);
     return null;
   });
-  return { ctx: { runMutation }, completions };
+  // getMirrorRefreshStartedAt — no prior refresh, so the kick gate never skips.
+  const runQuery = vi.fn(async () => null);
+  return { ctx: { runMutation, runQuery }, completions };
 }
 
 beforeEach(() => {

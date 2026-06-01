@@ -161,6 +161,26 @@ describe("CustomerPicker server fallback", () => {
     await vi.advanceTimersByTimeAsync(500);
 
     expect(searchCustomers).not.toHaveBeenCalled();
+    expect(screen.queryByRole("listbox", { name: /customer results/i })).not.toBeInTheDocument();
+  });
+
+  it("still shows one-character local customer matches", () => {
+    render(
+      <CustomerPicker
+        directory={{ status: "ready", records: [BAYER] }}
+        searchCustomers={vi.fn()}
+        emailDomain="unknown.io"
+        selectedCustomer={null}
+        onChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /search customer/i }));
+    fireEvent.change(screen.getByRole("combobox", { name: /search customers/i }), {
+      target: { value: "b" },
+    });
+
+    expect(screen.getByRole("button", { name: /Bayer Pharma/i })).toBeInTheDocument();
   });
 
   it("debounces server search when the local Customer Directory has no match", async () => {

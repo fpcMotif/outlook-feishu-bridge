@@ -205,6 +205,8 @@ function SearchPanel({
   };
 
   const matches = localMatches.length > 0 ? localMatches : serverMatches;
+  const canOfferCreateCustomer = q.length >= MIN_SERVER_SEARCH_LENGTH;
+  const dropdownOpen = Boolean(showMine || matches.length > 0 || canOfferCreateCustomer);
 
   return (
     <section className={embedded ? "px-3 py-2" : "bg-card-soft rounded-xl px-3 py-2 shadow-edge"}>
@@ -231,7 +233,7 @@ function SearchPanel({
         value={query}
         onChange={handleQueryChange}
         placeholder="Search by name, domain, account no..."
-        open={Boolean(q || showMine || matches.length > 0)}
+        open={dropdownOpen}
         listLabel="Customer results"
         emptyMessage={`No customers match "${query}"`}
       >
@@ -264,7 +266,7 @@ function SearchPanel({
               </span>
             </button>
             ))
-          : q ? (
+          : canOfferCreateCustomer ? (
             <button
               type="button"
               data-search-option=""

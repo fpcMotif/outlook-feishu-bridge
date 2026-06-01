@@ -48,12 +48,14 @@ describe("matchClientRecordId", () => {
     expect(callFeishu).not.toHaveBeenCalled();
   });
 
-  it("searches the Customer table by domain and returns the Customer Info `Record Id`", async () => {
+  it("searches by domain and returns the immutable API record_id (not the human `Record Id` column)", async () => {
+    // The human "Record Id" column diverges from the API id here; the DuplexLink
+    // target must be the immutable API record_id (ADR-0020 RC2).
     callFeishu.mockResolvedValueOnce({
       items: [{ record_id: "rec_api", fields: { "Record Id": [{ text: "rec_match", type: "text" }] } }],
     });
 
-    await expect(matchClientRecordId(ctx, APP_TOKEN, "buyer@Mail.Fenchem.COM")).resolves.toBe("rec_match");
+    await expect(matchClientRecordId(ctx, APP_TOKEN, "buyer@Mail.Fenchem.COM")).resolves.toBe("rec_api");
 
     expect(callFeishu).toHaveBeenCalledTimes(1);
     const [passedCtx, opts] = callFeishu.mock.calls[0];
@@ -75,7 +77,7 @@ describe("matchClientRecordId", () => {
     await expect(matchClientRecordId(ctx, APP_TOKEN, "x@known.com")).resolves.toBeNull();
   });
 
-  it("falls back to the API record_id when the Customer Info `Record Id` field is absent", async () => {
+  it("returns the API record_id when the row carries no `Record Id` column", async () => {
     callFeishu.mockResolvedValueOnce({ items: [{ record_id: "rec_api" }] });
     await expect(matchClientRecordId(ctx, APP_TOKEN, "buyer@known.com")).resolves.toBe("rec_api");
   });

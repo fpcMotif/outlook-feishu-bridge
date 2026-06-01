@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- token-refresh taxonomy (ADR-0003 amendment) grew this module past 300 lines */
 import {
   internalMutation,
   internalQuery,
@@ -10,7 +11,7 @@ import {
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import { getTenantAccessToken } from "./auth";
-import { feishuFetch, FEISHU_BASE } from "./client";
+import { feishuFetch, FeishuError, FEISHU_BASE } from "./client";
 
 // Single source of the feishuUserTokens by_sessionId lookup, shared by the
 // query + mutation handlers below so the index read isn't duplicated four ways.
@@ -107,6 +108,19 @@ export const logoutUser = mutation({
   },
 });
 
+// Server-side session teardown for a terminally-dead refresh_token (ADR-0003
+// amendment): delete the row so the next getUserSession returns null and the UI
+// shows login instead of failing coworker search forever.
+export const deleteSession = internalMutation({
+  args: { sessionId: v.string() },
+  handler: async (ctx, args) => {
+    const session = await getSession(ctx, args.sessionId);
+    if (session) {
+      await ctx.db.delete(session._id);
+    }
+  },
+});
+
 // ── Helper: get a valid user access token ────────────────────────────
 
 interface FeishuUserTokenResponse {
@@ -180,22 +194,75 @@ export async function exchangeCodeForUserToken(
   });
 }
 
+// Token-refresh outcome taxonomy (ADR-0003 amendment). A FeishuError carrying a
+// real Feishu business code means Feishu rejected the refresh_token itself →
+// terminal (the session can never recover). code -1 (non-JSON/gateway body) or a
+// thrown network error means we never got a clean Feishu verdict → transient
+// (retryable). Pure + unit-tested per ADR-0019.
+export type RefreshFailureKind = "terminal" | "transient";
+
+export function classifyRefreshError(err: unknown): RefreshFailureKind {
+  if (err instanceof FeishuError) return err.code === -1 ? "transient" : "terminal";
+  return "transient";
+}
+
+// One transient retry, short backoff (ADR-0003 amendment); terminal failures are
+// never retried. Logging is secret-safe: refresh_token presence only, never value.
+const REFRESH_MAX_RETRIES = 1;
+const TERMINAL_MSG = "Feishu session expired. Please log in to Feishu again.";
+const TRANSIENT_MSG = "Temporary Feishu authentication failure. Please try again.";
+const sleep = (ms: number) =>
+  new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
+
+async function refreshAccessToken(
+  ctx: ActionCtx,
+  sessionId: string,
+  tenantToken: string,
+  refreshToken: string,
+  startedAt: number,
+): Promise<FeishuUserTokenResponse> {
+  const hasRefreshToken = Boolean(refreshToken);
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await feishuFetch<FeishuUserTokenResponse>({
+        url: `${FEISHU_BASE}/authen/v1/oidc/refresh_access_token`,
+        token: tenantToken,
+        label: "Feishu token refresh",
+        json: { grant_type: "refresh_token", refresh_token: refreshToken },
+      });
+    } catch (err) {
+      const code = err instanceof FeishuError ? err.code : 0;
+      if (classifyRefreshError(err) === "terminal") {
+        console.error(
+          `[userAuth] token refresh TERMINAL code=${code} hasRefreshToken=${hasRefreshToken} elapsed=${Date.now() - startedAt}ms`,
+        );
+        await ctx.runMutation(internal.feishu.userAuth.deleteSession, { sessionId });
+        throw new Error(TERMINAL_MSG, { cause: err });
+      }
+      console.warn(
+        `[userAuth] token refresh transient attempt=${attempt} code=${code} hasRefreshToken=${hasRefreshToken} elapsed=${Date.now() - startedAt}ms`,
+      );
+      if (attempt >= REFRESH_MAX_RETRIES) throw new Error(TRANSIENT_MSG, { cause: err });
+      await sleep(300 * (attempt + 1));
+    }
+  }
+}
+
 /**
- * Refresh an expired user access token.
+ * Refresh an expired user access token (ADR-0003 amendment: terminal vs
+ * transient, one retry, auto-logout on a dead refresh_token).
  */
 async function refreshUserToken(
   ctx: ActionCtx,
   sessionId: string,
   refreshToken: string,
 ): Promise<string> {
+  const startedAt = Date.now();
   const tenantToken = await getTenantAccessToken(ctx);
 
-  const parsed = await feishuFetch<FeishuUserTokenResponse>({
-    url: `${FEISHU_BASE}/authen/v1/oidc/refresh_access_token`,
-    token: tenantToken,
-    label: "Feishu token refresh",
-    json: { grant_type: "refresh_token", refresh_token: refreshToken },
-  });
+  const parsed = await refreshAccessToken(ctx, sessionId, tenantToken, refreshToken, startedAt);
 
   const { access_token, refresh_token, token_type, expires_in } = parsed.data;
   const expiresAt = Date.now() + (expires_in - 300) * 1000;
@@ -213,6 +280,9 @@ async function refreshUserToken(
     avatarUrl: userInfo.avatar_url,
   });
 
+  console.log(
+    `[userAuth] token refresh ok hasRefreshToken=${Boolean(refreshToken)} elapsed=${Date.now() - startedAt}ms`,
+  );
   return access_token;
 }
 

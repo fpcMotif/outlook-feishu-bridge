@@ -76,12 +76,16 @@ The sibling Feishu Base table `tbl4TE2GV472sKzp` in the same **Base** container 
 _Avoid_: "client table", "customer base" (overloaded — the **Base** is the parent container, not this table).
 
 **Customer Mirror**:
-The Convex-held read model of the **Customer Table** used for server-indexed Customer search. Refreshed by a weekly **Mirror Refresh** (a full re-page of the Customer Table) plus on-demand `kick` and per-search cache-miss backfill. It is a projected search read model, never the source of truth; the Feishu **Customer Table** stays authoritative and the mirror only ever **reads** it (HARD RULE).
+The Convex-held read model of the **Customer Table** used for server-indexed Customer search. Refreshed by a weekly **Mirror Refresh** (a full re-page of the Customer Table) plus on-demand **Mirror Kick** and per-search cache-miss backfill. It is a projected search read model, never the source of truth; the Feishu **Customer Table** stays authoritative and the mirror only ever **reads** it (HARD RULE).
 _Avoid_: "customer database" (sounds authoritative), "Base copy" (it is a projected search read model, not a full Base clone).
 
 **Mirror Refresh**:
 One full pass of the **Customer Mirror** sync (`customersMirror.fullSync`): page through the entire **Customer Table** until Feishu reports `has_more = false`, upserting each page, then stamp the **Mirror Watermark**. Bounded only by Feishu's own documented limits (≤500 rows/page, 20 requests/sec, ≤20,000 rows/table — [ADR-0016](docs/adr/0016-customer-search-modes-and-observability.md)), never by a local page cap.
 _Avoid_: "mirror sync" (ambiguous with cache-miss backfill, which is incremental, not a full pass).
+
+**Mirror Kick**:
+The on-demand trigger that fires a **Mirror Refresh** when a salesperson opens the **Customer** picker ([ADR-0016](docs/adr/0016-customer-search-modes-and-observability.md)). Globally rate-limited by a single shared cooldown: rapid or concurrent kicks collapse to one full pass, because the **Customer Mirror** is a shared read model — every kick benefits all users, so a per-user cooldown would multiply the global re-page cost for no added freshness. Distinct from the weekly **Mirror Refresh** cron (the guaranteed freshness floor) and from cache-miss backfill (incremental, per-search).
+_Avoid_: "mirror sync" (ambiguous), "kick" alone in prose (name it the **Mirror Kick**), conflating it with the weekly cron or the cache-miss backfill.
 
 **Mirror Watermark**:
 The single audit row stamped at the end of each **Mirror Refresh** that records whether the mirror is **complete and fresh** — when it last ran, pages and rows seen, Feishu's reported `total`, inserted/updated counts, and the stop reason. A shortfall (rows seen < `total`) or a non-clean stop reason marks the refresh failed, so an incomplete mirror is visible rather than silent.

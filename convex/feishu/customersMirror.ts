@@ -19,6 +19,7 @@ import {
   action,
   internalAction,
   internalMutation,
+  internalQuery,
   query,
   type ActionCtx,
 } from "../_generated/server";
@@ -64,6 +65,10 @@ const MIN_CUSTOMER_SEARCH_LENGTH = 2;
 //     records/search:  /document/server-docs/docs/bitable-v1/app-table-record/search
 //     records/list:    /document/server-docs/docs/bitable-v1/app-table-record/list
 const MIN_PAGE_REQUEST_INTERVAL_MS = 60;
+// Server-side Mirror Kick cooldown (ADR-0016 amendment). Global + authoritative:
+// the frontend module-level cooldown resets on reload/tab, so the on-demand kick
+// is rate-limited here regardless of how many tabs/reloads fire it.
+const MIRROR_KICK_COOLDOWN_MS = 15 * 60 * 1000;
 const CUSTOMER_FIELD_NAMES = [
   "Account Name",
   "Record Id",
@@ -130,6 +135,34 @@ export const applyPage = internalMutation({
     const updated = writes.filter((result) => result === "updated").length;
     const unchanged = writes.length - inserted - updated;
     return { inserted, updated, unchanged, duplicateRows };
+  },
+});
+
+// Mirror Kick rate-limit state (ADR-0016 amendment). markRefreshStarted stamps
+// the start of ANY full refresh (cron or kick); getMirrorRefreshStartedAt is the
+// gate the on-demand kick reads. The state row may not exist yet on a fresh
+// deployment, so insert a minimal never-completed row in that case.
+export const markRefreshStarted = internalMutation({
+  args: { startedAt: v.number() },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db.query("customersMirrorState").first();
+    if (existing) {
+      await ctx.db.patch(existing._id, { lastRefreshStartedAt: args.startedAt });
+    } else {
+      await ctx.db.insert("customersMirrorState", {
+        lastFullSyncAt: 0,
+        lastRowCount: 0,
+        lastRefreshStartedAt: args.startedAt,
+      });
+    }
+  },
+});
+
+export const getMirrorRefreshStartedAt = internalQuery({
+  args: {},
+  handler: async (ctx): Promise<number | null> => {
+    const state = await ctx.db.query("customersMirrorState").first();
+    return state?.lastRefreshStartedAt ?? null;
   },
 });
 
@@ -439,6 +472,11 @@ async function runFullSync(ctx: ActionCtx): Promise<FullSyncResult> {
   const appToken = requireAppToken();
   let pageToken: string | undefined;
   const mirroredAt = Date.now();
+  // Stamp the refresh start so the on-demand Mirror Kick can rate-limit against
+  // it (ADR-0016 amendment). Both the weekly cron and a kick reach here.
+  await ctx.runMutation(internal.feishu.customersMirror.markRefreshStarted, {
+    startedAt: mirroredAt,
+  });
   const seenPageTokens = new Set<string>();
   const totals: SyncTotals = {
     pages: 0,
@@ -491,12 +529,43 @@ export const fullSync = internalAction({
   },
 });
 
-// Public on-demand kick — lets the SPA force a refresh from the picker
-// (deferred UI affordance per ADR-0016, but the action is exported so it can
-// be exercised from the Convex dashboard / scripts before the UI lands).
+// A Mirror Kick that lands inside the cooldown window does no Feishu paging and
+// writes no watermark — a structural no-op result (ADR-0016 amendment).
+function skippedKickResult(): FullSyncResult {
+  return {
+    pages: 0,
+    rows: 0,
+    inserted: 0,
+    updated: 0,
+    unchanged: 0,
+    duplicateRows: 0,
+    sourceRows: 0,
+    reportedTotal: 0,
+    hadMore: false,
+    stopReason: "complete",
+    durationMs: 0,
+    pageSize: PAGE_SIZE,
+    sourceTableId: CUSTOMER_TABLE_ID,
+  };
+}
+
+// Public on-demand Mirror Kick — the SPA forces a refresh when the picker opens.
+// Globally rate-limited server-side (ADR-0016 amendment): if any full refresh
+// started within the cooldown, skip the Feishu re-page entirely. The weekly cron
+// (fullSync) is on its own path and never gated here.
 export const kick = action({
   args: {},
   handler: async (ctx): Promise<FullSyncResult> => {
+    const lastStartedAt = await ctx.runQuery(
+      internal.feishu.customersMirror.getMirrorRefreshStartedAt,
+      {},
+    );
+    const now = Date.now();
+    if (lastStartedAt !== null && now - lastStartedAt < MIRROR_KICK_COOLDOWN_MS) {
+      const remainingS = Math.round((MIRROR_KICK_COOLDOWN_MS - (now - lastStartedAt)) / 1000);
+      console.log(`[customers-mirror] kick skipped (cooldown, ${remainingS}s remaining)`);
+      return skippedKickResult();
+    }
     return await runFullSync(ctx);
   },
 });

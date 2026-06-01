@@ -20,3 +20,23 @@ The real defect was the *call shape*: `coworkers.ts` originally issued a **POST 
 - **No synthetic production results.** If real Coworker search cannot authenticate or Feishu returns no match, the UI must show no matching Coworker rather than sample people. Made-up coworkers are test fixtures only.
 - **Short-query guard.** The taskpane coworker search starts remote lookup at two characters without starting a debounce timer for one-character production input, and the public Convex query/action enforce the same boundary before session/token/cache/Feishu work. One-character input is too broad for Feishu Search Users and returns no remote results instead of calling Convex/Feishu.
 - **Tenant-identity calls are unaffected.** Bot-webhook posts, Doc creation, and Base writes use the tenant token and were never implicated in `99991679`.
+
+## Amendment (2026-06-01) — Coworker avatar URL is volatile; fallback to initials, measure before tuning
+
+Coworker avatars come from the same Search Users response (`avatar.avatar_72` → larger sizes → `avatar_url`) and normally load fine. But a Feishu avatar URL appears **time-bound**: a result cached in `coworkerSearchCache` (TTL 5 min) can serve a URL that has since expired, so the photo 404s. The picker already degrades gracefully — Radix `Avatar.Fallback` renders on image **error**, not only on an absent image — so there is no blank-circle bug. Decisions:
+
+- **Fallback shows name initials**, matching `FeishuProfile.tsx`, rather than the generic `UserRound` glyph. An expired / absent / slow-loading avatar then yields a coworker-identifying cell. **No `onError` handler is added** — Radix already falls back on error, so it would be redundant.
+- **The avatar URL is treated as volatile, not durable.** It is never persisted to Bitable or a CDN to "fix" freshness (HARD RULE + needless storage/sync surface).
+- **The TTL / re-fetch-on-expiry decision is deferred pending measurement.** Instrument avatar load success/failure by cache age (alongside the existing `[coworkers] … avatars=N` log) and only then decide whether to shorten `COWORKER_SEARCH_CACHE_TTL_MS` or re-fetch on fallback. No blind TTL change on an unmeasured URL lifetime.
+
+## Amendment (2026-06-01) — User-token refresh: error taxonomy, one transient retry, auto-logout on dead refresh_token
+
+`getUserAccessToken` threw a single generic `User not authenticated` for the no-session case and called `refreshUserToken` with **no error handling**, so a logged-in user's coworker search failed identically whether the session was missing, the refresh_token was terminally dead, or a cross-border CN↔US blip interrupted the refresh. Conflating the recoverable case with the terminal ones is the defect. Decisions:
+
+- **Three distinct outcomes, not one:**
+  - `SESSION_MISSING` — no session row → show login (terminal).
+  - `REFRESH_FAILED_TERMINAL` — Feishu reports the refresh_token invalid/expired (e.g. `invalid_grant`) → **delete the session row** so the UI honestly shows login; a dead refresh_token can never recover.
+  - `REFRESH_FAILED_TRANSIENT` — network / 5xx during refresh → surface a **retryable** error and **keep** the session.
+- **One transient retry** with a short backoff inside `refreshUserToken`; never retry a terminal `invalid_grant`.
+- **Secret-safe logging:** `refresh_token` presence (bool), Feishu response code, elapsed ms — never token values.
+- **`offline_access` stays load-bearing** (above): without the refresh_token there is no silent refresh and every expiry collapses to `SESSION_MISSING`.

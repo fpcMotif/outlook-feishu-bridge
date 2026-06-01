@@ -1,7 +1,12 @@
 /* eslint-disable max-lines-per-function */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { exchangeCodeForUserToken, getUserAccessToken, toPublicSession } from "./userAuth";
+import {
+  classifyRefreshError,
+  exchangeCodeForUserToken,
+  getUserAccessToken,
+  toPublicSession,
+} from "./userAuth";
 import { getTenantAccessToken } from "./auth";
 import { FEISHU_BASE, FeishuError, feishuFetch } from "./client";
 
@@ -183,5 +188,43 @@ describe("getUserAccessToken", () => {
       refreshToken: "rotated-rt",
       openId: "ou_z",
     });
+  });
+
+  it("deletes the session and throws on a terminal refresh failure (dead refresh_token)", async () => {
+    mockFetch.mockRejectedValue(new FeishuError(20037, "refresh token expired", "Feishu token refresh"));
+    const { ctx, runMutation } = fakeCtx({
+      accessToken: "old-at",
+      refreshToken: "dead-rt",
+      expiresAt: Date.now() - 1000,
+    });
+    await expect(getUserAccessToken(ctx, "sess-dead")).rejects.toThrow(/log in to Feishu again/i);
+    // single attempt (terminal is never retried) and the dead session is deleted
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(runMutation).toHaveBeenCalledWith(expect.anything(), { sessionId: "sess-dead" });
+  });
+
+  it("retries once then throws transient without deleting the session", async () => {
+    mockFetch.mockRejectedValue(new FeishuError(-1, "non-JSON response (status=502)", "Feishu token refresh"));
+    const { ctx, runMutation } = fakeCtx({
+      accessToken: "old-at",
+      refreshToken: "rt",
+      expiresAt: Date.now() - 1000,
+    });
+    await expect(getUserAccessToken(ctx, "sess-flaky")).rejects.toThrow(/Temporary Feishu authentication/i);
+    expect(mockFetch).toHaveBeenCalledTimes(2); // initial + one retry
+    expect(runMutation).not.toHaveBeenCalled(); // session preserved
+  });
+});
+
+describe("classifyRefreshError", () => {
+  it("treats a Feishu business-code rejection of the refresh_token as terminal", () => {
+    expect(classifyRefreshError(new FeishuError(20037, "expired", "Feishu token refresh"))).toBe("terminal");
+  });
+  it("treats a non-JSON / gateway FeishuError (code -1) as transient", () => {
+    expect(classifyRefreshError(new FeishuError(-1, "non-JSON", "Feishu token refresh"))).toBe("transient");
+  });
+  it("treats a thrown network error (no Feishu verdict) as transient", () => {
+    expect(classifyRefreshError(new TypeError("fetch failed"))).toBe("transient");
+    expect(classifyRefreshError(undefined)).toBe("transient");
   });
 });

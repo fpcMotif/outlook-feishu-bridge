@@ -4,14 +4,7 @@ import { X } from "lucide-react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import type { FeishuUser } from "./feishuUser";
-
-function initials(name?: string): string {
-  if (!name) return "U";
-  const parts = name.trim().split(/\s+/);
-  const first = parts[0]?.[0] ?? "";
-  const last = parts.length > 1 ? (parts.at(-1)?.[0] ?? "") : "";
-  return (first + last).toUpperCase() || "U";
-}
+import { initials } from "./initials";
 
 export function FeishuProfile({ user, onLogout }: { user: FeishuUser; onLogout: () => void }) {
   const [open, setOpen] = useState(false);

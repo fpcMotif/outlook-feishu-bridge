@@ -1,7 +1,14 @@
-import { internalMutation, internalQuery, query } from "./_generated/server";
+import {
+  internalMutation,
+  internalQuery,
+  query,
+  type QueryCtx,
+} from "./_generated/server";
 import { v } from "convex/values";
 
-import { emailRecordFields } from "./emailRecord";
+import { buildRequestSyncKey, emailRecordFields } from "./emailRecord";
+import type { Doc } from "./_generated/dataModel";
+import { buildConfiguredBitableRecordDetailUrl } from "./feishu/bitableUrl";
 
 const RECONCILE_BATCH_LIMIT = 20;
 const ERROR_PREVIEW_MAX = 500;
@@ -9,6 +16,37 @@ const ERROR_PREVIEW_MAX = 500;
 function nextRetryAt(attemptCount: number, attemptedAt: number): number {
   const minutes = attemptCount <= 1 ? 5 : attemptCount === 2 ? 15 : 60;
   return attemptedAt + minutes * 60_000;
+}
+
+async function findEmailRecordByMailboxConversation(
+  ctx: QueryCtx,
+  {
+    requestSyncKey,
+    userEmail,
+    conversationId,
+  }: {
+    requestSyncKey: string;
+    userEmail: string;
+    conversationId: string;
+  },
+): Promise<Doc<"emailRecords"> | null> {
+  const bySyncKey = await ctx.db
+    .query("emailRecords")
+    .withIndex("by_requestSyncKey", (q) => q.eq("requestSyncKey", requestSyncKey))
+    .first();
+  if (bySyncKey) return bySyncKey;
+
+  const normalizedEmail = userEmail.trim().toLowerCase();
+  const normalizedConversationId = conversationId.trim();
+  const candidates = await ctx.db
+    .query("emailRecords")
+    .withIndex("by_conversationId", (q) => q.eq("conversationId", normalizedConversationId))
+    .order("desc")
+    .take(20);
+  return (
+    candidates.find((record) => record.userEmail?.trim().toLowerCase() === normalizedEmail) ??
+    null
+  );
 }
 
 export const storeEmailRecord = internalMutation({
@@ -143,6 +181,31 @@ export const getByInternetMessageId = query({
         q.eq("internetMessageId", args.internetMessageId),
       )
       .first();
+  },
+});
+
+export const getBitableSyncByConversation = query({
+  args: {
+    userEmail: v.string(),
+    conversationId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const requestSyncKey = buildRequestSyncKey(args.userEmail, args.conversationId);
+    if (!requestSyncKey) return null;
+
+    const existing = await findEmailRecordByMailboxConversation(ctx, {
+      requestSyncKey,
+      userEmail: args.userEmail,
+      conversationId: args.conversationId,
+    });
+    if (!existing?.bitableRecordId) return null;
+
+    return {
+      recordId: existing.bitableRecordId,
+      detailUrl: buildConfiguredBitableRecordDetailUrl(existing.bitableRecordId),
+      coworkerCount: existing.selectedCoworkers?.length ?? 0,
+      syncedAt: existing.bitableLastAttemptAt ?? existing.createdAt,
+    };
   },
 });
 

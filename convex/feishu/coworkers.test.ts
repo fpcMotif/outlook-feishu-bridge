@@ -6,11 +6,14 @@ import {
   getCachedCoworkerSearch,
   setCoworkerSearchCache,
   searchCoworkersCached,
+  listCoworkerDirectory,
   type FeishuUser,
   cleanupExpiredCoworkerSearchCache,
   mapCoworkers,
   mapFeishuUserToCoworker,
   coworkerAvatarUrl,
+  coworkerSearchBlob,
+  fullDirectorySync,
 } from "./coworkers";
 import type { ActionCtx } from "../_generated/server";
 
@@ -23,6 +26,15 @@ vi.mock("./call", () => ({
 
 const searchCoworkersHandler = (searchCoworkers as unknown as {
   _handler: (ctx: ActionCtx, args: { sessionId: string; query: string; userAccessToken?: string }) => Promise<Coworker[]>;
+})._handler;
+
+const fullDirectorySyncHandler = (fullDirectorySync as unknown as {
+  _handler: (ctx: ActionCtx, args: Record<string, never>) => Promise<{
+    status: "complete" | "disabled";
+    rowCount: number;
+    departmentCount: number;
+    userPageCount: number;
+  }>;
 })._handler;
 
 type CacheRow = {
@@ -172,6 +184,61 @@ const searchCoworkersCachedHandler = (searchCoworkersCached as unknown as {
   _handler: (ctx: { db: FakeDb }, args: { sessionId: string; query: string }) => Promise<{ results: Coworker[] } | null>;
 })._handler;
 
+type DirectoryCtx = {
+  db: {
+    query: (table: string) => {
+      withIndex: (
+        name: string,
+        callback: (q: { eq: (field: string, value: unknown) => unknown }) => unknown,
+      ) => { unique: () => Promise<Record<string, unknown> | null> };
+      take: (limit: number) => Promise<Array<{ openId: string; name: string; avatarUrl?: string }>>;
+    };
+  };
+};
+
+const listCoworkerDirectoryHandler = (listCoworkerDirectory as unknown as {
+  _handler: (ctx: DirectoryCtx, args: { sessionId: string }) => Promise<{ records: Coworker[] } | null>;
+})._handler;
+
+function makeDirectoryCtx({
+  session,
+  state,
+  coworkers = [],
+}: {
+  session?: { sessionId: string; expiresAt: number };
+  state?: { key: "global"; lastFullSyncAt: number; lastStopReason?: "complete" | "failed" | "disabled" };
+  coworkers?: Coworker[];
+}): DirectoryCtx {
+  let sessionIdConstraint: unknown;
+  return {
+    db: {
+      query: (table: string) => ({
+        withIndex: (_name, callback) => {
+          callback({
+            eq: (field, value) => {
+              if (field === "sessionId") sessionIdConstraint = value;
+              return { field, value };
+            },
+          });
+          return {
+            unique: async () => {
+              if (table === "feishuUserTokens") {
+                return session?.sessionId === sessionIdConstraint ? session : null;
+              }
+              if (table === "coworkerDirectoryState") return state ?? null;
+              return null;
+            },
+          };
+        },
+        take: async (limit) => {
+          if (table !== "coworkers") return [];
+          return coworkers.slice(0, limit);
+        },
+      }),
+    },
+  };
+}
+
 describe("Coworker Search Users mapping", () => {
   it("maps open_id, name, and avatar_72", () => {
     const user: FeishuUser = {
@@ -209,6 +276,11 @@ describe("Coworker Search Users mapping", () => {
 
   it("returns [] when Search Users returns no users array", () => {
     expect(mapCoworkers({})).toEqual([]);
+  });
+
+  it("builds directory search terms for short name fragments", () => {
+    expect(coworkerSearchBlob({ openId: "ou_alice", name: "Alice Directory" })).toContain("li");
+    expect(coworkerSearchBlob({ openId: "ou_alice", name: "Alice Directory" })).toContain("dir");
   });
 });
 
@@ -402,6 +474,185 @@ describe("searchCoworkersCached query behavior", () => {
   });
 });
 
+describe("listCoworkerDirectory", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("returns the fresh mirrored directory after validating the session", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(20_000);
+    const ctx = makeDirectoryCtx({
+      session: { sessionId: "sess-valid", expiresAt: 30_000 },
+      state: { key: "global", lastFullSyncAt: 10_000, lastStopReason: "complete" },
+      coworkers: [
+        { openId: "ou_z", name: "Zed" },
+        { openId: "ou_a", name: "Alice", avatarUrl: "https://feishu/alice.png" },
+      ],
+    });
+
+    await expect(
+      listCoworkerDirectoryHandler(ctx, { sessionId: "sess-valid" }),
+    ).resolves.toEqual({
+      records: [
+        { openId: "ou_a", name: "Alice", avatarUrl: "https://feishu/alice.png" },
+        { openId: "ou_z", name: "Zed", avatarUrl: undefined },
+      ],
+    });
+  });
+
+  it("returns null when the session is expired or the mirror is stale", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(30 * 60 * 60 * 1000);
+
+    await expect(
+      listCoworkerDirectoryHandler(
+        makeDirectoryCtx({
+          session: { sessionId: "sess-expired", expiresAt: 1 },
+          state: { key: "global", lastFullSyncAt: Date.now(), lastStopReason: "complete" },
+        }),
+        { sessionId: "sess-expired" },
+      ),
+    ).resolves.toBeNull();
+
+    await expect(
+      listCoworkerDirectoryHandler(
+        makeDirectoryCtx({
+          session: { sessionId: "sess-valid", expiresAt: Date.now() + 1000 },
+          state: { key: "global", lastFullSyncAt: 1, lastStopReason: "complete" },
+        }),
+        { sessionId: "sess-valid" },
+      ),
+    ).resolves.toBeNull();
+  });
+});
+
+describe("Coworker Directory sync", () => {
+  const originalDirectorySyncFlag = process.env.FEISHU_COWORKER_DIRECTORY_SYNC;
+
+  afterEach(() => {
+    callFeishuMock.mockReset();
+    resolveFeishuTokenMock.mockReset();
+    if (originalDirectorySyncFlag === undefined) {
+      delete process.env.FEISHU_COWORKER_DIRECTORY_SYNC;
+    } else {
+      process.env.FEISHU_COWORKER_DIRECTORY_SYNC = originalDirectorySyncFlag;
+    }
+  });
+
+  it("stays disabled until the Contact API mirror is explicitly enabled", async () => {
+    delete process.env.FEISHU_COWORKER_DIRECTORY_SYNC;
+    const runMutation = vi.fn(async () => undefined);
+    const ctx = { runMutation } as unknown as ActionCtx;
+
+    await expect(fullDirectorySyncHandler(ctx, {})).resolves.toEqual({
+      status: "disabled",
+      rowCount: 0,
+      departmentCount: 0,
+      userPageCount: 0,
+    });
+
+    expect(callFeishuMock).not.toHaveBeenCalled();
+    expect(runMutation).toHaveBeenCalledWith(expect.anything(), {
+      startedAt: expect.any(Number),
+      stopReason: "disabled",
+    });
+  });
+
+  it("uses official Contact API pagination shape and replaces the directory", async () => {
+    process.env.FEISHU_COWORKER_DIRECTORY_SYNC = "1";
+    callFeishuMock.mockImplementation(async (_ctx, opts) => {
+      if (opts.path === "/contact/v3/departments/0/children") {
+        return {
+          items: [{ open_department_id: "od_sales", name: "Sales" }],
+          has_more: false,
+        };
+      }
+      if (opts.path === "/contact/v3/users/find_by_department" && opts.query.department_id === "0") {
+        return {
+          items: [
+            {
+              open_id: "ou_root",
+              name: "Root User",
+              avatar: { avatar_72: "https://feishu/root.png" },
+            },
+          ],
+          has_more: false,
+        };
+      }
+      if (opts.path === "/contact/v3/users/find_by_department" && opts.query.department_id === "od_sales") {
+        return {
+          items: [
+            { open_id: "ou_sales", name: "Sales User" },
+            { open_id: "ou_root", name: "Root User Duplicate" },
+          ],
+          has_more: false,
+        };
+      }
+      throw new Error(`unexpected path ${opts.path}`);
+    });
+    const runMutation = vi.fn(async () => undefined);
+    const ctx = { runMutation } as unknown as ActionCtx;
+
+    await expect(fullDirectorySyncHandler(ctx, {})).resolves.toMatchObject({
+      status: "complete",
+      rowCount: 2,
+      departmentCount: 2,
+      userPageCount: 3,
+    });
+
+    expect(callFeishuMock).toHaveBeenCalledWith(ctx, expect.objectContaining({
+      path: "/contact/v3/departments/0/children",
+      method: "GET",
+      auth: "tenant",
+      query: expect.objectContaining({
+        department_id_type: "open_department_id",
+        fetch_child: "true",
+        page_size: "50",
+      }),
+    }));
+    expect(callFeishuMock).toHaveBeenCalledWith(ctx, expect.objectContaining({
+      path: "/contact/v3/users/find_by_department",
+      method: "GET",
+      auth: "tenant",
+      query: expect.objectContaining({
+        department_id: "od_sales",
+        department_id_type: "open_department_id",
+        user_id_type: "open_id",
+        page_size: "50",
+      }),
+    }));
+    expect(runMutation).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      coworkers: [
+        { openId: "ou_root", name: "Root User", avatarUrl: "https://feishu/root.png" },
+        { openId: "ou_sales", name: "Sales User", avatarUrl: undefined },
+      ],
+      departmentCount: 2,
+      userPageCount: 3,
+    }));
+  });
+
+  it("records a failed sync when Feishu pagination repeats a page token", async () => {
+    process.env.FEISHU_COWORKER_DIRECTORY_SYNC = "1";
+    callFeishuMock.mockImplementation(async (_ctx, opts) => {
+      if (opts.path === "/contact/v3/departments/0/children") {
+        return { items: [], has_more: false };
+      }
+      if (!opts.query.page_token) {
+        return { items: [], has_more: true, page_token: "repeat-token" };
+      }
+      return { items: [], has_more: true, page_token: "repeat-token" };
+    });
+    const runMutation = vi.fn(async () => undefined);
+    const ctx = { runMutation } as unknown as ActionCtx;
+
+    await expect(fullDirectorySyncHandler(ctx, {})).rejects.toThrow(/repeated page_token/u);
+
+    expect(runMutation).toHaveBeenCalledWith(expect.anything(), {
+      startedAt: expect.any(Number),
+      stopReason: "duplicatePageToken",
+    });
+  });
+});
+
 describe("searchCoworkers action cache behavior", () => {
   const userOpenSearch = {
     users: [
@@ -457,10 +708,13 @@ describe("searchCoworkers action cache behavior", () => {
       query: "  Alice  ",
     });
 
-    expect(runQuery).toHaveBeenCalledTimes(1);
+    expect(runQuery).toHaveBeenCalledTimes(2);
     expect(runQuery).toHaveBeenCalledWith(expect.anything(), {
       sessionId: "sess-2",
       query: "alice",
+    });
+    expect(runQuery).toHaveBeenCalledWith(expect.anything(), {
+      query: "Alice",
     });
 
     expect(callFeishuMock).toHaveBeenCalledTimes(1);
@@ -482,6 +736,29 @@ describe("searchCoworkers action cache behavior", () => {
       results: [{ openId: "ou_cached", name: "Alice One", avatarUrl: "https://feishu/avatar.png" }],
       ttlMs: 5 * 60 * 1000,
     });
+  });
+
+  it("uses a warm Coworker Directory mirror before Feishu Search Users", async () => {
+    const directoryHit = [{ openId: "ou_directory", name: "Alice Directory" }];
+    const runQuery = vi
+      .fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ results: directoryHit });
+    const runMutation = vi.fn(async () => undefined);
+    resolveFeishuTokenMock.mockResolvedValue("resolved-token");
+
+    const ctx = { runQuery, runMutation } as unknown as ActionCtx;
+
+    const found = await searchCoworkersHandler(ctx, {
+      sessionId: "sess-directory",
+      query: "Alice",
+    });
+
+    expect(found).toEqual(directoryHit);
+    expect(resolveFeishuTokenMock).toHaveBeenCalledWith(ctx, "user", "sess-directory");
+    expect(runQuery).toHaveBeenCalledTimes(2);
+    expect(callFeishuMock).not.toHaveBeenCalled();
+    expect(runMutation).not.toHaveBeenCalled();
   });
 
 

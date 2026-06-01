@@ -31,3 +31,18 @@ After the Base-intake pivot ([ADR-0010](0010-pivot-to-bitable-intake.md)) the ap
 
 - **Granular `base:record:create`.** Least privilege, but the identifier needs console verification, would need expanding for any future read/update feature, and risks a batch-import rejection mid-test. Deferred to a hardening pass.
 - **Grant `bitable:app` to the user identity too.** Unnecessary — the write is tenant-only; adding it would force a needless re-authorization.
+
+## Amendment (2026-06-01) — Optional tenant Contact read scope for Coworker Directory
+
+The baseline permission set remains tenant `bitable:app` + user `contact:user:search` + OAuth `offline_access`. A small-org **Coworker Directory** mirror can be enabled to remove almost all live Search Users calls during typing, but it requires extra Feishu console configuration and must be treated as opt-in.
+
+When enabling `FEISHU_COWORKER_DIRECTORY_SYNC=1`:
+
+- Grant the tenant Contact API permissions required by Feishu's **Get department direct users** and **Get child departments** pages, and set the app's contact visibility range to cover all members if querying root department `0`.
+- Do **not** remove user `contact:user:search`; it remains the live fallback when the directory is absent, stale, disabled, or unauthorized.
+- Do **not** request sensitive field scopes such as phone, email, employee ID, or user ID unless a product requirement needs them. The mirror stores only `open_id`, `name`, and avatar URL, so `user_id_type=open_id` is enough.
+
+Official refs:
+
+- https://open.feishu.cn/document/server-docs/contact-v3/user/find_by_department
+- https://open.feishu.cn/document/server-docs/contact-v3/department/children

@@ -57,6 +57,41 @@ export default defineSchema({
     .index("by_session_cachedAt", ["sessionId", "cachedAt"])
     .index("by_cachedAt", ["cachedAt"]),
 
+  // Small-org Coworker Directory mirror. For tenants that authorize the
+  // official Contact API read path, a cron can refresh all real Feishu users
+  // into this bounded search read model so CoworkerPicker typing stays on
+  // Convex instead of calling Feishu Search Users for each distinct query.
+  coworkers: defineTable({
+    openId: v.string(),
+    name: v.string(),
+    avatarUrl: v.optional(v.string()),
+    searchBlob: v.string(),
+    mirroredAt: v.number(),
+  })
+    .index("by_openId", ["openId"])
+    .searchIndex("by_text", { searchField: "searchBlob" }),
+
+  coworkerDirectoryState: defineTable({
+    key: v.literal("global"),
+    lastFullSyncAt: v.number(),
+    lastRefreshStartedAt: v.optional(v.number()),
+    lastRowCount: v.number(),
+    lastDepartmentCount: v.optional(v.number()),
+    lastUserPageCount: v.optional(v.number()),
+    lastStopReason: v.optional(
+      v.union(
+        v.literal("complete"),
+        v.literal("disabled"),
+        v.literal("missingPageToken"),
+        v.literal("duplicatePageToken"),
+        v.literal("tooManyUsers"),
+        v.literal("failed"),
+      ),
+    ),
+    lastDurationMs: v.optional(v.number()),
+    lastFinishedAt: v.optional(v.number()),
+  }).index("by_key", ["key"]),
+
   // ADR-0016: server-indexed Customer search mode. The Customer Table from
   // Feishu Bitable (tbl4TE2GV472sKzp) is mirrored here on a weekly cron
   // (crons.ts: 168 h) plus on-demand `kick` / cache-miss backfill; the

@@ -133,8 +133,7 @@ describe("RequestIntakeScreen login gate", () => {
     expect(screen.getByRole("button", { name: /Quotation/i })).toBeInTheDocument();
     expect(screen.getByLabelText("Email")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Feishu coworker" })).toBeInTheDocument();
-    const routeCopy = screen.getByText("Route it to the right coworker in seconds.");
-    expect(routeCopy.compareDocumentPosition(screen.getByText("New request"))).toBe(
+    expect(screen.getByText("Customer & coworker").compareDocumentPosition(screen.getByText("New request"))).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
     expect(screen.queryByText("Search by name to choose a Feishu coworker")).not.toBeInTheDocument();

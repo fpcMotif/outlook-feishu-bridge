@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useReducer, useState } from "react";
 
 import type { Coworker } from "../coworkers";
+import { useCoworkerDirectory } from "../../../hooks/useCoworkerDirectory";
 import { useCoworkerSearch } from "../../../hooks/useCoworkerSearch";
 import {
   MIN_REMOTE_COWORKER_SEARCH_LENGTH,
@@ -35,6 +36,22 @@ function searchResultsReducer(state: Coworker[], results: Coworker[]) {
   return sameCoworkers(state, results) ? state : results;
 }
 
+function normalizeCoworkerText(value: string): string {
+  return value.trim().toLowerCase().replaceAll(/\s+/gu, " ");
+}
+
+function filterCoworkerDirectory(records: readonly Coworker[], query: string): Coworker[] {
+  const normalized = normalizeCoworkerText(query);
+  if (!normalized) return [];
+  return records
+    .filter((coworker) =>
+      [coworker.name, coworker.openId]
+        .map((value) => normalizeCoworkerText(value))
+        .some((value) => value.includes(normalized)),
+    )
+    .slice(0, 50);
+}
+
 export interface CoworkerListState {
   query: string;
   setQuery: (value: string) => void;
@@ -59,11 +76,19 @@ export function useCoworkerList({
   onSelect: (coworker: Coworker) => void;
 }): CoworkerListState {
   const search = useCoworkerSearch(sessionId, userAccessToken);
+  const coworkerDirectory = useCoworkerDirectory(sessionId, !usePreviewCoworkers);
   const [query, setQuery] = useState("");
   const [recents, setRecents] = useState<Coworker[]>(loadRecents);
   const [results, dispatchResults] = useReducer(searchResultsReducer, []);
 
   const q = query.trim();
+  const directoryResults = useMemo(
+    () =>
+      coworkerDirectory.state.status === "ready" && q.length >= MIN_REMOTE_COWORKER_SEARCH_LENGTH
+        ? filterCoworkerDirectory(coworkerDirectory.state.records, q)
+        : [],
+    [coworkerDirectory.state.records, coworkerDirectory.state.status, q],
+  );
 
   // Live search (debounced). User-visible results are either Feishu Search Users
   // results, or explicit test fixtures when an e2e/dev-test harness opts in.
@@ -83,6 +108,10 @@ export function useCoworkerList({
       dispatchResults([]);
       return;
     }
+    if (coworkerDirectory.state.status === "ready") {
+      dispatchResults([]);
+      return;
+    }
     let cancelled = false;
     const timer = window.setTimeout(() => {
       search(q)
@@ -97,14 +126,24 @@ export function useCoworkerList({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [q, search, usePreviewCoworkers]);
+  }, [coworkerDirectory.state.status, q, search, usePreviewCoworkers]);
+
+  const displayedResults =
+    coworkerDirectory.state.status === "ready" ? directoryResults : results;
 
   const directoryById = useMemo(() => {
     const map = new Map<string, Coworker>();
     const fixtureCoworkers = usePreviewCoworkers ? PREVIEW_COWORKERS : [];
-    for (const c of [...fixtureCoworkers, ...recents, ...results]) map.set(c.openId, c);
+    for (const c of [
+      ...fixtureCoworkers,
+      ...coworkerDirectory.state.records,
+      ...recents,
+      ...displayedResults,
+    ]) {
+      map.set(c.openId, c);
+    }
     return map;
-  }, [recents, results, usePreviewCoworkers]);
+  }, [coworkerDirectory.state.records, displayedResults, recents, usePreviewCoworkers]);
 
   const searching = usePreviewCoworkers
     ? q.length > 0
@@ -123,5 +162,5 @@ export function useCoworkerList({
     onSelect(coworker);
   };
 
-  return { query, setQuery, results, directoryById, searching, selectedCoworker, handleSelect };
+  return { query, setQuery, results: displayedResults, directoryById, searching, selectedCoworker, handleSelect };
 }

@@ -31,6 +31,13 @@ crons.interval(
   {},
 );
 
+crons.interval(
+  "coworker directory refresh (daily)",
+  { hours: 24 },
+  internal.feishu.coworkers.fullDirectorySync,
+  {},
+);
+
 // Request intake outbox reconcile. The UI writes a pending Convex Email Record
 // before calling Feishu Base; this cron catches transient Base/create or
 // post-create marking failures and replays with the stored Feishu client_token.

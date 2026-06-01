@@ -79,6 +79,7 @@ sequenceDiagram
    - Preserves avatar fallback order: `avatar_72`, `avatar_240`, `avatar_640`, `avatar_origin`, `avatar_url`.
 4. `src/hooks/useCoworkerSearch.ts`
    - Adds a two-character minimum search guard, module-level TTL cache, LRU-style pruning, token-scoped fallback cache keys, in-flight promise coalescing, and a public-query warm-cache check before the action fallback.
+   - CoworkerPicker clears one-character production results immediately and does not start a debounce timer or hook call until two characters.
    - Adds timing/debug logs for cache hits, coalesced calls, network calls, and failures.
 5. `scripts/search-latency-experiment.mjs`
    - Seeds synthetic customers, coworker cache rows, and one benchmark Feishu session token row into an explicitly acknowledged disposable Convex deployment.

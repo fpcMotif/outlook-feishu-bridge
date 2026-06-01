@@ -26,6 +26,7 @@ const PREVIEW_COWORKERS: Coworker[] = [
 
 const RECENTS_KEY = "feishu_recent_coworkers";
 const SEARCH_DEBOUNCE_MS = 250;
+const MIN_REMOTE_COWORKER_SEARCH_LENGTH = 2;
 const MIN_EMAIL_FIELD_HEIGHT = 32;
 
 function loadRecents(): Coworker[] {
@@ -232,6 +233,10 @@ export function CoworkerPicker({
       dispatchResults(previewMatches);
       return;
     }
+    if (q.length < MIN_REMOTE_COWORKER_SEARCH_LENGTH) {
+      dispatchResults([]);
+      return;
+    }
     let cancelled = false;
     const timer = window.setTimeout(() => {
       search(q)
@@ -255,7 +260,9 @@ export function CoworkerPicker({
     return map;
   }, [recents, results, usePreviewCoworkers]);
 
-  const searching = q.length > 0;
+  const searching = usePreviewCoworkers
+    ? q.length > 0
+    : q.length >= MIN_REMOTE_COWORKER_SEARCH_LENGTH;
   const selectedCoworker = selectedOpenId ? directoryById.get(selectedOpenId) : undefined;
 
   const handleSelect = (coworker: Coworker) => {

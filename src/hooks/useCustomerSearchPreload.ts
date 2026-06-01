@@ -20,8 +20,8 @@ const MIN_SERVER_SEARCH_LENGTH = 2;
 
 const inFlightPreloadSearches = new Map<string, Promise<CustomerRecord[]>>();
 
-function preloadSearchKey(q: string, mineFor: string | undefined): string {
-  return `${q.toLowerCase()}\u0000${mineFor ?? ""}`;
+function preloadSearchKey(q: string): string {
+  return q.toLowerCase();
 }
 
 function trackPreloadSearch(key: string, p: Promise<CustomerRecord[]>): Promise<CustomerRecord[]> {
@@ -50,18 +50,17 @@ export function useCustomerSearchPreload(isLoggedIn: boolean): CustomerSearch {
     (query: string, options?: CustomerSearchOptions): Promise<CustomerRecord[]> => {
       const q = query.trim();
       if (q.length < MIN_SERVER_SEARCH_LENGTH) return Promise.resolve([]);
-      const key = preloadSearchKey(q, options?.mineFor);
+      const key = preloadSearchKey(q);
       const inFlight = inFlightPreloadSearches.get(key);
-      if (inFlight) return inFlight;
       const started = performance.now();
-      return trackPreloadSearch(
+      const rawRecords = inFlight ?? trackPreloadSearch(
         key,
         legacyAction({ query: q }).then(({ records }) => {
-          const visibleRecords = filterByOwner(records, options?.mineFor);
-          dtime(`customer search (server) "${q.slice(0, 40)}" -> ${visibleRecords.length}`, started);
-          return visibleRecords;
+          dtime(`customer search (server) "${q.slice(0, 40)}" -> ${records.length}`, started);
+          return records;
         }),
       );
+      return rawRecords.then((records) => filterByOwner(records, options?.mineFor));
     },
     [legacyAction],
   );

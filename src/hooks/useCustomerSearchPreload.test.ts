@@ -64,6 +64,41 @@ describe("useCustomerSearchPreload", () => {
     ]);
   });
 
+  it("shares one in-flight legacy search across owner filters", async () => {
+    let resolveAction!: (value: {
+      records: { recordId: string; name: string; owner: { openId: string; name: string } | null }[];
+    }) => void;
+    const pendingAction = new Promise<{
+      records: { recordId: string; name: string; owner: { openId: string; name: string } | null }[];
+    }>((resolve) => {
+      resolveAction = resolve;
+    });
+    const legacyAction = vi.fn(() => pendingAction);
+    mockUseAction.mockReturnValue(legacyAction);
+
+    const { result } = renderHook(() => useCustomerSearchPreload(true));
+
+    const all = result.current.search("acme");
+    const mine = result.current.search("acme", { mineFor: "ou_me" });
+
+    expect(legacyAction).toHaveBeenCalledTimes(1);
+
+    resolveAction({
+      records: [
+        { recordId: "rec_mine", name: "Mine", owner: { openId: "ou_me", name: "Me" } },
+        { recordId: "rec_other", name: "Other", owner: { openId: "ou_other", name: "Other" } },
+      ],
+    });
+
+    await expect(Promise.all([all, mine])).resolves.toEqual([
+      [
+        { recordId: "rec_mine", name: "Mine", owner: { openId: "ou_me", name: "Me" } },
+        { recordId: "rec_other", name: "Other", owner: { openId: "ou_other", name: "Other" } },
+      ],
+      [{ recordId: "rec_mine", name: "Mine", owner: { openId: "ou_me", name: "Me" } }],
+    ]);
+  });
+
   it("still uses the legacy server action once the query is specific", async () => {
     const legacyAction = vi.fn(async () => ({
       records: [{ recordId: "rec_acme", name: "Acme", owner: null }],

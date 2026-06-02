@@ -55,6 +55,11 @@ vi.mock("../../hooks/useCustomerSearch", () => ({
   }),
 }));
 
+import type { AttachmentSyncResult } from "./useAttachmentSync";
+const emptyStage: AttachmentSyncResult = { attachments: [], failed: [] };
+const mockStageAttachments = vi.fn((): Promise<AttachmentSyncResult> => Promise.resolve(emptyStage));
+vi.mock("./useAttachmentSync", () => ({ useAttachmentSync: () => mockStageAttachments }));
+
 import { RequestIntakeScreen } from "./RequestIntakeScreen";
 import type { MailItemData } from "../../office/useMailItem";
 
@@ -101,6 +106,8 @@ describe("RequestIntakeScreen sync wiring", () => {
     mockExistingSync = null;
     mockSendSelfForward.mockClear();
     mockSendSelfForward.mockImplementation(() => Promise.resolve({ ok: true }));
+    mockStageAttachments.mockReset();
+    mockStageAttachments.mockResolvedValue({ attachments: [], failed: [] });
     localStorage.clear();
   });
 
@@ -338,6 +345,34 @@ describe("RequestIntakeScreen sync wiring", () => {
       expect(screen.queryByText(/Sending Note to myself/i)).not.toBeInTheDocument();
     });
     expect(screen.queryByText(/Note to myself sent/i)).not.toBeInTheDocument();
+  });
+
+  // ADR-0022: a checked mail attachment is staged at submit and its minted
+  // Feishu Drive file_token rides into the syncRequest payload's `attachments`.
+  it("stages a checked mail attachment and rides its file_token into the sync payload", async () => {
+    mockStageAttachments.mockResolvedValueOnce({ attachments: [{ fileToken: "tokFILE" }], failed: [] });
+    render(
+      <RequestIntakeScreen
+        isLoggedIn={true}
+        mailItem={{
+          ...SAMPLE,
+          attachments: [{ id: "a1", name: "rfq.pdf", attachmentType: "file", size: 2048, isInline: false }],
+        }}
+        sessionId="test-session"
+        onLogin={vi.fn()}
+        onLoginFallback={vi.fn()}
+      />,
+    );
+    fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
+      target: { value: "Need a quarterly L-Carnitine quote." },
+    });
+    fireEvent.click(screen.getByRole("checkbox", { name: /rfq\.pdf/i }));
+    fireEvent.click(await searchCoworker("Jenny Xu"));
+    fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
+
+    await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(1));
+    expect(mockStageAttachments).toHaveBeenCalledWith([{ id: "a1", name: "rfq.pdf" }], []);
+    expect(mockSync.mock.calls[0][0]).toMatchObject({ attachments: [{ fileToken: "tokFILE" }] });
   });
 
   it("shows an error and not the success screen when sync rejects", async () => {

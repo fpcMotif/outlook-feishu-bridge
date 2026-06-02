@@ -52,6 +52,10 @@ vi.mock("../hooks/useCustomerSearch", () => {
   };
 });
 
+vi.mock("./taskpane/useAttachmentSync", () => ({
+  useAttachmentSync: () => vi.fn(() => Promise.resolve({ attachments: [], failed: [] })),
+}));
+
 const mockUseMailItem = vi.mocked(useMailItem);
 const mockUseFeishuAuth = vi.mocked(useFeishuAuth);
 

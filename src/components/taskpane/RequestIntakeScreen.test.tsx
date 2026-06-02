@@ -64,6 +64,10 @@ vi.mock("../../hooks/useCustomerSearch", () => ({
   }),
 }));
 
+vi.mock("./useAttachmentSync", () => ({
+  useAttachmentSync: () => vi.fn(() => Promise.resolve({ attachments: [], failed: [] })),
+}));
+
 import { RequestIntakeScreen } from "./RequestIntakeScreen";
 import type { MailItemData } from "../../office/useMailItem";
 

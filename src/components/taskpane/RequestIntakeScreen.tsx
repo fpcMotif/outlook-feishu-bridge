@@ -20,6 +20,9 @@ import {
 import { resolveIntakeScreen } from "./RequestIntakeRouter";
 import { SubmitDock } from "./SubmitDock";
 import { buildFilledRequests, canSubmitSync, submitSyncHint } from "./submitSyncGate";
+import { AttachmentSection } from "./AttachmentSection";
+import { buildSyncPayload } from "./buildSyncPayload";
+import { useIntakeAttachments } from "./useIntakeAttachments";
 
 export function RequestIntakeScreen({
   isLoggedIn,
@@ -79,6 +82,8 @@ export function RequestIntakeScreen({
     triggerRefresh: triggerCustomerRefresh,
     dispatch,
   });
+
+  const { mailAttachments, addFiles, stageSelected } = useIntakeAttachments(mailItem, state, dispatch);
 
   const filledRequests = useMemo(() => buildFilledRequests(state.notes), [state.notes]);
   const requestSelections = useMemo(() => filledRequests.map((r) => ({ requestType: r.title, note: r.note })), [filledRequests]);
@@ -152,26 +157,19 @@ export function RequestIntakeScreen({
   const runSync = useCallback(() => {
     generationRef.current += 1;
     dispatch({ type: "syncStarted" });
-    const payload = {
-      subject: mailItem.subject,
-      from: mailItem.from,
-      to: mailItem.to,
-      cc: mailItem.cc,
-      body: mailItem.body,
-      internetMessageId: mailItem.internetMessageId,
-      itemId: mailItem.itemId || undefined,
-      conversationId: mailItem.conversationId || undefined,
-      userEmail: mailItem.userEmail || undefined,
-      dateTimeCreated: mailItem.dateTimeCreated?.getTime(),
-      clientEmail: state.clientEmail,
-      selectedCustomer: state.selectedCustomer
-        ? { recordId: state.selectedCustomer.recordId, name: state.selectedCustomer.name }
-        : undefined,
-      initiator: user?.openId ? { openId: user.openId, name: user.userName } : undefined,
-      requestNote,
-      selectedCoworkers: state.selectedCoworker ? [state.selectedCoworker] : [],
-    };
-    const baseWrite = sync(payload)
+    const payload = buildSyncPayload(mailItem, state, user, requestNote);
+    // ADR-0022: stage the selected mail attachments + uploads to Feishu Drive and
+    // ride the minted file_tokens into the create. Best-effort — failed files are
+    // logged and skipped, never blocking the authoritative Base write.
+    const baseWrite = stageSelected()
+      .then((staged) => {
+        if (staged.failed.length > 0) {
+          console.warn(
+            `[intake] skipped ${staged.failed.length} attachment(s): ${staged.failed.map((f) => f.name).join(", ")}`,
+          );
+        }
+        return sync({ ...payload, attachments: staged.attachments });
+      })
       .then((result) =>
         dispatch({
           type: "syncSucceeded",
@@ -185,17 +183,7 @@ export function RequestIntakeScreen({
     // Parallel — Self-Forward never blocks the Base result (retry chip on fail).
     if (state.selfForwardStatus !== "ok") void fireSelfForward();
     return baseWrite;
-  }, [
-    sync,
-    mailItem,
-    state.clientEmail,
-    state.selectedCustomer,
-    state.selfForwardStatus,
-    user,
-    requestNote,
-    state.selectedCoworker,
-    fireSelfForward,
-  ]);
+  }, [sync, mailItem, state, user, requestNote, fireSelfForward, stageSelected]);
 
   const handleSubmit = () => {
     if (!canSubmitSync(syncGate)) return;
@@ -275,6 +263,14 @@ export function RequestIntakeScreen({
           <NewRequestSection
             values={state.notes}
             onChange={(id, value) => dispatch({ type: "noteChanged", id, value })}
+          />
+          <AttachmentSection
+            mailAttachments={mailAttachments}
+            selectedIds={state.selectedAttachmentIds}
+            uploadedFiles={state.uploadedFiles}
+            onToggleMail={(id) => dispatch({ type: "attachmentToggled", id })}
+            onAddFiles={addFiles}
+            onRemoveUpload={(id) => dispatch({ type: "uploadedFileRemoved", id })}
           />
         </div>
       </div>

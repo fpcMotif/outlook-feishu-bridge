@@ -29,6 +29,7 @@ import type * as feishu_devCustomerFixtures from "../feishu/devCustomerFixtures.
 import type * as feishu_devCustomerSeed from "../feishu/devCustomerSeed.js";
 import type * as feishu_devEmailFixtures from "../feishu/devEmailFixtures.js";
 import type * as feishu_devEmailRecordSeed from "../feishu/devEmailRecordSeed.js";
+import type * as feishu_drive from "../feishu/drive.js";
 import type * as feishu_emailDomain from "../feishu/emailDomain.js";
 import type * as feishu_requestSync from "../feishu/requestSync.js";
 import type * as feishu_searchResultMerge from "../feishu/searchResultMerge.js";
@@ -69,6 +70,7 @@ declare const fullApi: ApiFromModules<{
   "feishu/devCustomerSeed": typeof feishu_devCustomerSeed;
   "feishu/devEmailFixtures": typeof feishu_devEmailFixtures;
   "feishu/devEmailRecordSeed": typeof feishu_devEmailRecordSeed;
+  "feishu/drive": typeof feishu_drive;
   "feishu/emailDomain": typeof feishu_emailDomain;
   "feishu/requestSync": typeof feishu_requestSync;
   "feishu/searchResultMerge": typeof feishu_searchResultMerge;

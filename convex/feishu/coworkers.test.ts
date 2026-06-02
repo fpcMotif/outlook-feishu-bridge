@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   searchCoworkers,
@@ -59,8 +59,9 @@ type FakeQueryBuilder = {
 };
 
 type FakeQueryChainAfterIndex = {
-  unique: () => Promise<CacheRow | null>;
-  order: (dir: "desc") => FakeQueryBuilder;
+  withIndex: () => never;
+  unique: () => Promise<CacheRow | SessionRow | null>;
+  order: (dir: "desc") => FakeQueryChainAfterIndex;
   take: (n: number) => Promise<CacheRow[]>;
 };
 
@@ -102,7 +103,7 @@ const makeFakeDb = (initialRows: CacheRow[] = [], initialSessions: SessionRow[] 
 
     const listRows = () => tableRows(table).filter((row) => constraints.every((constraint) => matches(row, constraint)));
 
-    const chainAfterIndex: FakeQueryBuilder = {
+    const chainAfterIndex: FakeQueryChainAfterIndex = {
       withIndex: () => {
         throw new Error("invalid: withIndex should not be called after withIndex");
       },
@@ -112,10 +113,11 @@ const makeFakeDb = (initialRows: CacheRow[] = [], initialSessions: SessionRow[] 
         return chainAfterIndex;
       },
       take: async (n: number) => {
+        const cacheRows = listRows().filter((row): row is CacheRow => "cachedAt" in row);
         if (order === "desc") {
-          return [...listRows()].sort((a, b) => b.cachedAt - a.cachedAt).slice(0, n);
+          return [...cacheRows].sort((a, b) => b.cachedAt - a.cachedAt).slice(0, n);
         }
-        return listRows().slice(0, n);
+        return cacheRows.slice(0, n);
       },
     };
 

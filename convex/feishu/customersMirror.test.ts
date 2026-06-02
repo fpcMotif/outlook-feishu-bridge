@@ -115,7 +115,12 @@ const originalConvexDeployment = process.env.CONVEX_DEPLOYMENT;
 const originalFixturesFlag = process.env.ENABLE_DEV_CUSTOMER_FIXTURES;
 const originalAppToken = process.env.FEISHU_BITABLE_APP_TOKEN;
 
-function feishuPage(index: number, hasMore: boolean) {
+function feishuPage(index: number, hasMore: boolean): {
+  items: Array<{ record_id: string; fields: Record<string, Array<{ text: string; type: string }>> }>;
+  has_more: boolean;
+  page_token: string | undefined;
+  total?: number;
+} {
   return {
     items: [
       {
@@ -479,7 +484,7 @@ describe("customer mirror full sync pagination", () => {
 
   it("flags an incompleteTotal shortfall when paged rows fall short of Feishu total", async () => {
     // Feishu reports a table total of 5, but pagination cleanly ends after 3 rows.
-    const page = (id, hasMore, token) => ({
+    const page = (id: string, hasMore: boolean, token: string | undefined) => ({
       items: [{ record_id: id, fields: { "Account Name": [{ text: id, type: "text" }] } }],
       has_more: hasMore,
       page_token: token,

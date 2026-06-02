@@ -22,7 +22,7 @@
   </Hosts>
   <Requirements>
     <Sets>
-      <Set Name="Mailbox" MinVersion="1.1"/>
+      <Set Name="Mailbox" MinVersion="1.8"/>
     </Sets>
   </Requirements>
   <FormSettings>

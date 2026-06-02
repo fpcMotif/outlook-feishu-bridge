@@ -159,6 +159,17 @@ describe("TaskPane browser preview request flow", () => {
     expect(screen.queryByText(/m\.hoffmann@bayerpharma\.de ->/i)).not.toBeInTheDocument();
   });
 
+  it("accepts the misspelled devSceen query param for the sync preview", () => {
+    window.history.replaceState({}, "", "/?devSceen=sync");
+
+    renderPreview();
+
+    expect(
+      screen.getByRole("heading", { name: /Syncing to Feishu Base/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Base row preview/i)).toBeInTheDocument();
+  });
+
   it("opens the direct dev preview for the success screen", () => {
     window.history.replaceState({}, "", "/?devScreen=received");
 
@@ -167,10 +178,23 @@ describe("TaskPane browser preview request flow", () => {
     expect(screen.getByRole("heading", { name: /^Synced$/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Open in Feishu/i })).toHaveAttribute(
       "href",
-      expect.stringContaining("rec_dev_preview"),
+      expect.stringContaining("dev_fixture_email_sync_fresh"),
     );
     expect(screen.queryByText(/Note to myself sent/i)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Route another email/i })).not.toBeInTheDocument();
+  });
+
+  it("opens an older dev Convex fixture for checking submitted timestamp copy", () => {
+    window.history.replaceState({}, "", "/?devScreen=received&devFixture=week-old");
+
+    renderPreview();
+
+    expect(screen.getByText("[DEV] Week-old Convex email record")).toBeInTheDocument();
+    expect(screen.getByText("1 week ago")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Open in Feishu/i })).toHaveAttribute(
+      "href",
+      expect.stringContaining("dev_fixture_email_sync_week_old"),
+    );
   });
 
   it("supports the full browser-preview request path after login", async () => {

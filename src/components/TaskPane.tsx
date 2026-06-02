@@ -11,6 +11,10 @@ import { FeishuProfile } from "./taskpane/FeishuProfile";
 import { ThemeToggle } from "./ThemeToggle";
 import { ReceivedScreen } from "./taskpane/ReceivedScreen";
 import { SyncScreen } from "./taskpane/SyncScreen";
+import {
+  findDevEmailFixture,
+  submittedAtForDevEmailFixture,
+} from "../../convex/feishu/devEmailFixtures";
 
 // Browser dev has no Office host or mailbox (useOffice falls back to host
 // "browser" after 3s). A sample item lets the full drawer flow render for
@@ -43,18 +47,28 @@ const DEV_REQUEST_PREVIEW = [
   },
 ];
 
-function DevScreenPreview({ screen }: { screen: "sync" | "received" }) {
+function DevScreenPreview({
+  screen,
+  devFixtureKey,
+}: {
+  screen: "sync" | "received";
+  devFixtureKey: string | null;
+}) {
   if (screen === "sync") {
     return (
       <SyncScreen requests={DEV_REQUEST_PREVIEW} />
     );
   }
 
+  const fixture = findDevEmailFixture(devFixtureKey);
+
   return (
     <ReceivedScreen
-      coworkerCount={1}
-      recordId="rec_dev_preview"
-      detailUrl="https://feishu.cn/base/app?table=tbl&record=rec_dev_preview"
+      coworkerCount={fixture.coworkerCount}
+      recordId={fixture.recordId}
+      detailUrl={fixture.detailUrl}
+      submittedAt={submittedAtForDevEmailFixture(fixture)}
+      devFixtureLabel={fixture.label}
       selfForwardStatus={null}
     />
   );
@@ -109,11 +123,12 @@ export function TaskPane({ host }: { host: string | null }) {
   const devPreview = import.meta.env.DEV && host !== "Outlook";
   const params = new URLSearchParams(window.location.search);
   const useCoworkerFixtures = devPreview && params.has("e2eCoworkers");
-  const requestedDevScreen = devPreview ? params.get("devScreen") : null;
+  const requestedDevScreen = devPreview ? (params.get("devScreen") ?? params.get("devSceen")) : null;
   // "send" is an informal alias for the sync progress screen (Act IV).
   const normalizedDevScreen = requestedDevScreen === "send" ? "sync" : requestedDevScreen;
   const devScreen =
     normalizedDevScreen === "sync" || normalizedDevScreen === "received" ? normalizedDevScreen : null;
+  const devFixtureKey = devPreview ? params.get("devFixture") : null;
   const item = mailItem ?? (devPreview ? DEV_SAMPLE : null);
 
   // Dev-only: clicking "Log in" advances straight to the logged-in UI (profile +
@@ -154,7 +169,7 @@ export function TaskPane({ host }: { host: string | null }) {
       ) : null}
       <main className="flex min-h-0 flex-1 flex-col">
         {devScreen ? (
-          <DevScreenPreview screen={devScreen} />
+          <DevScreenPreview screen={devScreen} devFixtureKey={devFixtureKey} />
         ) : item ? (
           <RequestIntakeScreen
             isLoggedIn={isLoggedIn}

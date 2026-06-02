@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import { Check, ExternalLink, MailWarning } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -17,48 +18,65 @@ interface Step {
 // without Office.js); the chip is hidden in that case.
 type SelfForwardStatus = "pending" | "ok" | "failed" | null;
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+const WEEK_MS = 7 * DAY_MS;
+
+export function relativeSubmittedTime(submittedAt?: number, now = Date.now()): string {
+  if (submittedAt === undefined) return "Just now";
+  const elapsed = Math.max(0, now - submittedAt);
+  if (elapsed < DAY_MS) return "Less than 1d ago";
+  if (elapsed < WEEK_MS) {
+    const days = Math.floor(elapsed / DAY_MS);
+    return `${days} day${days === 1 ? "" : "s"} ago`;
+  }
+  const weeks = Math.floor(elapsed / WEEK_MS);
+  return `${weeks} week${weeks === 1 ? "" : "s"} ago`;
+}
+
 function StepRow({ step, last }: { step: Step; last: boolean }) {
   return (
-    <div className="relative flex gap-3.5 pb-5 last:pb-0">
-      {last ? null : <span className="bg-border absolute top-5 left-[8.5px] h-full w-px" />}
-      <span
-        className={cn(
-          "relative z-10 mt-0.5 flex size-[18px] shrink-0 items-center justify-center rounded-full border-[1.5px]",
-          step.state === "done" && "border-sage bg-sage text-background",
-          step.state === "active" &&
-            "border-primary bg-card shadow-[0_0_0_4px_color-mix(in_oklch,var(--primary)_18%,transparent)]",
+    <li className="relative flex gap-3.5 pb-4 last:pb-0">
+      <div className="relative w-[18px] shrink-0">
+        {last ? null : (
+          <span className="bg-border/80 absolute top-5 left-1/2 -translate-x-1/2 h-full w-px" />
         )}
-      >
-        {step.state === "done" ? (
-          <Check className="size-2.5" strokeWidth={3} aria-hidden />
-        ) : step.state === "active" ? (
-          <span className="bg-primary animate-pulse-dot absolute inset-1 rounded-full" />
-        ) : null}
-      </span>
-      <div className="-mt-px">
-        <div className="text-foreground text-sm font-semibold">{step.title}</div>
-        <div className="text-muted-foreground mt-0.5 text-xs">{step.sub}</div>
+        <span
+          className={cn(
+            "relative z-10 mt-0.5 flex size-[18px] shrink-0 items-center justify-center rounded-full border-[1.5px]",
+            step.state === "done" && "border-sage bg-sage text-background",
+            step.state === "active" &&
+              "border-primary bg-card shadow-[0_0_0_4px_color-mix(in_oklch,var(--primary)_18%,transparent)]",
+          )}
+        >
+          {step.state === "done" ? (
+            <Check className="size-2.5" strokeWidth={3} aria-hidden />
+          ) : step.state === "active" ? (
+            <span className="bg-primary animate-pulse-dot absolute inset-1 rounded-full" />
+          ) : null}
+        </span>
       </div>
-    </div>
+      <div className="-mt-px min-w-0">
+        <div className="text-foreground text-sm font-semibold">{step.title}</div>
+        <div className="text-muted-foreground mt-0.5 text-xs text-pretty">{step.sub}</div>
+      </div>
+    </li>
   );
 }
 
 function SuccessHalo() {
   return (
-    <div className="relative mb-7 flex size-36 items-center justify-center">
+    <div className="relative mx-auto mb-4 flex size-28 items-center justify-center">
       <span className="border-primary/30 animate-pulse-ring absolute inset-0 rounded-full border" />
-      <span className="border-primary/30 animate-pulse-ring absolute inset-0 rounded-full border [animation-delay:0.8s]" />
-      <span className="border-primary/30 animate-pulse-ring absolute inset-0 rounded-full border [animation-delay:1.6s]" />
-      <span className="bg-primary text-primary-foreground animate-pop-in relative z-10 flex size-20 items-center justify-center rounded-full shadow-float">
-        <Check className="size-10" strokeWidth={2.4} />
+      <span className="bg-primary text-primary-foreground animate-pop-in relative z-10 flex size-16 items-center justify-center rounded-full shadow-float">
+        <Check className="size-8" strokeWidth={2.4} />
       </span>
     </div>
   );
 }
 
-function buildSteps(coworkerCount: number): Step[] {
+function buildSteps(coworkerCount: number, submittedAt?: number): Step[] {
   return [
-    { title: "Submitted", sub: "Just now", state: "done" },
+    { title: "Submitted", sub: relativeSubmittedTime(submittedAt), state: "done" },
     {
       title: "Base row created",
       sub:
@@ -82,7 +100,7 @@ function SelfForwardChip({
   if (status === "ok") return null;
   if (status === "pending") {
     return (
-      <div className="text-muted-foreground mt-3 inline-flex items-center gap-1.5 rounded-full bg-muted px-3 py-1 text-xs">
+      <div className="text-muted-foreground mt-3 inline-flex items-center gap-1.5 rounded-full bg-muted/80 px-3 py-1 text-xs">
         Sending Note to myself…
       </div>
     );
@@ -97,7 +115,7 @@ function SelfForwardChip({
         <Button
           variant="ghost"
           size="sm"
-          className="h-7 px-2 text-xs"
+          className="h-7 px-2 text-xs transition-transform active:scale-[0.96]"
           onClick={onRetry}
         >
           Retry note-to-myself
@@ -116,19 +134,36 @@ function BitableRecordAction({
 }) {
   if (detailUrl) {
     return (
-      <Button asChild className="mt-5">
-        <a href={detailUrl} target="_blank" rel="noreferrer">
-          <ExternalLink className="size-4" />
-          Open in Feishu
-        </a>
-      </Button>
+      <a
+        href={detailUrl}
+        target="_blank"
+        rel="noreferrer"
+        className="text-primary mt-3 inline-flex items-center gap-1.5 rounded-sm text-sm font-medium underline-offset-4 transition-colors hover:underline focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/20"
+      >
+        <ExternalLink className="size-3.5" />
+        Open in Feishu
+      </a>
     );
   }
   if (!recordId) return null;
   return (
-    <div className="bg-muted text-muted-foreground mt-5 rounded-md px-3 py-1.5 text-xs">
+    <div className="bg-muted/80 text-muted-foreground mt-4 rounded-md px-3 py-1.5 text-xs">
       Base record {recordId}
     </div>
+  );
+}
+
+function ReceivedTimeline({ steps }: { steps: Step[] }) {
+  return (
+    <ol
+      aria-label="Sync completion steps"
+      className="sync-enter row-start-3 mt-6 w-fit max-w-[320px] flex-none list-none p-0"
+      style={{ "--enter-delay": "70ms" } as CSSProperties}
+    >
+      {steps.map((s, i) => (
+        <StepRow key={s.title} step={s} last={i === steps.length - 1} />
+      ))}
+    </ol>
   );
 }
 
@@ -136,6 +171,8 @@ export function ReceivedScreen({
   coworkerCount,
   recordId,
   detailUrl,
+  submittedAt,
+  devFixtureLabel,
   alreadySynced = false,
   selfForwardStatus = null,
   onRetrySelfForward,
@@ -143,30 +180,35 @@ export function ReceivedScreen({
   coworkerCount: number;
   recordId?: string | null;
   detailUrl?: string | null;
+  submittedAt?: number;
+  devFixtureLabel?: string;
   alreadySynced?: boolean;
   selfForwardStatus?: SelfForwardStatus;
   onRetrySelfForward?: () => void;
 }) {
-  const steps = buildSteps(coworkerCount);
+  const steps = buildSteps(coworkerCount, submittedAt);
 
   return (
-    <div className="no-scrollbar flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-6 pt-12 pb-6">
-      <SuccessHalo />
-
-      <h1 className="text-3xl text-balance">
-        {alreadySynced ? "Already synced" : "Synced"}
-      </h1>
-
-      <BitableRecordAction recordId={recordId} detailUrl={detailUrl} />
-
-      <SelfForwardChip status={selfForwardStatus} onRetry={onRetrySelfForward} />
-
-      <div className="mt-9 w-full max-w-[320px]">
-        {steps.map((s, i) => (
-          <StepRow key={s.title} step={s} last={i === steps.length - 1} />
-        ))}
+    <div
+      className="no-scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto px-5 py-8"
+      style={{ backgroundColor: "var(--login-background)" }}
+    >
+      <div className="intake-stagger grid min-h-0 flex-1 -translate-y-3 grid-rows-[minmax(0,1fr)_auto_minmax(0,1fr)] justify-items-center py-7">
+        <header className="sync-enter row-start-2 w-full max-w-[420px] shrink-0 px-1 text-center">
+          <SuccessHalo />
+          {devFixtureLabel ? (
+            <div className="text-muted-foreground mb-2 text-[11px] font-semibold uppercase tracking-[0.08em]">
+              {devFixtureLabel}
+            </div>
+          ) : null}
+          <h1 className="text-[clamp(1.5rem,5vw,1.875rem)] leading-[1.05] text-balance">
+            {alreadySynced ? "Already synced" : "Synced"}
+          </h1>
+          <BitableRecordAction recordId={recordId} detailUrl={detailUrl} />
+          <SelfForwardChip status={selfForwardStatus} onRetry={onRetrySelfForward} />
+        </header>
+        <ReceivedTimeline steps={steps} />
       </div>
-
     </div>
   );
 }

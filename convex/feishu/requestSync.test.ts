@@ -43,7 +43,8 @@ const baseArgs = {
   clientEmail: "buyer@example.com",
   selectedCustomer: { recordId: "rec_customer", name: "Example Customer" },
   initiator: { openId: "ou_rep", name: "Rep" },
-  requestSelections: [{ requestType: "Quotation", note: "10kg" }],
+  requestNote: "10kg",
+  attachments: [{ fileToken: "boxcnAAA" }],
   selectedCoworkers: [jenny],
 };
 
@@ -84,6 +85,9 @@ describe("syncRequest durable dual sync", () => {
       clientToken: "client-token-1",
       clientRecordId: "rec_customer",
       emailConversationId: "conv-1",
+      requestNote: "10kg",
+      body: "Please quote 10kg.",
+      attachments: [{ fileToken: "boxcnAAA" }],
     });
     expect(runMutation.mock.calls[1][1]).toMatchObject({
       internetMessageId: "<msg-1@example.com>",
@@ -161,7 +165,14 @@ describe("reconcilePendingBitableSync", () => {
       clientToken: "client-token-1",
       clientRecordId: "rec_customer",
       emailConversationId: "conv-1",
+      requestNote: "10kg",
+      // ADR-0022: the reconcile (outbox) path can only write the stored ≤500-char
+      // preview as the body — the full body is never persisted on the backup.
+      body: "Please quote 10kg.",
     });
+    // ADR-0022 decision #5: attachments are NOT persisted on the backup, so a
+    // reconciled row carries none (known v1 limitation).
+    expect(runAction.mock.calls[0][1].attachments).toBeUndefined();
     expect(runMutation.mock.calls[0][1]).toMatchObject({
       internetMessageId: "<msg-1@example.com>",
       bitableRecordId: "rec_service_1",

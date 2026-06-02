@@ -3,11 +3,10 @@ import { internalAction, type ActionCtx } from "../_generated/server";
 import { v } from "convex/values";
 import { callFeishu } from "./call";
 import { buildServiceFields, type ServiceRowInput } from "./serviceRow";
-import { emailDomain, recordIdFromCustomerInfoRow } from "./customers";
+import { emailDomain } from "./customers";
 import { isDevFixtureRecordId } from "./devCustomerFixtures";
 import {
   initiatorValidator,
-  requestSelectionValidator,
   selectedCoworkerValidator,
 } from "../emailRecord";
 
@@ -36,15 +35,18 @@ const CLIENT_DOMAIN_FIELD = "域名";
 // passed (the salesperson's override picked from the Customer Picker, ADR-0013)
 // we use it directly. Otherwise we fall back to the legacy email-domain match
 // against the Customer Table. `subject` + `initiator` are written into the
-// row's `Email Subject` and `Sales` columns respectively (ADR-0014); the email
-// BODY is NOT written here; that stays preview-only on the Email Record
-// (ADR-0010 still holds for body).
+// row's `Email Subject` and `Sales` columns respectively (ADR-0014). ADR-0022
+// reverses ADR-0010's body-off-Base rule: the consolidated `requestNote` and the
+// plain-text `body` now ride to the Base row (the Email Record keeps only a
+// preview). Attachment file tokens are added with the staging slice.
 const serviceRowArgs = {
   subject: v.optional(v.string()),
   clientEmail: v.optional(v.string()),
   clientRecordId: v.optional(v.string()),
   dateOfOffer: v.optional(v.number()),
-  requestSelections: v.optional(v.array(requestSelectionValidator)),
+  requestNote: v.optional(v.string()),
+  body: v.optional(v.string()),
+  attachments: v.optional(v.array(v.object({ fileToken: v.string() }))),
   selectedCoworkers: v.optional(v.array(selectedCoworkerValidator)),
   initiator: v.optional(initiatorValidator),
   // ADR-0017: Outlook `item.conversationId` lands in the Service row's
@@ -89,7 +91,11 @@ export async function matchClientRecordId(
     label: "Bitable client domain search",
   });
   const first = data.items?.[0];
-  return first ? recordIdFromCustomerInfoRow(first) : null;
+  // The Client DuplexLink links by the IMMUTABLE Feishu API record_id, never the
+  // user-facing "Record Id" column (which only equals the API id while it stays a
+  // RECORD_ID() formula — ADR-0021). Use record_id directly so the link is
+  // robust to that column being changed to a manual field.
+  return first?.record_id ?? null;
 }
 
 // Resolve the Client DuplexLink target for a sync: prefer the override picked
@@ -122,7 +128,8 @@ export function logServiceRecordIntake(
 ): void {
   console.log(
     `[bitable] createServiceRecord clientLinked=${Boolean(resolvedClientRecordId)} ` +
-      `requests=${args.requestSelections?.length ?? 0} coworkers=${args.selectedCoworkers?.length ?? 0} ` +
+      `note=${args.requestNote?.trim() ? "y" : "n"} bodyLen=${args.body?.length ?? 0} ` +
+      `attachments=${args.attachments?.length ?? 0} coworkers=${args.selectedCoworkers?.length ?? 0} ` +
       `hasInitiator=${Boolean(args.initiator)} subjectLen=${args.subject?.length ?? 0} ` +
       `convIdLen=${args.emailConversationId?.length ?? 0} fieldKeys=[${Object.keys(fields).join(",")}]`,
   );
@@ -137,7 +144,9 @@ export function logServiceRecordIntake(
         emailConversationId: args.emailConversationId,
         initiator: args.initiator,
         coworkers: args.selectedCoworkers,
-        requestSelections: args.requestSelections,
+        requestNote: args.requestNote,
+        bodyLen: args.body?.length ?? 0,
+        attachmentCount: args.attachments?.length ?? 0,
       })} fields=${JSON.stringify(fields)}`,
     );
   }

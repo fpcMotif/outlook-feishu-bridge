@@ -87,7 +87,7 @@ describe("convertToRestId", () => {
 describe("extractAttachments", () => {
   const item = {
     attachments: [
-      { id: "a1", name: "quote.pdf", contentType: "application/pdf", size: 123, isInline: false },
+      { id: "a1", name: "quote.pdf", attachmentType: "file", contentType: "application/pdf", size: 123, isInline: false },
     ],
   } as unknown as ReadItem;
 
@@ -95,9 +95,9 @@ describe("extractAttachments", () => {
     expect(extractAttachments(stubOffice({ supportsAttachments: false }), item)).toEqual([]);
   });
 
-  it("maps attachment metadata when supported", () => {
+  it("maps attachment metadata (attachmentType, not the deprecated contentType) when supported", () => {
     expect(extractAttachments(stubOffice({ supportsAttachments: true }), item)).toEqual([
-      { id: "a1", name: "quote.pdf", contentType: "application/pdf", size: 123, isInline: false },
+      { id: "a1", name: "quote.pdf", attachmentType: "file", size: 123, isInline: false },
     ]);
   });
 });
@@ -113,7 +113,7 @@ describe("extractMailData", () => {
     itemId: "EWS-1",
     conversationId: "conv-1",
     attachments: [
-      { id: "a1", name: "quote.pdf", contentType: "application/pdf", size: 123, isInline: false },
+      { id: "a1", name: "quote.pdf", attachmentType: "file", contentType: "application/pdf", size: 123, isInline: false },
     ],
   } as unknown as ReadItem;
 
@@ -131,7 +131,7 @@ describe("extractMailData", () => {
       conversationId: "conv-1",
       userEmail: "me@fenchem.com",
       attachments: [
-        { id: "a1", name: "quote.pdf", contentType: "application/pdf", size: 123, isInline: false },
+        { id: "a1", name: "quote.pdf", attachmentType: "file", size: 123, isInline: false },
       ],
     });
   });

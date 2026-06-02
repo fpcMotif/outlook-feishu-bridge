@@ -149,3 +149,55 @@ export function logMirrorPage(pageNumber: number, page: AppliedPage, data: Searc
       `first=${page.firstRecordId} last=${page.lastRecordId}`,
   );
 }
+
+// --- Mirror Prune (tombstone) ----------------------------------------------
+// The mirror upserts keyed by recordId but never deleted rows, so a Customer
+// removed/re-imported in Feishu (which mints a fresh record_id) left an orphan
+// in Convex forever — the mirror drifted to 2-5x the live Customer Table. The
+// Mirror Prune deletes any Convex row whose recordId was NOT observed in the
+// authoritative source during a *complete* sync. Everything here is PURE so the
+// stale-detection and the all-or-nothing safety gate are unit-testable; the
+// effectful pagination + delete fan-out lives in customersMirror.ts (ADR-0021).
+
+// A row read back from the mirror during the prune scan — only its id and its
+// natural key matter for the stale decision.
+export interface PrunableRow<TId> {
+  _id: TId;
+  recordId: string;
+}
+
+export interface PruneTotals {
+  scanned: number;
+  deleted: number;
+}
+
+export function emptyPruneTotals(): PruneTotals {
+  return { scanned: 0, deleted: 0 };
+}
+
+// Ids of mirror rows whose recordId was not seen in THIS sync's source set —
+// these are orphans and must be tombstoned. Pure.
+export function stalePageIds<TId>(
+  rows: readonly PrunableRow<TId>[],
+  seenRecordIds: ReadonlySet<string>,
+): TId[] {
+  return rows.filter((row) => !seenRecordIds.has(row.recordId)).map((row) => row._id);
+}
+
+// HARD SAFETY GATE: prune ONLY after a fully verified, complete sync. A partial
+// or failed page run (missingPageToken / duplicatePageToken / incompleteTotal)
+// must never delete — otherwise a transient Feishu error or a truncated page
+// walk would wipe live rows that simply were not paged this run. Pure.
+export function shouldPruneStaleRows(stopReason: MirrorStopReason): boolean {
+  return stopReason === "complete";
+}
+
+// Fold one scanned page into the running prune totals (in place).
+export function addPrunePage<TId>(
+  totals: PruneTotals,
+  scannedRows: readonly PrunableRow<TId>[],
+  deletedIds: readonly TId[],
+): void {
+  totals.scanned += scannedRows.length;
+  totals.deleted += deletedIds.length;
+}

@@ -9,7 +9,7 @@ const mockSync = vi.fn((_payload: unknown) =>
   }),
 );
 const mockCorrect = vi.fn((_payload: unknown) => Promise.resolve({ recordId: "recTEST" }));
-let mockExistingSync: { recordId: string; detailUrl: string | null } | null = null;
+let mockExistingSync: { recordId: string; detailUrl: string | null; syncedAt?: number } | null = null;
 vi.mock("../../hooks/useRequestSync", () => ({
   useRequestSync: () => ({ sync: mockSync, correct: mockCorrect, existingSync: mockExistingSync }),
 }));
@@ -106,7 +106,6 @@ describe("RequestIntakeScreen sync wiring", () => {
 
   it("calls sync once with the request, coworker, and email on submit", async () => {
     renderScreen();
-    fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
     fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
       target: { value: "Need a quarterly L-Carnitine quote." },
     });
@@ -121,21 +120,26 @@ describe("RequestIntakeScreen sync wiring", () => {
       clientEmail: "m.hoffmann@bayerpharma.de",
       subject: "Inquiry - bulk L-Carnitine",
       from: "m.hoffmann@bayerpharma.de",
-      requestSelections: [
-        { requestType: "Quotation", note: "Need a quarterly L-Carnitine quote." },
-      ],
+      requestNote: "Need a quarterly L-Carnitine quote.",
+      body: "We need quarterly pricing.",
       selectedCoworkers: [{ openId: "ou_jenny", name: "Jenny Xu", avatarUrl: "https://example.test/jenny.png" }],
     });
   });
 
   it("links to the existing Feishu Base record instead of syncing the same conversation again", () => {
     const detailUrl = "https://feishu.cn/base/app?table=tbl&record=rec_existing";
-    mockExistingSync = { recordId: "rec_existing", detailUrl };
+    mockExistingSync = {
+      recordId: "rec_existing",
+      detailUrl,
+      syncedAt: Date.now() - 6 * 24 * 60 * 60 * 1000,
+    };
 
     renderScreen();
 
     expect(screen.getByRole("heading", { name: /^Already synced$/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Open in Feishu/i })).toHaveAttribute("href", detailUrl);
+    expect(screen.getByText("6 days ago")).toBeInTheDocument();
+    expect(screen.queryByText("Just now")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Sync with/i })).not.toBeInTheDocument();
     expect(mockSync).not.toHaveBeenCalled();
   });
@@ -150,7 +154,6 @@ describe("RequestIntakeScreen sync wiring", () => {
         onLoginFallback={vi.fn()}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
     fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
       target: { value: "Need a quarterly L-Carnitine quote." },
     });
@@ -183,7 +186,6 @@ describe("RequestIntakeScreen sync wiring", () => {
   // back to the legacy domain-search-per-write.
   it("passes the auto-matched Customer through to sync when the directory has a domain hit", async () => {
     renderScreen();
-    fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
     fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
       target: { value: "Need a quarterly L-Carnitine quote." },
     });
@@ -200,7 +202,6 @@ describe("RequestIntakeScreen sync wiring", () => {
   // picking a different Customer changes which selectedCustomer rides to sync.
   it("uses the user's Customer override instead of the auto-match when one is picked", async () => {
     renderScreen();
-    fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
     fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
       target: { value: "Need a quarterly L-Carnitine quote." },
     });
@@ -225,7 +226,6 @@ describe("RequestIntakeScreen sync wiring", () => {
   // column as the Base-to-Outlook join key.
   it("passes the Mail Item conversationId on sync", async () => {
     renderScreen();
-    fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
     fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
       target: { value: "Need a quarterly L-Carnitine quote." },
     });
@@ -242,7 +242,6 @@ describe("RequestIntakeScreen sync wiring", () => {
   // handle the request.
   it("passes the signed-in user as the Initiator on sync", async () => {
     renderScreen({ openId: "ou_jenny_initiator", userName: "Jenny Xu" });
-    fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
     fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
       target: { value: "Need a quarterly L-Carnitine quote." },
     });
@@ -259,7 +258,6 @@ describe("RequestIntakeScreen sync wiring", () => {
   // Base sync. Both calls are issued from the same submit click.
   it("fires the Self-Forward `sendNote` alongside `sync` on submit", async () => {
     renderScreen();
-    fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
     fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
       target: { value: "Need a quarterly L-Carnitine quote." },
     });
@@ -292,7 +290,6 @@ describe("RequestIntakeScreen sync wiring", () => {
       }),
     );
     renderScreen();
-    fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
     fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
       target: { value: "Need a quarterly L-Carnitine quote." },
     });
@@ -324,7 +321,6 @@ describe("RequestIntakeScreen sync wiring", () => {
         }),
     );
     renderScreen();
-    fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
     fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
       target: { value: "Need a quarterly L-Carnitine quote." },
     });
@@ -347,7 +343,6 @@ describe("RequestIntakeScreen sync wiring", () => {
   it("shows an error and not the success screen when sync rejects", async () => {
     mockSync.mockImplementationOnce(() => Promise.reject(new Error("Base unavailable")));
     renderScreen();
-    fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
     fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
       target: { value: "Need a quarterly L-Carnitine quote." },
     });

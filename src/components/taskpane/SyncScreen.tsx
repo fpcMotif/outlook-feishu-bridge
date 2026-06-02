@@ -59,7 +59,7 @@ function BaseRow({
   return (
     <div
       className={cn(
-        "flex h-11 items-center gap-2 rounded-lg px-2.5 text-xs shadow-edge transition-[background-color,box-shadow] duration-300",
+        "flex h-10 items-center gap-2 rounded-lg px-2.5 text-xs shadow-edge transition-[background-color,box-shadow] duration-300",
         synced ? "bg-sage-soft text-sage" : "bg-background text-muted-foreground",
       )}
     >
@@ -91,8 +91,8 @@ function BasePreview({
   const rows = requests.length > 0 ? requests.slice(0, 3) : [{ id: "empty", title: "Request", note: "Ready" }];
 
   return (
-    <div className="mt-5 rounded-2xl bg-card-soft p-2 shadow-edge">
-      <div className="rounded-xl bg-card px-3 py-2 shadow-edge">
+    <div className="mt-3 shrink-0 rounded-2xl bg-card-soft p-2 shadow-edge">
+      <div className="rounded-lg bg-card px-3 py-2 shadow-edge">
         <div className="flex items-center justify-between gap-3">
           <span className="text-muted-foreground inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase">
             <TableProperties className="size-3.5" />
@@ -102,7 +102,7 @@ function BasePreview({
             Live
           </span>
         </div>
-        <div className="mt-3 space-y-2">
+        <div className="mt-2 space-y-1.5">
           {rows.map((request, index) => {
             const synced = progress >= 34 + index * 22;
             return <BaseRow key={request.id} request={request} synced={synced} />;
@@ -115,8 +115,8 @@ function BasePreview({
 
 function SyncHeader() {
   return (
-    <header className="sync-enter w-full max-w-[420px] px-1 pb-5 text-center">
-      <h1 className="text-[33px] leading-[1.02] text-balance">
+    <header className="sync-enter w-full max-w-[420px] shrink-0 px-1 pb-3 text-center">
+      <h1 className="text-[clamp(1.5rem,5vw,2.0625rem)] leading-[1.05] text-balance">
         Syncing to{" "}
         <br />
         Feishu Base&hellip;
@@ -131,8 +131,8 @@ function ProgressMeter({
   progress: number;
 }) {
   return (
-    <div className="mb-4 text-center">
-      <div className="text-primary text-[54px] leading-none font-semibold tabular-nums">
+    <div className="shrink-0 pt-1 pb-2 text-center">
+      <div className="text-primary text-[clamp(2.25rem,10vw,3.375rem)] leading-[1.08] font-semibold tabular-nums tracking-tight">
         {progress}%
       </div>
       <progress className="sr-only" value={progress} max={100} aria-label="Sync progress" />
@@ -146,8 +146,8 @@ function PhaseStatus({
   phase: (typeof PHASES)[number];
 }) {
   return (
-    <div className="mt-3 text-center">
-      <h2 className="text-muted-foreground mt-1 text-sm font-normal italic text-balance">
+    <div className="mt-2 shrink-0 text-center">
+      <h2 className="text-muted-foreground text-sm font-normal italic text-balance">
         {phase.label}
       </h2>
       <p className="text-muted-foreground/70 mx-auto mt-1 max-w-[30ch] text-xs leading-relaxed font-light text-pretty">
@@ -169,7 +169,7 @@ function SyncPanel({
   return (
     <section
       aria-label="Feishu Base sync progress"
-      className="sync-enter bg-card flex aspect-square w-full max-w-[420px] max-h-[min(100%,28rem)] flex-col justify-center overflow-y-auto rounded-2xl p-5 shadow-float"
+      className="sync-enter bg-card flex w-full max-w-[420px] flex-none flex-col justify-start overflow-hidden rounded-2xl p-4 shadow-float sm:p-5"
       style={
         {
           "--enter-delay": "70ms",
@@ -188,9 +188,11 @@ export function SyncScreen({ requests }: { requests: SyncRequest[] }) {
   const progress = useSyncProgress();
 
   return (
-    <div className="no-scrollbar flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-5 py-8">
-      <SyncHeader />
-      <SyncPanel requests={requests} progress={progress} />
+    <div className="no-scrollbar flex min-h-0 flex-1 overflow-y-auto px-5">
+      <div className="flex min-h-full w-full flex-col items-center justify-center py-6">
+        <SyncHeader />
+        <SyncPanel requests={requests} progress={progress} />
+      </div>
     </div>
   );
 }

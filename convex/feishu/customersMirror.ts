@@ -14,17 +14,27 @@
 //   https://docs.convex.dev/database/text-search
 
 import { v } from "convex/values";
+import { paginationOptsValidator } from "convex/server";
 
 import {
   action,
   internalAction,
   internalMutation,
+  internalQuery,
   query,
   type ActionCtx,
 } from "../_generated/server";
+import type { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { callFeishu } from "./call";
 import { toSearchQueryString } from "./cjkSearch";
+import {
+  addPrunePage,
+  emptyPruneTotals,
+  shouldPruneStaleRows,
+  stalePageIds,
+  type PruneTotals,
+} from "./customerMirrorSync";
 import {
   canonicalCustomerDomain,
   mapFeishuItemToCustomer,
@@ -52,6 +62,10 @@ const PAGE_SIZE = 500;
 // Feishu's documented max, but do not pull/write 500 rows on an interactive
 // miss when the UI returns at most 50.
 const CACHE_MISS_PAGE_SIZE = 50;
+// Mirror Prune scans the whole mirror in bounded pages so each delete mutation
+// stays well under Convex's per-transaction write budget; the action paginates
+// externally (same shape as the full-sync page loop).
+const PRUNE_PAGE_SIZE = 500;
 const MIN_CUSTOMER_SEARCH_LENGTH = 2;
 // Official Feishu limits (open.feishu.cn only - no third-party wrapper, no
 // MAX_PAGES cap of our own). The earlier 20-page / 10,000-row ceiling was
@@ -69,6 +83,19 @@ const MIN_PAGE_REQUEST_INTERVAL_MS = 60;
 // the frontend module-level cooldown resets on reload/tab, so the on-demand kick
 // is rate-limited here regardless of how many tabs/reloads fire it.
 const MIRROR_KICK_COOLDOWN_MS = 15 * 60 * 1000;
+// Single-flight lease for a full Mirror Refresh (ADR-0021 hardening). The cron
+// fullSync and the on-demand kick both acquire the SAME start lease via
+// startRefreshIfAllowed, so two refreshes can never run concurrently and race
+// the prune's delete fan-out. 15 min >> one full sync (~45 s), so the lease only
+// ever blocks genuine overlap, never a legitimately-spaced refresh.
+const MIRROR_REFRESH_LEASE_MS = MIRROR_KICK_COOLDOWN_MS;
+// Drift alarm (ADR-0021 hardening). After a complete sync + prune the retained
+// mirror count should track Feishu's reported total (plus a couple of dev
+// fixtures). A retained count that still exceeds the source total by more than
+// this ratio AND an absolute floor means orphans escaped the prune — surface it
+// loudly so silent drift can never recur unseen.
+const DRIFT_ALARM_RATIO = 0.05;
+const DRIFT_ALARM_FLOOR = 10;
 const CUSTOMER_FIELD_NAMES = [
   "Account Name",
   "Record Id",
@@ -138,26 +165,40 @@ export const applyPage = internalMutation({
   },
 });
 
-// Mirror Kick rate-limit state (ADR-0016 amendment). markRefreshStarted stamps
-// the start of ANY full refresh (cron or kick); getMirrorRefreshStartedAt is the
-// gate the on-demand kick reads. The state row may not exist yet on a fresh
-// deployment, so insert a minimal never-completed row in that case.
-export const markRefreshStarted = internalMutation({
-  args: { startedAt: v.number() },
+// Mirror Prune scan (ADR-0016 / ADR-0021). Paginated read of the mirror that
+// returns only {_id, recordId} so the orchestrating action can decide which
+// rows are orphans (recordId not seen during a complete sync) without shipping
+// whole documents back. Read-only.
+export const listRowsForPrune = internalQuery({
+  args: { paginationOpts: paginationOptsValidator },
   handler: async (ctx, args) => {
-    const existing = await ctx.db.query("customersMirrorState").first();
-    if (existing) {
-      await ctx.db.patch(existing._id, { lastRefreshStartedAt: args.startedAt });
-    } else {
-      await ctx.db.insert("customersMirrorState", {
-        lastFullSyncAt: 0,
-        lastRowCount: 0,
-        lastRefreshStartedAt: args.startedAt,
-      });
-    }
+    const result = await ctx.db.query("customers").paginate(args.paginationOpts);
+    return {
+      ...result,
+      page: result.page.map((row) => ({ _id: row._id, recordId: row.recordId })),
+    };
   },
 });
 
+// Tombstone a bounded batch of mirror rows. Only ever called by the prune step
+// after a complete, completeness-verified sync (see shouldPruneStaleRows); the
+// action bounds the batch via PRUNE_PAGE_SIZE so this mutation stays within the
+// per-transaction write budget.
+export const deleteRowsById = internalMutation({
+  args: { ids: v.array(v.id("customers")) },
+  handler: async (ctx, args) => {
+    await Promise.all(args.ids.map((id) => ctx.db.delete(id)));
+    return { deleted: args.ids.length };
+  },
+});
+
+// Mirror Refresh start lease (ADR-0016 amendment + ADR-0021 single-flight). The
+// single shared gate that BOTH the cron fullSync and the on-demand kick acquire:
+// it atomically check-and-sets lastRefreshStartedAt, returning started=false
+// (with the remaining cooldown) when a refresh already started within the
+// window — so concurrent refreshes collapse to one and can never race the
+// prune's delete fan-out. The state row may not exist yet on a fresh deployment,
+// so insert a minimal never-completed row in that case.
 export const startRefreshIfAllowed = internalMutation({
   args: { startedAt: v.number(), cooldownMs: v.number() },
   handler: async (ctx, args): Promise<{ started: true } | { started: false; remainingMs: number }> => {
@@ -205,6 +246,11 @@ export const recordSyncCompletion = internalMutation({
     lastDurationMs: v.number(),
     lastFinishedAt: v.number(),
     lastSourceTableId: v.string(),
+    // Mirror Prune accounting (ADR-0021): rows scanned in the post-sync prune
+    // and how many orphans were tombstoned. Both 0 when the sync did not
+    // complete (prune is gated on a verified-complete run).
+    lastPruneScannedCount: v.number(),
+    lastDeletedStaleCount: v.number(),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db.query("customersMirrorState").first();
@@ -256,6 +302,10 @@ interface FullSyncResult {
   durationMs: number;
   pageSize: number;
   sourceTableId: string;
+  // Mirror Prune outcome (ADR-0021): rows scanned + orphans tombstoned. Both 0
+  // on a non-complete sync, which is gated to skip the prune entirely.
+  pruneScanned: number;
+  deletedStale: number;
 }
 
 interface SyncTotals extends PageWriteStats {
@@ -324,11 +374,15 @@ async function fetchMirrorPage(
   });
 }
 
+// One page applied to the mirror, plus the recordIds it wrote — the prune step
+// folds these into the "seen this sync" set so live rows are never tombstoned.
+type AppliedPageWithIds = AppliedPage & { recordIds: string[] };
+
 async function applyMirrorItems(
   ctx: ActionCtx,
   items: readonly FeishuRecord[],
   mirroredAt: number,
-): Promise<AppliedPage> {
+): Promise<AppliedPageWithIds> {
   const firstRecordId = items[0]?.record_id ?? "(none)";
   const lastRecordId = items.at(-1)?.record_id ?? "(none)";
   if (items.length === 0) {
@@ -340,6 +394,7 @@ async function applyMirrorItems(
       rowCount: 0,
       firstRecordId,
       lastRecordId,
+      recordIds: [],
     };
   }
   const projected = items.map((it) => projectionToRow(mapFeishuItemToCustomer(it)));
@@ -347,7 +402,15 @@ async function applyMirrorItems(
     internal.feishu.customersMirror.applyPage,
     { rows: projected, mirroredAt },
   );
-  return { ...writeStats, rowCount: projected.length, firstRecordId, lastRecordId };
+  // Use the stored key (projectionToRow.recordId), NOT item.record_id, so the
+  // seen-set matches exactly what the prune scan reads back from the mirror.
+  return {
+    ...writeStats,
+    rowCount: projected.length,
+    firstRecordId,
+    lastRecordId,
+    recordIds: projected.map((row) => row.recordId),
+  };
 }
 
 function addPageTotals(totals: SyncTotals, page: AppliedPage): void {
@@ -396,7 +459,12 @@ function nextPageTokenOrStop(
   return { pageToken: nextPageToken };
 }
 
-async function applyDevFixtures(ctx: ActionCtx, totals: SyncTotals, mirroredAt: number) {
+async function applyDevFixtures(
+  ctx: ActionCtx,
+  totals: SyncTotals,
+  mirroredAt: number,
+  seenRecordIds: Set<string>,
+) {
   if (!isDevCustomerFixturesEnabled()) return;
   const fixtureStats: PageWriteStats = await ctx.runMutation(
     internal.feishu.customersMirror.applyPage,
@@ -405,11 +473,48 @@ async function applyDevFixtures(ctx: ActionCtx, totals: SyncTotals, mirroredAt: 
       mirroredAt,
     },
   );
+  // Fixtures are written to the mirror but are NOT Feishu rows, so they must be
+  // marked "seen" or the prune would tombstone them on every dev sync.
+  for (const customer of DEV_CUSTOMER_FIXTURES) seenRecordIds.add(customer.recordId);
   totals.rows += DEV_CUSTOMER_FIXTURES.length;
   totals.inserted += fixtureStats.inserted;
   totals.updated += fixtureStats.updated;
   totals.unchanged += fixtureStats.unchanged;
   totals.duplicateRows += fixtureStats.duplicateRows;
+}
+
+// Mirror Prune (ADR-0021). Scan the whole mirror in bounded pages and tombstone
+// any row whose recordId was not observed during THIS sync — those are orphans
+// from Feishu deletes / re-imports (which mint fresh record_ids) that the
+// upsert-only mirror could never remove, so it drifted to 2-5x the live table.
+// CALLERS MUST gate on shouldPruneStaleRows(finalStopReason): never prune after
+// a partial/failed page walk, or a transient Feishu error would wipe live rows.
+async function pruneStaleRows(
+  ctx: ActionCtx,
+  seenRecordIds: ReadonlySet<string>,
+): Promise<PruneTotals> {
+  const totals = emptyPruneTotals();
+  let cursor: string | null = null;
+  for (;;) {
+    const result: {
+      page: { _id: Id<"customers">; recordId: string }[];
+      isDone: boolean;
+      continueCursor: string;
+    } = await ctx.runQuery(internal.feishu.customersMirror.listRowsForPrune, {
+      paginationOpts: { numItems: PRUNE_PAGE_SIZE, cursor },
+    });
+    const staleIds = stalePageIds(result.page, seenRecordIds);
+    if (staleIds.length > 0) {
+      await ctx.runMutation(internal.feishu.customersMirror.deleteRowsById, { ids: staleIds });
+    }
+    addPrunePage(totals, result.page, staleIds);
+    if (result.isDone) break;
+    cursor = result.continueCursor;
+  }
+  console.log(
+    `[customers-mirror] prune scanned=${totals.scanned} deletedStale=${totals.deleted}`,
+  );
+  return totals;
 }
 
 async function recordMirrorCompletion(
@@ -434,6 +539,8 @@ async function recordMirrorCompletion(
     lastDurationMs: result.durationMs,
     lastFinishedAt: finishedAt,
     lastSourceTableId: CUSTOMER_TABLE_ID,
+    lastPruneScannedCount: result.pruneScanned,
+    lastDeletedStaleCount: result.deletedStale,
   });
 }
 
@@ -443,6 +550,7 @@ async function finishFullSync(
   mirroredAt: number,
   hadMore: boolean,
   stopReason: MirrorStopReason,
+  prune: PruneTotals,
 ): Promise<FullSyncResult> {
   const finishedAt = Date.now();
   const result = {
@@ -452,8 +560,11 @@ async function finishFullSync(
     durationMs: finishedAt - mirroredAt,
     pageSize: PAGE_SIZE,
     sourceTableId: CUSTOMER_TABLE_ID,
+    pruneScanned: prune.scanned,
+    deletedStale: prune.deleted,
   };
   await recordMirrorCompletion(ctx, result, mirroredAt, finishedAt);
+  warnOnResidualDrift(stopReason, totals.reportedTotal, prune);
   if (stopReason !== "complete") {
     throw new Error(
       `Customers mirror stopped before completion: reason=${stopReason} pages=${totals.pages} ` +
@@ -461,6 +572,30 @@ async function finishFullSync(
     );
   }
   return result;
+}
+
+// Drift alarm (ADR-0021 hardening). After a complete sync the prune has run, so
+// the retained mirror count (scanned − deleted) should track Feishu's reported
+// total (plus a handful of dev fixtures). If it still exceeds the source total
+// beyond the ratio AND the absolute floor, orphans escaped the prune — log
+// loudly so the overcount that caused the original 2-5x drift can never recur
+// silently. Pure observability; never throws.
+function warnOnResidualDrift(
+  stopReason: MirrorStopReason,
+  reportedTotal: number,
+  prune: PruneTotals,
+): void {
+  if (stopReason !== "complete" || reportedTotal <= 0) return;
+  const retained = prune.scanned - prune.deleted;
+  const overcount = retained - reportedTotal;
+  const threshold = Math.max(DRIFT_ALARM_FLOOR, Math.floor(reportedTotal * DRIFT_ALARM_RATIO));
+  if (overcount > threshold) {
+    console.error(
+      `[customers-mirror] DRIFT ALARM retained=${retained} exceeds source reportedTotal=` +
+        `${reportedTotal} by ${overcount} after prune (deletedStale=${prune.deleted}); ` +
+        `orphans escaped the prune`,
+    );
+  }
 }
 
 // A clean has_more=false stop is only truly complete if we paged at least as
@@ -484,20 +619,20 @@ function completenessStopReason(
 // Page through the live Customer Table → upsert into the Convex mirror.
 // Tenant-token; runs on the Convex action runtime; called from the cron and
 // (optionally) from `kick` for an on-demand refresh.
-async function runFullSync(
+interface PageWalkResult {
+  totals: SyncTotals;
+  hadMore: boolean;
+  stopReason: MirrorStopReason;
+}
+
+// Page the live Customer Table → upsert each page into the mirror, recording
+// every written recordId into `seenRecordIds` (the prune's liveness set).
+async function walkMirrorPages(
   ctx: ActionCtx,
-  options: { markStarted?: boolean; startedAt?: number } = {},
-): Promise<FullSyncResult> {
-  const appToken = requireAppToken();
-  let pageToken: string | undefined;
-  const mirroredAt = options.startedAt ?? Date.now();
-  // Stamp the refresh start so the on-demand Mirror Kick can rate-limit against
-  // it (ADR-0016 amendment). Both the weekly cron and a kick reach here.
-  if (options.markStarted !== false) {
-    await ctx.runMutation(internal.feishu.customersMirror.markRefreshStarted, {
-      startedAt: mirroredAt,
-    });
-  }
+  appToken: string,
+  mirroredAt: number,
+  seenRecordIds: Set<string>,
+): Promise<PageWalkResult> {
   const seenPageTokens = new Set<string>();
   const totals: SyncTotals = {
     pages: 0,
@@ -511,14 +646,15 @@ async function runFullSync(
   };
   let hadMore = false;
   let stopReason: MirrorStopReason = "complete";
+  let pageToken: string | undefined;
   let previousRequestStartedAt = 0;
-
   for (;;) {
     previousRequestStartedAt = await waitForPageSlot(previousRequestStartedAt);
     const data = await fetchMirrorPage(ctx, appToken, pageToken);
     totals.reportedTotal = Math.max(totals.reportedTotal, data.total ?? 0);
     const page = await applyMirrorItems(ctx, data.items ?? [], mirroredAt);
     addPageTotals(totals, page);
+    for (const recordId of page.recordIds) seenRecordIds.add(recordId);
     hadMore = data.has_more === true;
     logMirrorPage(totals.pages, page, data);
     const next = nextPageTokenOrStop(data, seenPageTokens, totals.pages);
@@ -528,22 +664,61 @@ async function runFullSync(
     }
     pageToken = next.pageToken;
   }
+  return { totals, hadMore, stopReason };
+}
 
-  await applyDevFixtures(ctx, totals, mirroredAt);
+async function runFullSync(
+  ctx: ActionCtx,
+  options: { startedAt?: number } = {},
+): Promise<FullSyncResult> {
+  const appToken = requireAppToken();
+  // The caller (kick / fullSync) has already acquired the refresh start lease via
+  // startRefreshIfAllowed, which stamps lastRefreshStartedAt — so this run does no
+  // extra start-stamping (ADR-0021 single-flight).
+  const mirroredAt = options.startedAt ?? Date.now();
+  // Every recordId written to the mirror this run (source pages + dev fixtures).
+  // The prune tombstones any mirror row NOT in this set after a complete sync.
+  const seenRecordIds = new Set<string>();
+  const { totals, hadMore, stopReason } = await walkMirrorPages(
+    ctx,
+    appToken,
+    mirroredAt,
+    seenRecordIds,
+  );
+  await applyDevFixtures(ctx, totals, mirroredAt, seenRecordIds);
   const finalStopReason = completenessStopReason(stopReason, totals);
-  return await finishFullSync(ctx, totals, mirroredAt, hadMore, finalStopReason);
+  // Prune is gated on a verified-complete sync: a partial/failed walk leaves the
+  // mirror untouched so a transient Feishu error can never wipe live rows.
+  const prune = shouldPruneStaleRows(finalStopReason)
+    ? await pruneStaleRows(ctx, seenRecordIds)
+    : emptyPruneTotals();
+  return await finishFullSync(ctx, totals, mirroredAt, hadMore, finalStopReason, prune);
 }
 
 export const fullSync = internalAction({
   args: {},
   handler: async (ctx): Promise<FullSyncResult> => {
     const started = Date.now();
-    const out = await runFullSync(ctx);
+    // Single-flight (ADR-0021 hardening): the weekly cron and the on-demand kick
+    // share ONE start lease, so a cron refresh that overlaps an in-flight kick
+    // (or vice-versa) backs off instead of running concurrently and racing the
+    // prune's delete fan-out against the other run's inserts.
+    const lease = await ctx.runMutation(
+      internal.feishu.customersMirror.startRefreshIfAllowed,
+      { startedAt: started, cooldownMs: MIRROR_REFRESH_LEASE_MS },
+    );
+    if (!lease.started) {
+      const remainingS = Math.round(lease.remainingMs / 1000);
+      console.log(`[customers-mirror] fullSync skipped (refresh in flight, ${remainingS}s remaining)`);
+      return skippedKickResult();
+    }
+    const out = await runFullSync(ctx, { startedAt: started });
     console.log(
       `[customers-mirror] fullSync ok pages=${out.pages} rows=${out.rows} ` +
         `inserted=${out.inserted} updated=${out.updated} unchanged=${out.unchanged} ` +
         `duplicateRows=${out.duplicateRows} sourceRows=${out.sourceRows} ` +
-        `reportedTotal=${out.reportedTotal} ` +
+        `reportedTotal=${out.reportedTotal} pruneScanned=${out.pruneScanned} ` +
+        `deletedStale=${out.deletedStale} ` +
         `stopReason=${out.stopReason} duration=${Date.now() - started}ms`,
     );
     return out;
@@ -567,6 +742,8 @@ function skippedKickResult(): FullSyncResult {
     durationMs: 0,
     pageSize: PAGE_SIZE,
     sourceTableId: CUSTOMER_TABLE_ID,
+    pruneScanned: 0,
+    deletedStale: 0,
   };
 }
 
@@ -587,7 +764,7 @@ export const kick = action({
       console.log(`[customers-mirror] kick skipped (cooldown, ${remainingS}s remaining)`);
       return skippedKickResult();
     }
-    return await runFullSync(ctx, { markStarted: false, startedAt: now });
+    return await runFullSync(ctx, { startedAt: now });
   },
 });
 

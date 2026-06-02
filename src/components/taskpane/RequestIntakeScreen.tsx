@@ -82,6 +82,9 @@ export function RequestIntakeScreen({
 
   const filledRequests = useMemo(() => buildFilledRequests(state.notes), [state.notes]);
   const requestSelections = useMemo(() => filledRequests.map((r) => ({ requestType: r.title, note: r.note })), [filledRequests]);
+  // ADR-0022: the Base sync now takes ONE consolidated note. (requestSelections
+  // above is retained only for the Self-Forward "note to myself" preamble.)
+  const requestNote = useMemo(() => filledRequests.map((r) => r.note).join("\n\n"), [filledRequests]);
   const selectedCustomerName = state.selectedCustomer?.name;
   const filledCount = filledRequests.length;
   const selectedCount = state.selectedCoworker ? 1 : 0;
@@ -165,7 +168,7 @@ export function RequestIntakeScreen({
         ? { recordId: state.selectedCustomer.recordId, name: state.selectedCustomer.name }
         : undefined,
       initiator: user?.openId ? { openId: user.openId, name: user.userName } : undefined,
-      requestSelections,
+      requestNote,
       selectedCoworkers: state.selectedCoworker ? [state.selectedCoworker] : [],
     };
     const baseWrite = sync(payload)
@@ -189,7 +192,7 @@ export function RequestIntakeScreen({
     state.selectedCustomer,
     state.selfForwardStatus,
     user,
-    requestSelections,
+    requestNote,
     state.selectedCoworker,
     fireSelfForward,
   ]);
@@ -227,6 +230,7 @@ export function RequestIntakeScreen({
         coworkerCount={existingSync.coworkerCount ?? 1}
         recordId={existingSync.recordId}
         detailUrl={existingSync.detailUrl}
+        submittedAt={existingSync.syncedAt}
         alreadySynced={true}
       />
     );

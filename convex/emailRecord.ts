@@ -92,6 +92,10 @@ export const emailRecordFields = {
   sentToBitable: v.boolean(),
   sentToContacts: v.optional(v.array(v.string())),
   sentToGroups: v.optional(v.array(v.string())),
+  // ADR-0022: the salesperson's single consolidated note. Replaces the per-
+  // category requestSelections on new rows; requestSelections stays optional
+  // below only so historical Email Records still validate.
+  requestNote: v.optional(v.string()),
   requestSelections: v.optional(v.array(requestSelectionValidator)),
   selectedCoworkers: v.optional(v.array(selectedCoworkerValidator)),
   selectedCustomer: v.optional(selectedCustomerValidator),
@@ -130,7 +134,8 @@ export interface EmailRecordInput {
   conversationId?: string;
   userEmail?: string;
   dateTimeCreated?: number;
-  requestSelections?: RequestSelection[];
+  // ADR-0022: single consolidated note (replaces requestSelections as the input).
+  requestNote?: string;
   selectedCoworkers?: SelectedCoworker[];
   selectedCustomer?: SelectedCustomer;
   initiator?: Initiator;
@@ -167,7 +172,10 @@ export function toEmailRecord(
     sentToBitable: ids.sentToBitable ?? true,
     sentToContacts: undefined,
     sentToGroups: undefined,
-    requestSelections: input.requestSelections,
+    requestNote: input.requestNote,
+    // ADR-0022: new rows no longer populate the per-category selections; the
+    // field stays in the schema only for historical rows.
+    requestSelections: undefined,
     selectedCoworkers: input.selectedCoworkers,
     selectedCustomer: input.selectedCustomer,
     initiator: input.initiator,

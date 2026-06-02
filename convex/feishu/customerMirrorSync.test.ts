@@ -8,13 +8,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   addPageTotals,
+  addPrunePage,
   completenessStopReason,
+  emptyPruneTotals,
   emptyTotals,
   maxReportedTotal,
   nextPageTokenOrStop,
   pageSlotWaitMs,
+  shouldPruneStaleRows,
+  stalePageIds,
   stopReasonForPage,
   type AppliedPage,
+  type PrunableRow,
   type SearchResponse,
 } from "./customerMirrorSync";
 
@@ -136,5 +141,67 @@ describe("pageSlotWaitMs", () => {
 
   it("returns a non-positive value once the interval has passed", () => {
     expect(pageSlotWaitMs(1_000, 60, 1_100)).toBeLessThanOrEqual(0);
+  });
+});
+
+describe("stalePageIds", () => {
+  const rows: PrunableRow<string>[] = [
+    { _id: "doc_live1", recordId: "rec_live1" },
+    { _id: "doc_orphan", recordId: "rec_gone" },
+    { _id: "doc_live2", recordId: "rec_live2" },
+  ];
+
+  it("returns the ids of rows whose recordId was not seen this sync", () => {
+    const seen = new Set(["rec_live1", "rec_live2"]);
+    expect(stalePageIds(rows, seen)).toEqual(["doc_orphan"]);
+  });
+
+  it("keeps every row when all recordIds were seen (steady state, prune deletes nothing)", () => {
+    const seen = new Set(["rec_live1", "rec_gone", "rec_live2"]);
+    expect(stalePageIds(rows, seen)).toEqual([]);
+  });
+
+  it("protects dev-fixture rows that were written this run even though they are not Feishu rows", () => {
+    const withFixture: PrunableRow<string>[] = [
+      ...rows,
+      { _id: "doc_fixture", recordId: "dev_fixture_fanpc_customer" },
+    ];
+    // The sync adds fixture ids to the seen-set, so they survive the prune;
+    // only the genuine orphan (rec_gone) is returned.
+    const seen = new Set(["rec_live1", "rec_live2", "dev_fixture_fanpc_customer"]);
+    expect(stalePageIds(withFixture, seen)).toEqual(["doc_orphan"]);
+  });
+
+  it("treats an empty seen-set as everything-stale (guarded elsewhere by shouldPruneStaleRows)", () => {
+    expect(stalePageIds(rows, new Set())).toEqual(["doc_live1", "doc_orphan", "doc_live2"]);
+  });
+});
+
+describe("shouldPruneStaleRows", () => {
+  it("prunes only after a clean, completeness-verified sync", () => {
+    expect(shouldPruneStaleRows("complete")).toBe(true);
+  });
+
+  it.each(["missingPageToken", "duplicatePageToken", "incompleteTotal"] as const)(
+    "never prunes on a non-complete stop reason (%s) so a partial fetch cannot wipe the mirror",
+    (reason) => {
+      expect(shouldPruneStaleRows(reason)).toBe(false);
+    },
+  );
+});
+
+describe("addPrunePage", () => {
+  it("accumulates scanned and deleted counts across prune pages", () => {
+    const totals = emptyPruneTotals();
+    addPrunePage(
+      totals,
+      [
+        { _id: "a", recordId: "rec_a" },
+        { _id: "b", recordId: "rec_b" },
+      ],
+      ["b"],
+    );
+    addPrunePage(totals, [{ _id: "c", recordId: "rec_c" }], []);
+    expect(totals).toEqual({ scanned: 3, deleted: 1 });
   });
 });

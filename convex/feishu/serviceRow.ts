@@ -16,19 +16,37 @@
 // duplicated the Feishu-managed value (live cells showed extra "+N" chips), so
 // the mapping was removed. Do not re-add a Request Type write.
 
-// Request-card title -> its note Text column.
-const NOTE_FIELD: Record<string, string> = {
-  Quotation: "Quotation Note",
-  Sample: "Sample Note",
-  "R&D Support": "R&D Support Note",
-};
+// Bitable column name for the consolidated salesperson note. ADR-0022 collapsed
+// the three per-category Note columns (Quotation/Sample/R&D Support) into one.
+// MUST match the live Base column exactly — the add-in cannot create columns, so
+// a rename without a matching Base column silently drops the write. Confirm
+// against the live Base before deploy.
+const REQUEST_NOTE_COLUMN = "Request Note";
+
+// Bitable column for the plain-text mail body (ADR-0022). Same naming caveat as
+// REQUEST_NOTE_COLUMN — must match the live Base column exactly.
+const EMAIL_BODY_COLUMN = "Email Body";
+
+// Bitable Attachment column (Feishu field type 17) carrying the staged Feishu
+// Drive `file_token`s (ADR-0022). Same naming caveat — must match the live Base.
+const ATTACHMENTS_COLUMN = "Attachments";
 
 export interface ServiceRowInput {
   subject?: string;
   clientEmail?: string;
   clientRecordId?: string;
   dateOfOffer?: number;
-  requestSelections?: { requestType: string; note: string }[];
+  // The salesperson's single consolidated note (ADR-0022). Replaces the retired
+  // per-category requestSelections[]; written to the `Request Note` column.
+  requestNote?: string;
+  // The Mail Item's plain-text body via Office.js CoercionType.Text (excludes
+  // attachments/inline images). Written in full to `Email Body` — no cap, since
+  // inbound is a single received message (ADR-0022).
+  body?: string;
+  // Feishu Drive `file_token`s for the selected mail attachments + uploaded files
+  // (already staged via Convex storage and uploaded to Drive). Written to the
+  // single `Attachments` column as [{ file_token }] (ADR-0022).
+  attachments?: { fileToken: string }[];
   selectedCoworkers?: { openId: string; name: string; avatarUrl?: string }[];
   initiator?: { openId: string; name?: string };
   // Outlook `item.conversationId` — the salesperson-mailbox-local thread id for
@@ -53,6 +71,18 @@ function readSkipSet(): Set<string> {
   );
 }
 
+// Set an optional plain-Text column only when it has non-whitespace content and
+// the diagnostic skip switch isn't suppressing it. Shared by every Text column so
+// buildServiceFields stays a flat list of column writes.
+function setText(
+  fields: Record<string, unknown>,
+  skip: Set<string>,
+  column: string,
+  value: string | undefined,
+): void {
+  if (value && value.trim() && !skip.has(column)) fields[column] = value;
+}
+
 /**
  * Build the Service row's `fields` — "derivable only" (ADR-0010) plus the
  * additions ADR-0014 introduced (`Sales` Initiator + `Email Subject`).
@@ -68,11 +98,19 @@ export function buildServiceFields(
   const skip = readSkipSet();
   if (skip.size > 0) console.log(`[bitable] DIAG_SKIP_FIELDS active: ${[...skip].join("|")}`);
 
-  // Request Type is FORBIDDEN to write from here — Feishu owns that column.
-  // Only the per-card Note Text columns are derived from the selections.
-  for (const r of input.requestSelections ?? []) {
-    const noteField = NOTE_FIELD[r.requestType];
-    if (noteField && r.note.trim() && !skip.has(noteField)) fields[noteField] = r.note;
+  // Plain-Text columns. Request Type stays FORBIDDEN (Feishu owns it) — only the
+  // salesperson's note crosses. `Request Note` + `Email Body` are ADR-0022 (body
+  // is full / no cap); `Email Subject` is ADR-0014; `Email Conversation ID` is the
+  // ADR-0017 Bitable→Outlook join key.
+  setText(fields, skip, REQUEST_NOTE_COLUMN, input.requestNote);
+  setText(fields, skip, EMAIL_BODY_COLUMN, input.body);
+  setText(fields, skip, "Email Subject", input.subject);
+  setText(fields, skip, "Email Conversation ID", input.emailConversationId);
+
+  // ADR-0022: staged Drive file tokens -> the single Attachment cell. On WRITE
+  // only file_token is load-bearing (name/type/size/url are read-only).
+  if (input.attachments && input.attachments.length > 0 && !skip.has(ATTACHMENTS_COLUMN)) {
+    fields[ATTACHMENTS_COLUMN] = input.attachments.map((a) => ({ file_token: a.fileToken }));
   }
 
   if (!input.selectedCoworkers || input.selectedCoworkers.length !== 1) {
@@ -88,18 +126,8 @@ export function buildServiceFields(
   // be disabled by the temporary diagnostic skip switch.
   if (clientRecordId) fields["Client"] = [clientRecordId];
 
-  // ADR-0014 additions:
-  if (input.subject && input.subject.trim() && !skip.has("Email Subject")) fields["Email Subject"] = input.subject;
+  // ADR-0014: the Initiator lands in the `Sales` User column.
   if (input.initiator?.openId && !skip.has("Sales")) fields["Sales"] = [{ id: input.initiator.openId }];
-
-  // ADR-0017: Outlook conversationId as the Bitable→Outlook join key.
-  if (
-    input.emailConversationId &&
-    input.emailConversationId.trim() &&
-    !skip.has("Email Conversation ID")
-  ) {
-    fields["Email Conversation ID"] = input.emailConversationId;
-  }
 
   return fields;
 }

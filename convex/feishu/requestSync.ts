@@ -8,7 +8,6 @@ import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import {
   initiatorValidator,
-  requestSelectionValidator,
   selectedCoworkerValidator,
   selectedCustomerValidator,
   toEmailRecord,
@@ -36,7 +35,12 @@ const intakeArgs = {
   clientEmail: v.optional(v.string()),
   selectedCustomer: v.optional(selectedCustomerValidator),
   initiator: v.optional(initiatorValidator),
-  requestSelections: v.optional(v.array(requestSelectionValidator)),
+  // ADR-0022: the SPA now submits one consolidated note instead of the per-
+  // category requestSelections. `body` (already above) rides to the Base too.
+  requestNote: v.optional(v.string()),
+  // ADR-0022: Feishu Drive file_tokens minted by uploadAttachmentsToDrive before
+  // the sync; written to the Base Attachment cell on create.
+  attachments: v.optional(v.array(v.object({ fileToken: v.string() }))),
   selectedCoworkers: v.optional(v.array(selectedCoworkerValidator)),
 };
 
@@ -71,7 +75,8 @@ interface RequestSyncArgs {
   clientEmail?: string;
   selectedCustomer?: { recordId: string; name: string };
   initiator?: { openId: string; name?: string };
-  requestSelections?: { requestType: string; note: string }[];
+  requestNote?: string;
+  attachments?: { fileToken: string }[];
   selectedCoworkers?: SelectedCoworker[];
 }
 
@@ -89,7 +94,7 @@ function buildEmailRecordBackup(args: RequestSyncArgs, sentToBitable: boolean) {
       conversationId: args.conversationId,
       userEmail: args.userEmail,
       dateTimeCreated: args.dateTimeCreated,
-      requestSelections: args.requestSelections,
+      requestNote: args.requestNote,
       selectedCoworkers: args.selectedCoworkers,
       selectedCustomer: args.selectedCustomer,
       initiator: args.initiator,
@@ -121,7 +126,9 @@ async function createServiceRow(
     clientEmail: args.clientEmail ?? args.from,
     clientRecordId: args.selectedCustomer?.recordId,
     dateOfOffer: args.dateTimeCreated,
-    requestSelections: args.requestSelections,
+    requestNote: args.requestNote,
+    body: args.body,
+    attachments: args.attachments,
     selectedCoworkers,
     initiator: args.initiator,
     emailConversationId: args.conversationId,
@@ -218,7 +225,10 @@ export const reconcilePendingBitableSync = internalAction({
           clientEmail: record.clientEmail ?? record.from,
           clientRecordId: record.selectedCustomer?.recordId,
           dateOfOffer: record.dateTimeCreated,
-          requestSelections: record.requestSelections,
+          requestNote: record.requestNote,
+          // ADR-0022: only the stored ≤500-char preview is available on retry —
+          // the full body is never persisted on the backup.
+          body: record.bodyPreview,
           selectedCoworkers,
           initiator: record.initiator,
           emailConversationId: record.conversationId,
@@ -258,7 +268,9 @@ export const correctRequest = action({
       clientEmail: args.clientEmail ?? args.from,
       clientRecordId: args.selectedCustomer?.recordId,
       dateOfOffer: args.dateTimeCreated,
-      requestSelections: args.requestSelections,
+      requestNote: args.requestNote,
+      body: args.body,
+      attachments: args.attachments,
       selectedCoworkers,
       initiator: args.initiator,
       emailConversationId: args.conversationId,

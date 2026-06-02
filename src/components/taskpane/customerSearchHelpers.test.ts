@@ -4,6 +4,8 @@ import {
   customerSearchEmptyMessage,
   filterLocalCustomers,
   getCustomerSearchEmptyKind,
+  ownerFilter,
+  ownerFilterApplies,
 } from "./customerSearchHelpers";
 import type { CustomerRecord } from "./customers";
 
@@ -40,6 +42,37 @@ describe("customerSearchHelpers", () => {
 
     expect(filterLocalCustomers([owned, other], "", true, "ou_me")).toEqual([owned]);
   });
+
+  it("searches the full directory when Show mine is on but the query is non-empty", () => {
+    const owned = {
+      recordId: "rec_owned",
+      name: "Owned Co",
+      owner: { openId: "ou_me", name: "Me" },
+    };
+    const other = {
+      recordId: "rec_other",
+      name: "Other Co",
+      owner: { openId: "ou_other", name: "Other" },
+    };
+
+    expect(filterLocalCustomers([owned, other], "other", true, "ou_me")).toEqual([other]);
+  });
+});
+
+describe("ownerFilterApplies", () => {
+  it("is true only for Show mine with an empty query", () => {
+    expect(ownerFilterApplies(true, "")).toBe(true);
+    expect(ownerFilterApplies(true, "acme")).toBe(false);
+    expect(ownerFilterApplies(false, "")).toBe(false);
+  });
+});
+
+describe("ownerFilter", () => {
+  it("returns mineFor only when owner browse mode is active", () => {
+    expect(ownerFilter(true, "ou_me", "")).toEqual({ mineFor: "ou_me" });
+    expect(ownerFilter(true, "ou_me", "acme")).toBeUndefined();
+    expect(ownerFilter(false, "ou_me", "")).toBeUndefined();
+  });
 });
 
 describe("customerSearchEmptyKind", () => {
@@ -47,8 +80,8 @@ describe("customerSearchEmptyKind", () => {
     expect(getCustomerSearchEmptyKind("", true, 0)).toBe("show-mine-no-owned");
   });
 
-  it("returns show-mine-no-match when the owner filter is active with a query and no matches", () => {
-    expect(getCustomerSearchEmptyKind("acme", true, 0)).toBe("show-mine-no-match");
+  it("returns null when a query is active (search is directory-wide)", () => {
+    expect(getCustomerSearchEmptyKind("acme", true, 0)).toBeNull();
   });
 
   it("returns null when there are matches or Show mine is off", () => {
@@ -62,7 +95,8 @@ describe("customerSearchEmptyMessage", () => {
     expect(customerSearchEmptyMessage("", true, "")).toMatch(/don't have any customers assigned/i);
   });
 
-  it("explains query misses under Show mine", () => {
-    expect(customerSearchEmptyMessage("beta", true, "beta")).toMatch(/you own match/i);
+  it("uses directory-wide no-match copy when searching with Show mine on", () => {
+    expect(customerSearchEmptyMessage("beta", true, "beta")).toMatch(/no customers match/i);
+    expect(customerSearchEmptyMessage("beta", true, "beta")).not.toMatch(/you own/i);
   });
 });

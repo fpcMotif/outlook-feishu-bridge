@@ -2,7 +2,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-let mockExistingSync: { recordId: string; detailUrl?: string | null; coworkerCount?: number } | null | undefined =
+let mockExistingSync: { recordId: string; detailUrl?: string | null; coworkerCount?: number; syncedAt?: number } | null | undefined =
   null;
 vi.mock("../../hooks/useRequestSync", () => ({
   useRequestSync: () => ({
@@ -96,8 +96,7 @@ function renderRequestIntakeScreen(
   );
 }
 
-function fillQuotation() {
-  fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
+function fillRequestNote() {
   fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
     target: { value: "Need a quarterly L-Carnitine quote." },
   });
@@ -131,7 +130,7 @@ describe("RequestIntakeScreen login gate", () => {
 
     expect(screen.getByRole("button", { name: /Continue with Feishu/i })).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: /Quotation/i }),
+      screen.queryByText(/Quotation.*Sample.*R&D Support/i),
     ).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /Start a request above/i }),
@@ -142,7 +141,12 @@ describe("RequestIntakeScreen login gate", () => {
     renderRequestIntakeScreen(true);
 
     expect(screen.queryByRole("button", { name: /Continue with Feishu/i })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Quotation/i })).toBeInTheDocument();
+    expect(screen.queryByText(/Quotation.*Sample.*R&D Support/i)).not.toBeInTheDocument();
+    expect(screen.queryByText("Quotation")).not.toBeInTheDocument();
+    expect(screen.queryByText("Sample")).not.toBeInTheDocument();
+    expect(screen.queryByText("R&D Support")).not.toBeInTheDocument();
+    expect(document.querySelector('[data-request-note-card="true"]')).toHaveClass("rounded-[20px]", "p-2");
+    expect(screen.getByPlaceholderText(/Describe your requirements/i)).toBeInTheDocument();
     const coworkerSection = screen.getByText("Customer & coworker");
     expect(coworkerSection.compareDocumentPosition(screen.getByText("New request"))).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
@@ -157,18 +161,19 @@ describe("RequestIntakeScreen login gate", () => {
 });
 
 describe("RequestIntakeScreen request details", () => {
-  it("marks filled request cards as selected", () => {
+  it("accepts a request note without category labels or selected badges", () => {
     renderRequestIntakeScreen(true);
 
-    fillQuotation();
+    fillRequestNote();
 
-    expect(screen.getByText("Selected")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Need a quarterly L-Carnitine quote.")).toBeInTheDocument();
+    expect(screen.queryByText("Selected")).not.toBeInTheDocument();
     expect(screen.queryByText("Ready")).not.toBeInTheDocument();
   });
 
   it("keeps request details and client/coworker selection on one screen before submit", () => {
     renderRequestIntakeScreen(true);
-    fillQuotation();
+    fillRequestNote();
 
     expect(screen.getByText("Customer & coworker")).toBeInTheDocument();
     expect(screen.getByDisplayValue("Need a quarterly L-Carnitine quote.")).toBeInTheDocument();
@@ -235,7 +240,7 @@ describe("RequestIntakeScreen coworker selection", () => {
   it("allows exactly one coworker and replaces the selection on the cards", async () => {
     // fenchem.com auto-matches the fanpc customer so the dock can reach the ready state.
     renderRequestIntakeScreen(true, "fanpc@fenchem.com");
-    fillQuotation();
+    fillRequestNote();
 
     fireEvent.click(await searchCoworker("Jenny Xu"));
     expect(screen.getByText("Jenny Xu")).toBeInTheDocument();
@@ -256,7 +261,7 @@ describe("RequestIntakeScreen coworker selection", () => {
 describe("RequestIntakeScreen sync flow", () => {
   it("shows Act IV while syncing, then the success screen once sync resolves", async () => {
     renderRequestIntakeScreen(true, "fanpc@fenchem.com");
-    fillQuotation();
+    fillRequestNote();
 
     fireEvent.click(await searchCoworker("Jenny Xu"));
     fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));

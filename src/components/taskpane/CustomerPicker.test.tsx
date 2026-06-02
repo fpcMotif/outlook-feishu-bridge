@@ -278,7 +278,7 @@ describe("CustomerPicker server fallback", () => {
     expect(onCreateCustomer).toHaveBeenCalledWith("ddddd");
   });
 
-  it("passes the Initiator owner filter to server search when Show mine is enabled", async () => {
+  it("does not pass mineFor to server search when the user is actively searching", async () => {
     const searchCustomers = vi.fn(() => Promise.resolve([NOVO]));
     render(
       <CustomerPicker
@@ -298,7 +298,7 @@ describe("CustomerPicker server fallback", () => {
     });
 
     await waitFor(() =>
-      expect(searchCustomers).toHaveBeenCalledWith("novo", { mineFor: "ou_florian" }),
+      expect(searchCustomers).toHaveBeenCalledWith("novo", undefined),
     );
   });
 });
@@ -331,8 +331,8 @@ describe("CustomerPicker override commit", () => {
 // Searching customers by their Owner — the Feishu user listed in the Customer
 // Table's `Owner` column (projected as `owner: { openId, name }`). Typing the
 // owner's name in the existing search box matches all customers owned by them;
-// a "Show mine" toggle limits results to customers owned by the signed-in user
-// (the Initiator, ADR-0014).
+// a "Show mine" toggle limits browse (empty query) to the Initiator's customers;
+// active search always queries the full directory (ADR-0014).
 describe("CustomerPicker owner filter", () => {
   const florianRow = {
     recordId: "rec_florian_acct",
@@ -402,10 +402,10 @@ describe("CustomerPicker owner filter", () => {
     fireEvent.click(screen.getByRole("button", { name: /show mine/i }));
 
     expect(screen.getByText(/no customers assigned to you/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /show all customers/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /show all customers/i })).not.toBeInTheDocument();
   });
 
-  it("shows an empty state when Show mine filters out a query match owned by someone else", () => {
+  it("searches the full directory when Show mine is on but the user types a query", () => {
     render(
       <CustomerPicker
         directory={{ status: "ready", records: [jennyRow] }}
@@ -423,11 +423,11 @@ describe("CustomerPicker owner filter", () => {
       target: { value: "beta" },
     });
 
-    expect(screen.getByText(/no matches among your customers/i)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /create customer task/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Beta Pharma/i })).toBeInTheDocument();
+    expect(screen.queryByText(/no matches among your customers/i)).not.toBeInTheDocument();
   });
 
-  it("turns off Show mine when the empty state action is clicked", () => {
+  it("still browses owned customers only when Show mine is on with an empty query", () => {
     render(
       <CustomerPicker
         directory={{ status: "ready", records: [florianRow, jennyRow] }}
@@ -441,15 +441,9 @@ describe("CustomerPicker owner filter", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /search/i }));
     fireEvent.click(screen.getByRole("button", { name: /show mine/i }));
-    fireEvent.change(screen.getByRole("combobox", { name: /search customers/i }), {
-      target: { value: "beta" },
-    });
 
-    expect(screen.getByText(/no matches among your customers/i)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /show all customers/i }));
-
-    expect(screen.getByRole("button", { name: /Beta Pharma/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /show mine/i })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: /Acme Chemicals/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Beta Pharma/i })).not.toBeInTheDocument();
   });
 });
 
@@ -484,13 +478,41 @@ describe("CustomerPicker dismiss scope", () => {
     fireEvent.click(screen.getByRole("button", { name: /show mine/i }));
   }
 
-  it("keeps customer results open when clicking the coworker search field", () => {
+  it("dismisses customer search when clicking the coworker search field", async () => {
     renderEmbeddedCustomerSearch();
     expect(screen.getByText(/no customers assigned to you/i)).toBeInTheDocument();
 
     fireEvent.mouseDown(screen.getByLabelText(/search feishu coworkers/i));
 
-    expect(screen.getByText(/no customers assigned to you/i)).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByRole("combobox", { name: /search customers/i })).not.toBeInTheDocument(),
+    );
+    expect(screen.queryByText(/no customers assigned to you/i)).not.toBeInTheDocument();
+  });
+
+  it("dismisses customer search when focus moves to the coworker search field", async () => {
+    renderEmbeddedCustomerSearch();
+    const customerSearch = screen.getByRole("combobox", { name: /search customers/i });
+    const coworkerSearch = screen.getByLabelText(/search feishu coworkers/i);
+    customerSearch.focus();
+    expect(customerSearch).toHaveFocus();
+
+    fireEvent.blur(customerSearch);
+    coworkerSearch.focus();
+
+    await waitFor(() =>
+      expect(screen.queryByRole("combobox", { name: /search customers/i })).not.toBeInTheDocument(),
+    );
+    expect(screen.queryByText(/no customers assigned to you/i)).not.toBeInTheDocument();
+  });
+
+  it("keeps customer search open when clicking inside the search panel", () => {
+    renderEmbeddedCustomerSearch();
+    expect(screen.getByRole("listbox", { name: /customer results/i })).toBeInTheDocument();
+
+    fireEvent.mouseDown(screen.getByRole("combobox", { name: /search customers/i }));
+    fireEvent.mouseDown(screen.getByRole("button", { name: /show mine/i }));
+
     expect(screen.getByRole("listbox", { name: /customer results/i })).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: /search customers/i })).toBeInTheDocument();
   });

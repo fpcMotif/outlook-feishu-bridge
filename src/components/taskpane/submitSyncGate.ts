@@ -1,9 +1,9 @@
 /**
  * Submit dock enablement for RequestIntakeScreen → SubmitDock.
  *
- * **Fulfilled request:** non-empty trimmed note on at least one of Quotation,
- * Sample, or R&D Support (`buildFilledRequests` / `RequestCards`). Expanding an
- * accordion without text does not count.
+ * **Fulfilled request:** non-empty trimmed note on at least one request id. The
+ * current request-note UI writes into the primary request id; `buildFilledRequests`
+ * still accepts any populated request id.
  *
  * **Live sync button** requires all three: customer selected, exactly one
  * coworker selected, and ≥1 fulfilled request.

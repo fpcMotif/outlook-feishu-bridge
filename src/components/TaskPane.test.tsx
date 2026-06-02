@@ -101,13 +101,17 @@ describe("TaskPane browser preview auth flow", () => {
 
     expect(screen.getByRole("button", { name: /Continue with Feishu/i })).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: /Quotation/i }),
+      screen.queryByText(/Quotation.*Sample.*R&D Support/i),
     ).not.toBeInTheDocument();
 
     unlockRequestBuilder();
 
     expect(screen.queryByRole("button", { name: /Continue with Feishu/i })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Quotation/i })).toBeInTheDocument();
+    expect(screen.queryByText(/Quotation.*Sample.*R&D Support/i)).not.toBeInTheDocument();
+    expect(screen.queryByText("Quotation")).not.toBeInTheDocument();
+    expect(screen.queryByText("Sample")).not.toBeInTheDocument();
+    expect(screen.queryByText("R&D Support")).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/Describe your requirements/i)).toBeInTheDocument();
     expect(screen.queryByText("Search by name to choose a Feishu coworker")).not.toBeInTheDocument();
     expect(screen.queryByText(/Recent & suggested/i)).not.toBeInTheDocument();
   });
@@ -201,7 +205,6 @@ describe("TaskPane browser preview request flow", () => {
     renderPreview();
 
     unlockRequestBuilder();
-    fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
     fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
       target: { value: "Need a quarterly L-Carnitine quote." },
     });
@@ -223,7 +226,6 @@ describe("TaskPane browser preview request flow", () => {
     renderPreview();
 
     unlockRequestBuilder();
-    fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
     fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
       target: { value: "Need a quarterly L-Carnitine quote." },
     });

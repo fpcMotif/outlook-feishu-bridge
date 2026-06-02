@@ -56,36 +56,22 @@ describe("buildServiceFields", () => {
 // the mapping was removed. These tests lock that in: no matter what selections
 // arrive, the builder must never emit a `Request Type` key.
 describe("buildServiceFields — Request Type is never written (Feishu owns it)", () => {
-  it("omits Request Type even when request cards are filled", () => {
+  it("omits Request Type even when the note is filled", () => {
     const fields = buildServiceFields(
-      {
-        ...BASE,
-        requestSelections: [
-          { requestType: "Quotation", note: "FOB pls" },
-          { requestType: "Sample", note: "50g" },
-          { requestType: "R&D Support", note: "spec sheet" },
-        ],
-      },
+      { ...BASE, requestNote: "FOB pls; 50g sample; spec sheet" },
       null,
     );
     expect("Request Type" in fields).toBe(false);
   });
 
-  // Removing the Request Type write must NOT drop the per-card Note Text columns
-  // — those still carry the salesperson's typed content.
-  it("still writes the per-card Note Text columns from the selections", () => {
+  // ADR-0022: the three per-category Note columns collapse to ONE consolidated
+  // `Request Note` Text column. The category concept is gone — a single note box.
+  it("writes the consolidated note to the single `Request Note` Text column", () => {
     const fields = buildServiceFields(
-      {
-        ...BASE,
-        requestSelections: [
-          { requestType: "Quotation", note: "FOB pls" },
-          { requestType: "R&D Support", note: "spec sheet" },
-        ],
-      },
+      { ...BASE, requestNote: "FOB Shanghai, 500kg, samples first" },
       null,
     );
-    expect(fields["Quotation Note"]).toBe("FOB pls");
-    expect(fields["R&D Support Note"]).toBe("spec sheet");
+    expect(fields["Request Note"]).toBe("FOB Shanghai, 500kg, samples first");
     expect("Request Type" in fields).toBe(false);
   });
 
@@ -121,5 +107,63 @@ describe("buildServiceFields — Email Conversation ID column", () => {
     const spaces = buildServiceFields({ ...BASE, emailConversationId: "   " }, null);
     expect("Email Conversation ID" in blank).toBe(false);
     expect("Email Conversation ID" in spaces).toBe(false);
+  });
+});
+
+// ADR-0022: the consolidated note is optional — an empty / whitespace / missing
+// note must not write the `Request Note` column (mirrors the other optional Text
+// columns; defensive against the SPA sending "" or "   ").
+describe("buildServiceFields — Request Note is optional", () => {
+  it("omits `Request Note` when the note is empty, whitespace, or missing", () => {
+    const blank = buildServiceFields({ ...BASE, requestNote: "" }, null);
+    const spaces = buildServiceFields({ ...BASE, requestNote: "   " }, null);
+    const missing = buildServiceFields(BASE, null);
+    expect("Request Note" in blank).toBe(false);
+    expect("Request Note" in spaces).toBe(false);
+    expect("Request Note" in missing).toBe(false);
+  });
+});
+
+// ADR-0022: the plain-text mail body (Office.js CoercionType.Text — excludes
+// attachments/inline images) lands in a new `Email Body` Text column. Full body,
+// no cap (inbound is a single received message; compose/reply items are rejected).
+describe("buildServiceFields — Email Body column", () => {
+  it("writes the plain-text body to the `Email Body` Text column", () => {
+    const body = "Hi,\n\nPlease quote 500kg L-Carnitine FOB Shanghai.\n\nThanks";
+    const fields = buildServiceFields({ ...BASE, body }, null);
+    expect(fields["Email Body"]).toBe(body);
+  });
+
+  it("omits `Email Body` when the body is empty, whitespace, or missing", () => {
+    const blank = buildServiceFields({ ...BASE, body: "" }, null);
+    const spaces = buildServiceFields({ ...BASE, body: "   \n  " }, null);
+    const missing = buildServiceFields(BASE, null);
+    expect("Email Body" in blank).toBe(false);
+    expect("Email Body" in spaces).toBe(false);
+    expect("Email Body" in missing).toBe(false);
+  });
+});
+
+// ADR-0022: selected mail attachments + uploaded files are staged through Convex
+// storage and uploaded to Feishu Drive, yielding `file_token`s. The builder maps
+// them into the single `Attachments` column (Feishu field type 17). On WRITE only
+// `file_token` is load-bearing — name/type/size/url are read-only and omitted.
+describe("buildServiceFields — Attachments column", () => {
+  it("writes attachment file tokens to `Attachments` as [{ file_token }]", () => {
+    const fields = buildServiceFields(
+      { ...BASE, attachments: [{ fileToken: "boxcnAAA" }, { fileToken: "boxcnBBB" }] },
+      null,
+    );
+    expect(fields["Attachments"]).toEqual([
+      { file_token: "boxcnAAA" },
+      { file_token: "boxcnBBB" },
+    ]);
+  });
+
+  it("omits `Attachments` when there are no attachments", () => {
+    const empty = buildServiceFields({ ...BASE, attachments: [] }, null);
+    const missing = buildServiceFields(BASE, null);
+    expect("Attachments" in empty).toBe(false);
+    expect("Attachments" in missing).toBe(false);
   });
 });

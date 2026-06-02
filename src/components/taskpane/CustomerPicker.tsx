@@ -30,7 +30,7 @@ import {
   TASKPANE_SEARCH_PANEL_SHELL,
   TASKPANE_SEARCH_PANEL_TITLE,
 } from "./taskpaneSearchPanelLayout";
-import { customerSearchBoundaryRef, useCustomerSearchSession } from "./useCustomerSearchSession";
+import { useCustomerSearchSession } from "./useCustomerSearchSession";
 
 export interface CustomerPickerProps {
   directory: CustomerDirectoryState;
@@ -61,7 +61,7 @@ export function CustomerPicker({
   searchCustomers,
   triggerRefresh,
 }: CustomerPickerProps) {
-  const session = useCustomerSearchSession(embedded);
+  const session = useCustomerSearchSession();
 
   const openSearch = () => {
     dlog(
@@ -80,7 +80,7 @@ export function CustomerPicker({
         currentUserOpenId={currentUserOpenId}
         embedded={embedded}
         exiting={session.exiting}
-        boundaryRef={customerSearchBoundaryRef(embedded, session.standaloneBoundaryRef)}
+        boundaryRef={session.searchPanelBoundaryRef}
         onDismiss={session.dismissSearch}
         onSelect={(customer) => {
           onChange(customer);
@@ -92,10 +92,7 @@ export function CustomerPicker({
   }
 
   return (
-    <section
-      ref={embedded ? undefined : session.standaloneBoundaryRef}
-      className={embedded ? "" : "bg-card-soft rounded-xl shadow-edge"}
-    >
+    <section className={embedded ? "" : "bg-card-soft rounded-xl shadow-edge"}>
       {selectedCustomer ? (
         <TaskpaneSelectionRow
           dataRow="customer"
@@ -178,7 +175,7 @@ function SearchPanel({
     }
     const searchId = latestSearch.current + 1;
     latestSearch.current = searchId;
-    void searchCustomers(nextQ, ownerFilter(nextShowMine, currentUserOpenId))
+    void searchCustomers(nextQ, ownerFilter(nextShowMine, currentUserOpenId, nextQ))
       .then((rows) => {
         if (latestSearch.current === searchId) setServerMatches(rows);
       })
@@ -201,15 +198,18 @@ function SearchPanel({
   const matches = localMatches.length > 0 ? localMatches : serverMatches;
   const emptyKind = getCustomerSearchEmptyKind(q, showMine, matches.length);
   const resultsOpen = Boolean(q || showMine || matches.length > 0 || emptyKind);
-
-  const disableShowMine = () => {
-    setShowMine(false);
-    runServerSearch(query, false);
+  const handlePanelBlur = () => {
+    window.setTimeout(() => {
+      const activeElement = document.activeElement;
+      if (activeElement && boundaryRef?.current?.contains(activeElement)) return;
+      onDismiss();
+    }, 0);
   };
 
   return (
     <section
       ref={boundaryRef}
+      onBlur={handlePanelBlur}
       className={
         embedded
           ? `${TASKPANE_SEARCH_PANEL_SHELL}${exiting ? " panel-exit" : ""}`
@@ -274,8 +274,6 @@ function SearchPanel({
         ) : emptyKind ? (
           <CustomerSearchEmptyState
             kind={emptyKind}
-            query={query}
-            onShowAll={disableShowMine}
             onClearSearch={() => handleQueryChange("")}
           />
         ) : q ? (

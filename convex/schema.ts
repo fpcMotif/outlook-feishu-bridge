@@ -112,6 +112,57 @@ export default defineSchema({
     lastDurationMs: v.optional(v.number()),
     lastFinishedAt: v.optional(v.number()),
     lastSourceTableId: v.optional(v.string()),
+    // Mirror Prune (ADR-0021): rows scanned + orphans tombstoned on the last
+    // complete sync. Optional so existing deployment rows keep validating.
+    lastPruneScannedCount: v.optional(v.number()),
+    lastDeletedStaleCount: v.optional(v.number()),
+  }),
+
+  // ADR-0023: server-indexed Feishu Contacts (org directory) mirror. The Feishu
+  // Contact v3 directory is crawled biweekly (crons.ts: 336 h) into this table;
+  // the `by_text` search index runs prefix + ranked queries over a single
+  // `searchBlob` (name / enterprise_email / department, with CJK bigrams). The
+  // immutable Feishu `open_id` is the natural key the mirror upserts on. We store
+  // ONLY the enterprise (@fenchem.com) email — never the personal `email` — and
+  // NEVER phone numbers; resigned/exited users are skipped and pruned.
+  feishuContacts: defineTable({
+    openId: v.string(),
+    name: v.string(),
+    email: v.optional(v.string()), // enterprise_email only; omitted when absent
+    department: v.optional(v.string()), // joined department name(s)
+    departmentIds: v.optional(v.array(v.string())), // open_department_ids
+    avatarUrl: v.optional(v.string()), // volatile (ADR-0003); re-stamped each run
+    searchBlob: v.string(),
+    mirroredAt: v.number(),
+  })
+    .index("by_openId", ["openId"])
+    .index("by_email", ["email"])
+    .searchIndex("by_text", { searchField: "searchBlob" }),
+
+  // Watermark row for the contacts-mirror cron — one row per deployment, updated
+  // at the end of each successful crawl. Mirrors customersMirrorState (ADR-0023).
+  feishuContactsMirrorState: defineTable({
+    lastFullSyncAt: v.number(),
+    lastUserCount: v.number(),
+    // When the last refresh STARTED (single-flight lease). Stamped by any run.
+    lastRefreshStartedAt: v.optional(v.number()),
+    lastDepartmentCount: v.optional(v.number()),
+    lastInsertedCount: v.optional(v.number()),
+    lastUpdatedCount: v.optional(v.number()),
+    lastUnchangedCount: v.optional(v.number()),
+    lastSkippedResignedCount: v.optional(v.number()),
+    lastStopReason: v.optional(
+      v.union(
+        v.literal("complete"),
+        v.literal("missingPageToken"),
+        v.literal("duplicatePageToken"),
+        v.literal("incomplete"),
+      ),
+    ),
+    lastDurationMs: v.optional(v.number()),
+    lastFinishedAt: v.optional(v.number()),
+    lastPruneScannedCount: v.optional(v.number()),
+    lastDeletedStaleCount: v.optional(v.number()),
   }),
 
   returnRequests: defineTable({

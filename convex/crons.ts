@@ -31,6 +31,16 @@ crons.interval(
   {},
 );
 
+// Biweekly Feishu Contacts (org directory) mirror refresh (ADR-0023). The
+// directory is slow-moving, so every two weeks is enough background freshness
+// for the server-indexed colleague search. 14 days × 24 h = 336 hours.
+crons.interval(
+  "feishu contacts mirror refresh (biweekly)",
+  { hours: 336 },
+  internal.feishu.contactsMirror.fullSync,
+  {},
+);
+
 // Request intake outbox reconcile. The UI writes a pending Convex Email Record
 // before calling Feishu Base; this cron catches transient Base/create or
 // post-create marking failures and replays with the stored Feishu client_token.

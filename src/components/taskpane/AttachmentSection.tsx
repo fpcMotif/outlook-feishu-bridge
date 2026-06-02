@@ -4,6 +4,7 @@
 // intake reducer and submit-time staging happens in RequestIntakeScreen.
 
 import { FileSpreadsheet, FileText, Image as ImageIcon, Plus, X } from "lucide-react";
+import type { ReactNode } from "react";
 
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
@@ -21,8 +22,40 @@ import { SectionLabel } from "./SectionLabel";
 
 const ACCEPT = ALLOWED_UPLOAD_EXTENSIONS.map((e) => `.${e}`).join(",");
 const CARD_CLASS = "bg-card rounded-[20px] p-1 shadow-edge";
-const ROW_CLASS = "flex min-h-12 min-w-0 items-center gap-3 px-3 py-2";
+// Fixed 40px lead (checkbox / spacer) + trail (remove / spacer) keep icons and filenames aligned.
+const ROW_GRID =
+  "grid min-h-12 min-w-0 grid-cols-[2.5rem_1rem_minmax(0,1fr)_auto_2.5rem] items-center gap-x-3 px-3 py-2";
 const META_CLASS = "shrink-0 text-[11px] text-muted-foreground tabular-nums";
+const ROW_PRESS =
+  "transition-transform duration-150 ease-[var(--ease-out-strong)] active:scale-[0.97]";
+const ICON_ACTION_CLASS = cn(
+  "text-muted-foreground inline-flex size-10 shrink-0 items-center justify-center rounded-md outline-none focus-visible:ring-[3px] focus-visible:ring-ring/20",
+  ROW_PRESS,
+);
+
+function AttachmentRow({
+  lead,
+  icon,
+  name,
+  meta,
+  trail,
+}: {
+  lead?: ReactNode;
+  icon: ReactNode;
+  name: ReactNode;
+  meta?: ReactNode;
+  trail?: ReactNode;
+}) {
+  return (
+    <div className={ROW_GRID}>
+      <div className="flex size-10 shrink-0 items-center justify-center">{lead}</div>
+      <div className="flex size-4 shrink-0 items-center justify-center [&_svg]:translate-y-px">{icon}</div>
+      <div className="min-w-0 truncate text-xs font-semibold">{name}</div>
+      <div className="justify-self-end">{meta}</div>
+      <div className="flex size-10 shrink-0 items-center justify-center">{trail}</div>
+    </div>
+  );
+}
 
 const SPREADSHEET_EXT = new Set(["xls", "xlsx", "csv"]);
 const IMAGE_EXT = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp"]);
@@ -45,43 +78,57 @@ function MailRow({
   onToggle: () => void;
 }) {
   return (
-    <div className={ROW_CLASS}>
-      <Checkbox aria-label={attachment.name} checked={checked} disabled={disabled} onCheckedChange={onToggle} />
-      <FileGlyph name={attachment.name} />
-      <span className="min-w-0 flex-1 truncate text-xs font-semibold">{attachment.name}</span>
-      <span className={META_CLASS}>{formatBytes(attachment.size)}</span>
-    </div>
+    <AttachmentRow
+      lead={
+        <Checkbox
+          aria-label={attachment.name}
+          checked={checked}
+          disabled={disabled}
+          onCheckedChange={onToggle}
+        />
+      }
+      icon={<FileGlyph name={attachment.name} />}
+      name={attachment.name}
+      meta={<span className={META_CLASS}>{formatBytes(attachment.size)}</span>}
+    />
   );
 }
 
 function UploadRow({ upload, onRemove }: { upload: UploadedFile; onRemove: () => void }) {
   return (
-    <div className={ROW_CLASS}>
-      <FileGlyph name={upload.file.name} />
-      <span className="min-w-0 flex-1 truncate text-xs font-semibold">{upload.file.name}</span>
-      {upload.rejection ? (
-        <span className="text-destructive shrink-0 text-[11px] font-medium">{upload.rejection}</span>
-      ) : (
-        <span className={META_CLASS}>{formatBytes(upload.file.size)}</span>
-      )}
-      <button
-        type="button"
-        aria-label={`Remove ${upload.file.name}`}
-        onClick={onRemove}
-        className="text-muted-foreground inline-flex size-7 shrink-0 items-center justify-center rounded-md"
-      >
-        <X className="size-4" aria-hidden="true" />
-      </button>
-    </div>
+    <AttachmentRow
+      icon={<FileGlyph name={upload.file.name} />}
+      name={upload.file.name}
+      meta={
+        upload.rejection ? (
+          <span className="text-destructive shrink-0 text-[11px] font-medium">{upload.rejection}</span>
+        ) : (
+          <span className={META_CLASS}>{formatBytes(upload.file.size)}</span>
+        )
+      }
+      trail={
+        <button type="button" aria-label={`Remove ${upload.file.name}`} onClick={onRemove} className={ICON_ACTION_CLASS}>
+          <X className="size-4" aria-hidden="true" />
+        </button>
+      }
+    />
   );
 }
 
 function AddFileRow({ disabled, onPick }: { disabled: boolean; onPick: (files: File[]) => void }) {
   return (
-    <label className={cn(ROW_CLASS, "cursor-pointer", disabled && "cursor-not-allowed opacity-50")}>
-      <Plus className="text-muted-foreground size-4 shrink-0" aria-hidden="true" />
-      <span className="min-w-0 flex-1 text-xs font-semibold">Add file</span>
-      <span className="shrink-0 text-[11px] text-muted-foreground">pdf · xls · doc · image</span>
+    <label
+      className={cn(
+        "block cursor-pointer outline-none focus-within:ring-[3px] focus-within:ring-ring/20 rounded-lg",
+        ROW_PRESS,
+        disabled && "cursor-not-allowed opacity-50 active:scale-100",
+      )}
+    >
+      <AttachmentRow
+        icon={<Plus className="text-muted-foreground size-4 shrink-0" aria-hidden="true" />}
+        name="Add file"
+        meta={<span className={cn(META_CLASS, "font-normal")}>pdf · xls · doc · image</span>}
+      />
       <input
         data-testid="attachment-upload-input"
         type="file"

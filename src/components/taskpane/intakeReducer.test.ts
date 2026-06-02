@@ -3,6 +3,7 @@ import {
   initialIntakeState,
   intakeReducer,
   type IntakeState,
+  type UploadedFile,
 } from "./intakeReducer";
 import type { Coworker } from "./coworkers";
 import type { CustomerRecord } from "./customers";
@@ -138,6 +139,46 @@ describe("intakeReducer sync and self-forward state", () => {
     });
     expect(next.selfForwardStatus).toBe("failed");
     expect(next.selfForwardError).toEqual({ code: "ErrorAccessDenied", message: "no consent" });
+  });
+});
+
+describe("intakeReducer attachment selection", () => {
+  const base = initialIntakeState("a@b.com");
+  const file = (name: string): File => new File(["data"], name, { type: "application/pdf" });
+
+  it("seeds empty attachment selections", () => {
+    expect(base.selectedAttachmentIds).toEqual([]);
+    expect(base.uploadedFiles).toEqual([]);
+  });
+
+  it("attachmentToggled checks then unchecks a mail attachment id", () => {
+    const on = intakeReducer(base, { type: "attachmentToggled", id: "att_1" });
+    expect(on.selectedAttachmentIds).toEqual(["att_1"]);
+    const off = intakeReducer(on, { type: "attachmentToggled", id: "att_1" });
+    expect(off.selectedAttachmentIds).toEqual([]);
+  });
+
+  it("filesAdded appends uploads and uploadedFileRemoved drops one by id", () => {
+    const files: UploadedFile[] = [
+      { id: "u1", file: file("a.pdf"), rejection: null },
+      { id: "u2", file: file("b.png"), rejection: null },
+    ];
+    const added = intakeReducer(base, { type: "filesAdded", files });
+    expect(added.uploadedFiles.map((f) => f.id)).toEqual(["u1", "u2"]);
+
+    const removed = intakeReducer(added, { type: "uploadedFileRemoved", id: "u1" });
+    expect(removed.uploadedFiles.map((f) => f.id)).toEqual(["u2"]);
+  });
+
+  it("startedOver clears attachment selections", () => {
+    let s = intakeReducer(base, { type: "attachmentToggled", id: "att_1" });
+    s = intakeReducer(s, {
+      type: "filesAdded",
+      files: [{ id: "u1", file: file("a.pdf"), rejection: null }],
+    });
+    const reset = intakeReducer(s, { type: "startedOver" });
+    expect(reset.selectedAttachmentIds).toEqual([]);
+    expect(reset.uploadedFiles).toEqual([]);
   });
 });
 

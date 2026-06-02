@@ -9,6 +9,15 @@ export type IntakeScreenName = "build" | "sync" | "received" | "error";
 
 export type SelfForwardStatus = "pending" | "ok" | "failed" | null;
 
+// A user-uploaded file staged for the Base Attachment cell (ADR-0022). `id` is a
+// local uuid (minted in the picker handler), `rejection` is the inline reason
+// from uploadRejectionReason (null = acceptable). The DOM File carries the bytes.
+export interface UploadedFile {
+  id: string;
+  file: File;
+  rejection: string | null;
+}
+
 export interface IntakeState {
   notes: Record<string, string>;
   clientEmail: string;
@@ -22,6 +31,10 @@ export interface IntakeState {
   syncError: string | null;
   selfForwardStatus: SelfForwardStatus;
   selfForwardError: { code: string; message: string } | null;
+  // ADR-0022 attachments: checked mail-attachment ids (opt-in, default []) and
+  // the user's uploaded files. Sources are gathered + staged at submit time.
+  selectedAttachmentIds: string[];
+  uploadedFiles: UploadedFile[];
 }
 
 export type IntakeAction =
@@ -37,6 +50,9 @@ export type IntakeAction =
   | { type: "selfForwardStarted" }
   | { type: "selfForwardSucceeded" }
   | { type: "selfForwardFailed"; code: string; message: string }
+  | { type: "attachmentToggled"; id: string }
+  | { type: "filesAdded"; files: UploadedFile[] }
+  | { type: "uploadedFileRemoved"; id: string }
   | { type: "startedOver" };
 
 export function initialIntakeState(mailFrom: string): IntakeState {
@@ -53,6 +69,8 @@ export function initialIntakeState(mailFrom: string): IntakeState {
     syncError: null,
     selfForwardStatus: null,
     selfForwardError: null,
+    selectedAttachmentIds: [],
+    uploadedFiles: [],
   };
 }
 
@@ -107,6 +125,17 @@ export function intakeReducer(state: IntakeState, action: IntakeAction): IntakeS
         selfForwardStatus: "failed",
         selfForwardError: { code: action.code, message: action.message },
       };
+    case "attachmentToggled":
+      return {
+        ...state,
+        selectedAttachmentIds: state.selectedAttachmentIds.includes(action.id)
+          ? state.selectedAttachmentIds.filter((id) => id !== action.id)
+          : [...state.selectedAttachmentIds, action.id],
+      };
+    case "filesAdded":
+      return { ...state, uploadedFiles: [...state.uploadedFiles, ...action.files] };
+    case "uploadedFileRemoved":
+      return { ...state, uploadedFiles: state.uploadedFiles.filter((f) => f.id !== action.id) };
     case "startedOver":
       return {
         ...state,
@@ -120,6 +149,8 @@ export function intakeReducer(state: IntakeState, action: IntakeAction): IntakeS
         syncError: null,
         selfForwardStatus: null,
         selfForwardError: null,
+        selectedAttachmentIds: [],
+        uploadedFiles: [],
       };
   }
 }

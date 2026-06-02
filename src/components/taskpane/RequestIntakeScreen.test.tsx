@@ -192,7 +192,6 @@ describe("RequestIntakeScreen request details", () => {
     const open = vi.spyOn(window, "open").mockImplementation(() => null);
     renderRequestIntakeScreen(true);
 
-    fireEvent.click(screen.getByRole("button", { name: /search customer/i }));
     fireEvent.change(screen.getByRole("combobox", { name: /search customers/i }), {
       target: { value: "fff" },
     });

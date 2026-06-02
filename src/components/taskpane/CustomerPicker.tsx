@@ -21,7 +21,6 @@ import {
   ownerFilter,
 } from "./customerSearchHelpers";
 import { CustomerSearchEmptyState } from "./CustomerSearchEmptyState";
-import { CustomerPickerNoMatch } from "./CustomerPickerNoMatch";
 import { dlog, dtime } from "../../debug";
 import { TaskpaneSearchDropdown } from "./TaskpaneSearchDropdown";
 import { TaskpaneSelectionRow } from "./TaskpaneSelectionRow";
@@ -52,7 +51,6 @@ export interface CustomerPickerProps {
 
 export function CustomerPicker({
   directory,
-  emailDomain,
   selectedCustomer,
   currentUserOpenId,
   embedded = false,
@@ -62,6 +60,7 @@ export function CustomerPicker({
   triggerRefresh,
 }: CustomerPickerProps) {
   const session = useCustomerSearchSession();
+  const defaultOpenedAt = useRef(performance.now());
 
   const openSearch = () => {
     dlog(
@@ -71,17 +70,17 @@ export function CustomerPicker({
     session.openSearch();
   };
 
-  if (session.searchSession) {
+  if (!selectedCustomer || session.searchSession) {
     return (
       <SearchPanel
         directory={directory}
         searchCustomers={searchCustomers}
-        openedAt={session.searchSession.openedAt}
+        openedAt={session.searchSession?.openedAt ?? defaultOpenedAt.current}
         currentUserOpenId={currentUserOpenId}
         embedded={embedded}
         exiting={session.exiting}
-        boundaryRef={session.searchPanelBoundaryRef}
-        onDismiss={session.dismissSearch}
+        boundaryRef={session.searchSession ? session.searchPanelBoundaryRef : undefined}
+        onDismiss={session.searchSession ? session.dismissSearch : undefined}
         onSelect={(customer) => {
           onChange(customer);
           session.closeSearch();
@@ -93,30 +92,12 @@ export function CustomerPicker({
 
   return (
     <section className={embedded ? "" : "bg-card-soft rounded-xl shadow-edge"}>
-      {selectedCustomer ? (
-        <TaskpaneSelectionRow
-          dataRow="customer"
-          icon={<UserRound className="size-4" />}
-          label={selectedCustomer.name}
-          onChange={openSearch}
-        />
-      ) : (
-        <div className="flex min-h-14 min-w-0 items-center gap-3 px-3 py-2" data-customer-row="true">
-          <span
-            className="text-muted-foreground flex size-8 shrink-0 items-center justify-center"
-            aria-hidden="true"
-          >
-            <UserRound className="size-4" />
-          </span>
-          {directory.status === "loading" || directory.status === "idle" ? (
-            <span className="text-muted-foreground min-w-0 flex-1 whitespace-normal break-words text-xs leading-4">
-              Resolving customer for {emailDomain}...
-            </span>
-          ) : (
-            <CustomerPickerNoMatch onSearch={openSearch} />
-          )}
-        </div>
-      )}
+      <TaskpaneSelectionRow
+        dataRow="customer"
+        icon={<UserRound className="size-4" />}
+        label={selectedCustomer.name}
+        onChange={openSearch}
+      />
     </section>
   );
 }
@@ -146,7 +127,7 @@ function SearchPanel({
   embedded?: boolean;
   exiting?: boolean;
   boundaryRef?: RefObject<HTMLElement | null>;
-  onDismiss: () => void;
+  onDismiss?: () => void;
   onSelect: (customer: CustomerRecord) => void;
   onCreateCustomer?: (name: string) => void;
 }) {
@@ -199,6 +180,7 @@ function SearchPanel({
   const emptyKind = getCustomerSearchEmptyKind(q, showMine, matches.length);
   const resultsOpen = Boolean(q || showMine || matches.length > 0 || emptyKind);
   const handlePanelBlur = () => {
+    if (!onDismiss) return;
     window.setTimeout(() => {
       const activeElement = document.activeElement;
       if (activeElement && boundaryRef?.current?.contains(activeElement)) return;
@@ -240,7 +222,7 @@ function SearchPanel({
         open={resultsOpen}
         listLabel="Customer results"
         emptyMessage={customerSearchEmptyMessage(q, showMine, query)}
-        onEscape={() => (q ? handleQueryChange("") : onDismiss())}
+        onEscape={() => (q ? handleQueryChange("") : onDismiss?.())}
       >
         {matches.length > 0 ? (
           matches.slice(0, 8).map((customer) => (

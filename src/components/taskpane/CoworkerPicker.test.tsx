@@ -15,10 +15,8 @@ function renderCoworkerPicker(search = vi.fn(() => Promise.resolve([]))) {
   mockUseCoworkerSearch.mockReturnValue(search);
   render(
     <CoworkerPicker
-      clientEmail="client@example.com"
-      onClientEmailChange={vi.fn()}
       sessionId="sess-1"
-      selectedOpenId={undefined}
+      selectedCoworker={null}
       onSelect={vi.fn()}
     />,
   );
@@ -32,20 +30,7 @@ afterEach(() => {
 });
 
 describe("CoworkerPicker remote search", () => {
-  it("does not debounce or call coworker search for one-character queries", async () => {
-    vi.useFakeTimers();
-    const search = renderCoworkerPicker();
-
-    fireEvent.change(screen.getByRole("combobox", { name: /search feishu coworkers/i }), {
-      target: { value: "a" },
-    });
-    await vi.advanceTimersByTimeAsync(500);
-
-    expect(search).not.toHaveBeenCalled();
-    expect(screen.queryByRole("listbox", { name: /search results/i })).not.toBeInTheDocument();
-  });
-
-  it("debounces remote coworker search once the query is specific", async () => {
+  it("debounces remote coworker search by 250ms", async () => {
     vi.useFakeTimers();
     const search = renderCoworkerPicker();
 
@@ -58,5 +43,19 @@ describe("CoworkerPicker remote search", () => {
 
     expect(search).toHaveBeenCalledTimes(1);
     expect(search).toHaveBeenCalledWith("al");
+  });
+
+  it("forwards short queries too — min-length gating lives in the kept hook (ADR-0020)", async () => {
+    vi.useFakeTimers();
+    const search = renderCoworkerPicker();
+
+    fireEvent.change(screen.getByRole("combobox", { name: /search feishu coworkers/i }), {
+      target: { value: "a" },
+    });
+    await vi.advanceTimersByTimeAsync(250);
+
+    // The picker no longer gates by length; it forwards the query and the kept
+    // useCoworkerSearch hook resolves [] below MIN_COWORKER_SEARCH_LENGTH.
+    expect(search).toHaveBeenCalledWith("a");
   });
 });

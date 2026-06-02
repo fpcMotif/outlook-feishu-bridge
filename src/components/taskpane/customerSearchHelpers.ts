@@ -21,20 +21,14 @@ export function filterLocalCustomers(
   q: string,
   showMine: boolean,
   currentUserOpenId: string | undefined,
-  limit = Number.POSITIVE_INFINITY,
 ): CustomerRecord[] {
   if (!q && !showMine) return [];
-  const matches: CustomerRecord[] = [];
-  for (const customer of records) {
+  return records.filter((customer) => {
     const ownedByMe =
       !showMine ||
       (currentUserOpenId !== undefined && customer.owner?.openId === currentUserOpenId);
-    if (ownedByMe && customerMatchesText(customer, q)) {
-      matches.push(customer);
-      if (matches.length >= limit) break;
-    }
-  }
-  return matches;
+    return ownedByMe && customerMatchesText(customer, q);
+  });
 }
 
 export function logLocalFilter(
@@ -42,10 +36,9 @@ export function logLocalFilter(
   q: string,
   showMine: boolean,
   currentUserOpenId: string | undefined,
-  limit?: number,
 ): CustomerRecord[] {
   const started = performance.now();
-  const matches = filterLocalCustomers(records, q, showMine, currentUserOpenId, limit);
+  const matches = filterLocalCustomers(records, q, showMine, currentUserOpenId);
   dtime(
     `customer picker: local filter "${q.slice(0, 40)}"${showMine ? " +mine" : ""} -> ${matches.length}/${records.length}`,
     started,
@@ -58,4 +51,26 @@ export function ownerFilter(
   currentUserOpenId: string | undefined,
 ): CustomerSearchOptions | undefined {
   return showMine && currentUserOpenId !== undefined ? { mineFor: currentUserOpenId } : undefined;
+}
+
+export type CustomerSearchEmptyKind = "show-mine-no-owned" | "show-mine-no-match";
+
+export function getCustomerSearchEmptyKind(
+  q: string,
+  showMine: boolean,
+  matchCount: number,
+): CustomerSearchEmptyKind | null {
+  if (matchCount > 0 || !showMine) return null;
+  return q ? "show-mine-no-match" : "show-mine-no-owned";
+}
+
+export function customerSearchEmptyMessage(
+  q: string,
+  showMine: boolean,
+  rawQuery: string,
+): string {
+  if (showMine && !q) return "You don't have any customers assigned to you.";
+  if (showMine && q) return `No customers you own match "${rawQuery.trim()}".`;
+  if (q) return `No customers match "${rawQuery.trim()}"`;
+  return "No customers found.";
 }

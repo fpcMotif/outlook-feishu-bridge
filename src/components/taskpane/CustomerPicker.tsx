@@ -3,9 +3,9 @@
 // findCustomerByEmail; this module displays the chosen Customer and owns the
 // search-panel interaction for manual overrides.
 
-/* eslint-disable max-lines, max-lines-per-function */
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Plus, Search, UserRound } from "lucide-react";
+/* eslint-disable max-lines-per-function */
+import { useMemo, useRef, useState, type RefObject } from "react";
+import { Plus, UserRound } from "lucide-react";
 
 import type {
   CustomerDirectoryState,
@@ -13,16 +13,24 @@ import type {
   CustomerSearchOptions,
 } from "./customers";
 import {
+  customerSearchEmptyMessage,
   filterLocalCustomers,
+  getCustomerSearchEmptyKind,
   logLocalFilter,
   normalizedQuery,
   ownerFilter,
 } from "./customerSearchHelpers";
+import { CustomerSearchEmptyState } from "./CustomerSearchEmptyState";
+import { CustomerPickerNoMatch } from "./CustomerPickerNoMatch";
 import { dlog, dtime } from "../../debug";
 import { TaskpaneSearchDropdown } from "./TaskpaneSearchDropdown";
-
-const MIN_SERVER_SEARCH_LENGTH = 2;
-const LOCAL_MATCH_DISPLAY_LIMIT = 8;
+import { TaskpaneSelectionRow } from "./TaskpaneSelectionRow";
+import {
+  TASKPANE_SEARCH_PANEL_HEADER,
+  TASKPANE_SEARCH_PANEL_SHELL,
+  TASKPANE_SEARCH_PANEL_TITLE,
+} from "./taskpaneSearchPanelLayout";
+import { customerSearchBoundaryRef, useCustomerSearchSession } from "./useCustomerSearchSession";
 
 export interface CustomerPickerProps {
   directory: CustomerDirectoryState;
@@ -53,28 +61,30 @@ export function CustomerPicker({
   searchCustomers,
   triggerRefresh,
 }: CustomerPickerProps) {
-  const [searchSession, setSearchSession] = useState<{ openedAt: number } | null>(null);
+  const session = useCustomerSearchSession(embedded);
 
   const openSearch = () => {
-    const openedAt = performance.now();
     dlog(
       `customer picker: search opened (directory ${directory.status}, ${directory.records.length} rows)`,
     );
     triggerRefresh?.();
-    setSearchSession({ openedAt });
+    session.openSearch();
   };
 
-  if (searchSession) {
+  if (session.searchSession) {
     return (
       <SearchPanel
         directory={directory}
         searchCustomers={searchCustomers}
-        openedAt={searchSession.openedAt}
+        openedAt={session.searchSession.openedAt}
         currentUserOpenId={currentUserOpenId}
         embedded={embedded}
+        exiting={session.exiting}
+        boundaryRef={customerSearchBoundaryRef(embedded, session.standaloneBoundaryRef)}
+        onDismiss={session.dismissSearch}
         onSelect={(customer) => {
           onChange(customer);
-          setSearchSession(null);
+          session.closeSearch();
         }}
         onCreateCustomer={onCreateCustomer}
       />
@@ -82,35 +92,34 @@ export function CustomerPicker({
   }
 
   return (
-    <section className={embedded ? "" : "bg-card-soft rounded-xl shadow-edge"}>
-      <div className="flex min-h-14 min-w-0 items-center gap-3 px-3 py-2" data-customer-row="true">
-        <span
-          className="text-muted-foreground flex size-8 shrink-0 items-center justify-center"
-          aria-hidden="true"
-        >
-          <UserRound className="size-4" />
-        </span>
-        {selectedCustomer ? (
-          <>
-            <span className="min-w-0 flex-1 whitespace-normal break-words text-xs leading-4 font-semibold">
-              {selectedCustomer.name}
-            </span>
-            <button
-              type="button"
-              onClick={openSearch}
-              className="text-primary inline-flex min-h-8 items-center rounded-md px-2 text-[11px] font-semibold"
-            >
-              Change
-            </button>
-          </>
-        ) : directory.status === "loading" || directory.status === "idle" ? (
-          <span className="text-muted-foreground min-w-0 flex-1 whitespace-normal break-words text-xs leading-4">
-            Resolving customer for {emailDomain}...
+    <section
+      ref={embedded ? undefined : session.standaloneBoundaryRef}
+      className={embedded ? "" : "bg-card-soft rounded-xl shadow-edge"}
+    >
+      {selectedCustomer ? (
+        <TaskpaneSelectionRow
+          dataRow="customer"
+          icon={<UserRound className="size-4" />}
+          label={selectedCustomer.name}
+          onChange={openSearch}
+        />
+      ) : (
+        <div className="flex min-h-14 min-w-0 items-center gap-3 px-3 py-2" data-customer-row="true">
+          <span
+            className="text-muted-foreground flex size-8 shrink-0 items-center justify-center"
+            aria-hidden="true"
+          >
+            <UserRound className="size-4" />
           </span>
-        ) : (
-          <NoMatch onSearch={openSearch} />
-        )}
-      </div>
+          {directory.status === "loading" || directory.status === "idle" ? (
+            <span className="text-muted-foreground min-w-0 flex-1 whitespace-normal break-words text-xs leading-4">
+              Resolving customer for {emailDomain}...
+            </span>
+          ) : (
+            <CustomerPickerNoMatch onSearch={openSearch} />
+          )}
+        </div>
+      )}
     </section>
   );
 }
@@ -124,6 +133,9 @@ function SearchPanel({
   openedAt,
   currentUserOpenId,
   embedded = false,
+  exiting = false,
+  boundaryRef,
+  onDismiss,
   onSelect,
   onCreateCustomer,
 }: {
@@ -135,6 +147,9 @@ function SearchPanel({
   openedAt: number;
   currentUserOpenId?: string;
   embedded?: boolean;
+  exiting?: boolean;
+  boundaryRef?: RefObject<HTMLElement | null>;
+  onDismiss: () => void;
   onSelect: (customer: CustomerRecord) => void;
   onCreateCustomer?: (name: string) => void;
 }) {
@@ -142,56 +157,34 @@ function SearchPanel({
   const [serverMatches, setServerMatches] = useState<CustomerRecord[]>([]);
   const [showMine, setShowMine] = useState(false);
   const latestSearch = useRef(0);
-  const searchTimer = useRef<number | null>(null);
   const q = normalizedQuery(query);
 
   const localMatches = useMemo<CustomerRecord[]>(() => {
-    return filterLocalCustomers(
-      directory.records,
-      q,
-      showMine,
-      currentUserOpenId,
-      LOCAL_MATCH_DISPLAY_LIMIT,
-    );
+    return filterLocalCustomers(directory.records, q, showMine, currentUserOpenId);
   }, [q, showMine, currentUserOpenId, directory.records]);
-
-  useEffect(() => {
-    return () => {
-      if (searchTimer.current !== null) window.clearTimeout(searchTimer.current);
-    };
-  }, []);
 
   const runServerSearch = (nextQuery: string, nextShowMine: boolean) => {
     const nextQ = normalizedQuery(nextQuery);
-    if (searchTimer.current !== null) window.clearTimeout(searchTimer.current);
-    if (!nextQ || nextQ.length < MIN_SERVER_SEARCH_LENGTH) {
-      latestSearch.current += 1;
-      setServerMatches([]);
-      return;
-    }
     const nextLocalMatches = logLocalFilter(
       directory.records,
       nextQ,
       nextShowMine,
       currentUserOpenId,
-      LOCAL_MATCH_DISPLAY_LIMIT,
     );
-    if (directory.status === "ready" && nextLocalMatches.length > 0) {
+    if (!nextQ || (directory.status === "ready" && nextLocalMatches.length > 0)) {
       latestSearch.current += 1;
       setServerMatches([]);
       return;
     }
     const searchId = latestSearch.current + 1;
     latestSearch.current = searchId;
-    searchTimer.current = window.setTimeout(() => {
-      void searchCustomers(nextQ, ownerFilter(nextShowMine, currentUserOpenId))
-        .then((rows) => {
-          if (latestSearch.current === searchId) setServerMatches(rows);
-        })
-        .catch(() => {
-          if (latestSearch.current === searchId) setServerMatches([]);
-        });
-    }, 250);
+    void searchCustomers(nextQ, ownerFilter(nextShowMine, currentUserOpenId))
+      .then((rows) => {
+        if (latestSearch.current === searchId) setServerMatches(rows);
+      })
+      .catch(() => {
+        if (latestSearch.current === searchId) setServerMatches([]);
+      });
   };
 
   const handleQueryChange = (nextQuery: string) => {
@@ -206,22 +199,32 @@ function SearchPanel({
   };
 
   const matches = localMatches.length > 0 ? localMatches : serverMatches;
-  const canOfferCreateCustomer = q.length >= MIN_SERVER_SEARCH_LENGTH;
-  const dropdownOpen = Boolean(showMine || matches.length > 0 || canOfferCreateCustomer);
+  const emptyKind = getCustomerSearchEmptyKind(q, showMine, matches.length);
+  const resultsOpen = Boolean(q || showMine || matches.length > 0 || emptyKind);
+
+  const disableShowMine = () => {
+    setShowMine(false);
+    runServerSearch(query, false);
+  };
 
   return (
-    <section className={embedded ? "px-3 py-2" : "bg-card-soft rounded-xl px-3 py-2 shadow-edge"}>
-      <div className="flex items-center justify-between gap-2 pb-2">
-        <span className="text-muted-foreground text-[11px] font-semibold uppercase">
-          Pick a customer
-        </span>
+    <section
+      ref={boundaryRef}
+      className={
+        embedded
+          ? `${TASKPANE_SEARCH_PANEL_SHELL}${exiting ? " panel-exit" : ""}`
+          : `bg-card-soft rounded-xl ${TASKPANE_SEARCH_PANEL_SHELL} shadow-edge${exiting ? " panel-exit" : ""}`
+      }
+    >
+      <div className={TASKPANE_SEARCH_PANEL_HEADER}>
+        <span className={TASKPANE_SEARCH_PANEL_TITLE}>Pick a customer</span>
         <div className="flex items-center gap-1">
           {currentUserOpenId ? (
             <button
               type="button"
               aria-pressed={showMine}
               onClick={handleShowMine}
-              className="data-[on=true]:bg-accent data-[on=true]:text-accent-foreground text-muted-foreground inline-flex min-h-8 items-center rounded-md px-2 text-[11px] font-semibold"
+              className="data-[on=true]:bg-accent data-[on=true]:text-accent-foreground text-muted-foreground inline-flex min-h-10 items-center rounded-md px-3 text-[11px] font-semibold transition-transform active:scale-[0.96]"
               data-on={showMine}
             >
               Show mine
@@ -234,12 +237,13 @@ function SearchPanel({
         value={query}
         onChange={handleQueryChange}
         placeholder="Search by name, domain, account no..."
-        open={dropdownOpen}
+        open={resultsOpen}
         listLabel="Customer results"
-        emptyMessage={`No customers match "${query}"`}
+        emptyMessage={customerSearchEmptyMessage(q, showMine, query)}
+        onEscape={() => (q ? handleQueryChange("") : onDismiss())}
       >
-        {matches.length > 0
-          ? matches.map((customer) => (
+        {matches.length > 0 ? (
+          matches.slice(0, 8).map((customer) => (
             <button
               key={customer.recordId}
               type="button"
@@ -249,7 +253,7 @@ function SearchPanel({
                 dtime(`customer picker: picked "${customer.name}"`, openedAt);
                 onSelect(customer);
               }}
-              className="bg-card hover:bg-accent aria-selected:bg-accent flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-xs shadow-edge"
+              className="bg-card hover:bg-accent aria-selected:bg-accent sync-enter flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-xs shadow-edge transition-transform active:scale-[0.96]"
             >
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-semibold">{customer.name}</span>
@@ -266,56 +270,30 @@ function SearchPanel({
                 ) : null}
               </span>
             </button>
-            ))
-          : canOfferCreateCustomer ? (
-            <button
-              type="button"
-              data-search-option=""
-              aria-selected={false}
-              onClick={() => {
-                dtime(`customer picker: create requested "${q}"`, openedAt);
-                onCreateCustomer?.(query.trim());
-              }}
-              className="bg-card hover:bg-accent aria-selected:bg-accent flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-xs font-semibold shadow-edge"
-            >
-              <Plus className="text-primary size-4 shrink-0" />
-              <span className="min-w-0 flex-1 truncate">Create customer task "{query.trim()}"</span>
-            </button>
-            )
-          : null}
+          ))
+        ) : emptyKind ? (
+          <CustomerSearchEmptyState
+            kind={emptyKind}
+            query={query}
+            onShowAll={disableShowMine}
+            onClearSearch={() => handleQueryChange("")}
+          />
+        ) : q ? (
+          <button
+            type="button"
+            data-search-option=""
+            aria-selected={false}
+            onClick={() => {
+              dtime(`customer picker: create requested "${q}"`, openedAt);
+              onCreateCustomer?.(query.trim());
+            }}
+            className="bg-card hover:bg-accent aria-selected:bg-accent flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-xs font-semibold shadow-edge transition-transform active:scale-[0.96]"
+          >
+            <Plus className="text-primary size-4 shrink-0" />
+            <span className="min-w-0 flex-1 truncate">Create customer task "{query.trim()}"</span>
+          </button>
+        ) : undefined}
       </TaskpaneSearchDropdown>
     </section>
-  );
-}
-
-// Lenient no-match (ADR-0013): tell the salesperson the auto-match found
-// nothing and reserve a placeholder for the future create-new affordance, but
-// do not block the sync. A search icon button lets them override manually.
-function NoMatch({ onSearch }: { onSearch: () => void }) {
-  return (
-    <span className="flex min-w-0 flex-1 items-center gap-1">
-      <span
-        className="text-muted-foreground min-w-0 flex-1 whitespace-normal break-words text-xs leading-4"
-        title="No matched"
-      >
-        No matched
-      </span>
-      <button
-        type="button"
-        onClick={onSearch}
-        aria-label="Search customer"
-        className="text-primary hover:bg-accent inline-flex size-10 shrink-0 items-center justify-center rounded-full transition-colors active:scale-[0.96]"
-      >
-        <Search className="size-4" />
-      </button>
-      <button
-        type="button"
-        disabled
-        aria-label="Add new customer (coming soon)"
-        className="text-muted-foreground inline-flex size-10 shrink-0 items-center justify-center rounded-full opacity-40"
-      >
-        <Plus className="size-4" />
-      </button>
-    </span>
   );
 }

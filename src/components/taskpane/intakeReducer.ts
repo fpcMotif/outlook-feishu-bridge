@@ -27,7 +27,6 @@ export interface IntakeState {
 export type IntakeAction =
   | { type: "mailFromChanged"; mailFrom: string }
   | { type: "noteChanged"; id: string; value: string }
-  | { type: "clientEmailChanged"; value: string }
   | { type: "screenChanged"; screen: IntakeScreenName }
   | { type: "coworkerSelected"; coworker: Coworker }
   | { type: "customerAutoMatched"; customer: CustomerRecord | null }
@@ -71,13 +70,6 @@ export function intakeReducer(state: IntakeState, action: IntakeAction): IntakeS
       };
     case "noteChanged":
       return { ...state, notes: { ...state.notes, [action.id]: action.value } };
-    case "clientEmailChanged":
-      return {
-        ...state,
-        clientEmail: action.value,
-        selectedCustomer: null,
-        customerTouched: false,
-      };
     case "screenChanged":
       return { ...state, screen: action.screen };
     case "coworkerSelected":

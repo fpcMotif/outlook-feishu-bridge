@@ -44,10 +44,12 @@ test("browser preview keeps login separate and shows merged request routing", as
 
   await expect(page.getByRole("region", { name: "Feishu sign in" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Quotation" })).toBeVisible();
-  await expect(page.getByLabel("Email")).toBeVisible();
-  await expect(page.getByText("Search by name to choose a Feishu coworker")).toHaveCount(0);
+  await expect(page.locator('[data-client-row="true"]')).toHaveCount(0);
   await expect(page.getByText(/Recent & suggested/i)).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Start a request above" })).toBeDisabled();
+  // The dev fixture customer auto-matches the sample sender, so the submit gate
+  // (ADR-0020) is past "Select a customer" and asks for the coworker next.
+  await expect(page.getByText("Bayer Pharma (preview)")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Choose exactly one Feishu coworker" })).toBeDisabled();
 
   await page.getByRole("button", { name: "Quotation" }).click();
   await page.getByPlaceholder(/Describe your requirements/i).fill("Need a quarterly L-Carnitine quote.");

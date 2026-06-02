@@ -13,6 +13,7 @@ export function TaskpaneSearchDropdown({
   open,
   listLabel,
   emptyMessage,
+  onEscape,
   children,
 }: {
   label: string
@@ -22,6 +23,8 @@ export function TaskpaneSearchDropdown({
   open: boolean
   listLabel: string
   emptyMessage: string
+  /** When set, Escape delegates here instead of always clearing the query. */
+  onEscape?: () => void
   children?: ReactNode
 }) {
   const listId = useId()
@@ -32,7 +35,7 @@ export function TaskpaneSearchDropdown({
     optionPrefix,
     open,
     value,
-    () => onChange(""),
+    onEscape ?? (() => onChange("")),
   )
 
   return (

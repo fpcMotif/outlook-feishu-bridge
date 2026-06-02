@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { REQUESTS } from "./requests";
 
 const ITEM_CLASS =
-  "group bg-card rounded-[20px] shadow-edge transition-[background-color,box-shadow,scale] duration-200 ease-[var(--ease-out-strong)] data-[state=open]:bg-card data-[state=open]:shadow-float";
+  "group bg-card rounded-2xl shadow-edge transition-[background-color,box-shadow,scale] duration-200 ease-[var(--ease-out-strong)] data-[state=open]:bg-card data-[state=open]:shadow-float";
 
 export function RequestCards({
   values,
@@ -25,11 +25,11 @@ export function RequestCards({
         const value = values[r.id] ?? "";
         const filled = value.trim() !== "";
         return (
-            <AccordionItem key={r.id} value={r.id} className={ITEM_CLASS}>
-            <AccordionTrigger className="min-h-14 px-5 py-[18px]">
-              <span className="flex items-center gap-2.5">
+          <AccordionItem key={r.id} value={r.id} className={ITEM_CLASS}>
+            <AccordionTrigger className="min-h-14 px-5 py-2">
+              <span className="flex min-w-0 items-center gap-2.5">
                 <span className="size-2 shrink-0 rounded-full" style={{ background: r.dot }} />
-                <span className="text-sm leading-none font-medium">{r.title}</span>
+                <span className="text-sm leading-5 font-normal">{r.title}</span>
                 {filled ? (
                   <Badge variant="sage" className="group-data-[state=open]:hidden">
                     Selected
@@ -37,7 +37,7 @@ export function RequestCards({
                 ) : null}
               </span>
             </AccordionTrigger>
-            <AccordionContent className="px-[18px] pb-4">
+            <AccordionContent className="px-4 pb-4">
               <Textarea
                 value={value}
                 onChange={(e) => onChange(r.id, e.target.value)}

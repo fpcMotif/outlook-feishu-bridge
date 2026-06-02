@@ -8,6 +8,7 @@ import { useMailItem, type MailItemData } from "../office/useMailItem";
 import { Button } from "./ui/button";
 import { RequestIntakeScreen } from "./taskpane/RequestIntakeScreen";
 import { FeishuProfile } from "./taskpane/FeishuProfile";
+import { ThemeToggle } from "./ThemeToggle";
 import { ReceivedScreen } from "./taskpane/ReceivedScreen";
 import { SyncScreen } from "./taskpane/SyncScreen";
 
@@ -138,9 +139,10 @@ export function TaskPane({ host }: { host: string | null }) {
     isLoggedIn && user ? (
       <section
         aria-label="Feishu account controls"
-        className="absolute top-1 right-5 z-20"
+        className="flex items-center gap-1"
         data-profile-header="true"
       >
+        <ThemeToggle />
         <FeishuProfile user={user} onLogout={handleLogout} />
       </section>
     ) : null;

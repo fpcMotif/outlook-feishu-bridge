@@ -19,13 +19,34 @@ function dockLabel({
   return hint;
 }
 
+function submitDockButtonClass(live: boolean) {
+  return cn(
+    "submit-dock-btn flex h-14 w-full items-center justify-between gap-3 rounded-2xl px-5 text-[15px] font-semibold tracking-[-0.01em]",
+    "transition-[background-color,box-shadow,color,transform] duration-150 ease-[var(--ease-out-strong)]",
+    live
+      ? "bg-primary text-primary-foreground enabled:active:scale-[0.96]"
+      : "bg-muted/36 text-muted-foreground/72 cursor-not-allowed shadow-edge",
+  );
+}
+
+const submitDockChromeClass = cn(
+  "submit-dock relative z-10 mb-6 shrink-0 px-5 pt-2",
+  "pb-[max(1.5rem,env(safe-area-inset-bottom,0px))]",
+  "bg-background/92 supports-[backdrop-filter]:bg-background/76 supports-[backdrop-filter]:backdrop-blur-lg",
+  "shadow-[0_-20px_44px_-34px_color-mix(in_oklch,var(--foreground)_10%,transparent)]",
+);
+
+const submitDockScrollFadeClass = cn(
+  "pointer-events-none absolute inset-x-0 -top-9 h-9 bg-gradient-to-t to-transparent",
+  "from-background via-background/55 supports-[backdrop-filter]:from-background/88 supports-[backdrop-filter]:via-background/40",
+);
+
 export function SubmitDock({
   count,
   canSubmit,
   sending,
   hint,
   label,
-  footer,
   onSubmit,
 }: {
   count: number;
@@ -33,35 +54,32 @@ export function SubmitDock({
   sending: boolean;
   hint: string;
   label?: string;
-  footer?: string;
   onSubmit: () => void;
 }) {
   const live = canSubmit && !sending;
   const displayLabel = dockLabel({ count, sending, label, hint });
 
   return (
-    <div className="bg-background relative z-10 shrink-0 px-5 pt-3 pb-2 shadow-[0_-18px_42px_-34px_color-mix(in_oklch,var(--primary)_42%,transparent)]">
-      <div className="from-background pointer-events-none absolute inset-x-0 -top-6 h-6 bg-gradient-to-t to-transparent" />
+    <div className={submitDockChromeClass}>
+      <div className={submitDockScrollFadeClass} />
       <button
         type="button"
         onClick={onSubmit}
         disabled={!live}
-        className={cn(
-          "flex h-14 w-full items-center justify-between rounded-[18px] px-5 text-[15px] font-semibold transition-[background-color,color,box-shadow,scale] duration-150 ease-[var(--ease-out-strong)]",
-          live
-            ? "bg-primary text-primary-foreground shadow-float hover:bg-primary-deep active:scale-[0.97]"
-            : "bg-secondary text-muted-foreground cursor-not-allowed shadow-edge",
-        )}
+        data-live={live ? "" : undefined}
+        className={submitDockButtonClass(live)}
       >
-        <span className="inline-flex min-w-0 items-center gap-2">
-          {sending ? <Loader2 className="size-4 animate-spin" /> : null}
-          <span className="truncate">{displayLabel}</span>
+        <span className="inline-flex min-w-0 flex-1 items-center gap-2">
+          {sending ? <Loader2 className="size-4 shrink-0 animate-spin" /> : null}
+          <span className="min-w-0 truncate text-pretty">{displayLabel}</span>
         </span>
-        {live && count > 0 ? <ArrowRight className="size-[18px] shrink-0" /> : null}
+        {live && count > 0 ? (
+          <ArrowRight
+            className="submit-dock-arrow size-[18px] shrink-0 opacity-90"
+            aria-hidden
+          />
+        ) : null}
       </button>
-      <div className="text-muted-foreground mt-2 truncate text-center text-[11px]">
-        {footer ?? "Encrypted - synced to your Feishu workspace"}
-      </div>
     </div>
   );
 }

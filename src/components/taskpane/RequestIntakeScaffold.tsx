@@ -1,7 +1,7 @@
 import { Loader2 } from "lucide-react";
+import type { ReactNode } from "react";
 
 import { RequestCards } from "./RequestCards";
-import { REQUESTS } from "./requests";
 import { TaskpaneSection } from "./TaskpaneSection";
 
 const CREATE_CUSTOMER_MOCK_URL = "https://example.com/";
@@ -13,19 +13,15 @@ export function buildCreateCustomerTaskUrl(customerName: string) {
   return url.toString();
 }
 
-export function buildFilledRequests(notes: Record<string, string>) {
-  return REQUESTS.flatMap((r) => {
-    const note = (notes[r.id] ?? "").trim();
-    return note ? [{ id: r.id, title: r.title, note }] : [];
-  });
-}
-
-export function Hero() {
+// Intake page header (ADR-0020 second-pass UI). Hosts the profile slot inline on
+// the right so the logged-in account controls + theme toggle ride the header row.
+export function IntakeHeader({ profileSlot }: { profileSlot?: ReactNode }) {
   return (
-    <header className="px-1 pt-3 pb-5">
-      <h1 className="text-[34px] leading-[0.98] tracking-tight">
+    <header className="intake-stagger flex items-center justify-between gap-3 px-1 pt-3 pb-8">
+      <h1 className="sync-enter min-w-0 flex-1 text-[34px] leading-[0.98] tracking-tight text-balance">
         Sales Services
       </h1>
+      {profileSlot ? <div>{profileSlot}</div> : null}
     </header>
   );
 }

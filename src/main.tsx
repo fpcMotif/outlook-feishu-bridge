@@ -5,10 +5,13 @@ import * as Sentry from "@sentry/react";
 import App from "./App";
 import { initDebug } from "./debug";
 import { initSentry } from "./sentry";
+import { initThemeFromStorage } from "./lib/theme";
 import "./index.css";
 
 initDebug();
 initSentry();
+// Apply the user's persisted light/dark choice before first paint (ADR-0020).
+initThemeFromStorage();
 
 const convex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL);
 // Expose the Convex client on window so the DebugPanel can show WebSocket

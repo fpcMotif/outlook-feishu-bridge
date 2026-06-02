@@ -38,14 +38,19 @@ vi.mock("../hooks/useCoworkerSearch", () => {
   };
 });
 
-vi.mock("../hooks/useCustomerSearch", () => ({
-  useCustomerSearch: () => ({
-    directory: { status: "ready", records: [] },
-    search: vi.fn(() => Promise.resolve([])),
-    matchEmail: vi.fn(() => Promise.resolve(null)),
-    triggerRefresh: vi.fn(),
-  }),
-}));
+vi.mock("../hooks/useCustomerSearch", () => {
+  const BAYER = { recordId: "rec_bayer", name: "Bayer Pharma", domain: "bayerpharma.de", owner: null };
+  return {
+    useCustomerSearch: () => ({
+      directory: { status: "ready", records: [BAYER] },
+      search: vi.fn(() => Promise.resolve([])),
+      // The dev sample is from bayerpharma.de, so it auto-matches a customer and
+      // the submit gate (ADR-0020) can reach the ready state.
+      matchEmail: vi.fn((email: string) => Promise.resolve(email.endsWith("@bayerpharma.de") ? BAYER : null)),
+      triggerRefresh: vi.fn(),
+    }),
+  };
+});
 
 const mockUseMailItem = vi.mocked(useMailItem);
 const mockUseFeishuAuth = vi.mocked(useFeishuAuth);
@@ -103,7 +108,6 @@ describe("TaskPane browser preview auth flow", () => {
 
     expect(screen.queryByRole("button", { name: /Continue with Feishu/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Quotation/i })).toBeInTheDocument();
-    expect(screen.getByLabelText("Email")).toBeInTheDocument();
     expect(screen.queryByText("Search by name to choose a Feishu coworker")).not.toBeInTheDocument();
     expect(screen.queryByText(/Recent & suggested/i)).not.toBeInTheDocument();
   });
@@ -124,8 +128,10 @@ describe("TaskPane browser preview auth flow", () => {
     unlockRequestBuilder();
     const profileHeader = screen.getByRole("region", { name: /Feishu account controls/i });
     expect(profileHeader).toHaveAttribute("data-profile-header", "true");
-    expect(profileHeader).toHaveClass("absolute", "top-1", "right-5");
-    expect(profileHeader).not.toHaveClass("sticky", "top-0");
+    // ADR-0020: the header now rides inline in IntakeHeader (flex row hosting the
+    // theme toggle + account menu), not an absolute overlay.
+    expect(profileHeader).toHaveClass("flex", "items-center", "gap-1");
+    expect(profileHeader).not.toHaveClass("absolute", "sticky");
 
     fireEvent.click(screen.getByRole("button", { name: /Feishu profile/i }));
 
@@ -175,7 +181,7 @@ describe("TaskPane browser preview request flow", () => {
     fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
       target: { value: "Need a quarterly L-Carnitine quote." },
     });
-    expect(screen.getByDisplayValue("m.hoffmann@bayerpharma.de")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Need a quarterly L-Carnitine quote.")).toBeInTheDocument();
     fireEvent.click(await searchCoworker("Jenny Xu"));
     fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
 

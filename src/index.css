@@ -201,6 +201,20 @@
   animation: pop-in 0.22s var(--ease-out-strong) backwards;
 }
 
+@keyframes panel-exit {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+.panel-exit {
+  animation: panel-exit 0.15s var(--ease-out-strong) both;
+}
+
 @keyframes sync-enter {
   from {
     opacity: 0;
@@ -226,6 +240,15 @@
 .sync-enter {
   animation: sync-enter 0.28s var(--ease-out-strong) both;
   animation-delay: var(--enter-delay, 0ms);
+}
+.intake-stagger > .sync-enter:nth-child(1) {
+  --enter-delay: 0ms;
+}
+.intake-stagger > .sync-enter:nth-child(2) {
+  --enter-delay: 70ms;
+}
+.intake-stagger > .sync-enter:nth-child(3) {
+  --enter-delay: 140ms;
 }
 .sync-orb-pulse {
   background: color-mix(in oklch, var(--primary) 24%, transparent);
@@ -272,7 +295,7 @@
 @keyframes profile-pop {
   from {
     opacity: 0;
-    transform: translateY(-4px) scale(0.97);
+    transform: translateY(-4px) scale(0.96);
   }
   to {
     opacity: 1;
@@ -284,8 +307,15 @@
   animation: profile-pop 0.16s var(--ease-out-strong);
 }
 
+@media (hover: hover) and (pointer: fine) {
+  [data-slot="accordion-trigger"]:hover {
+    opacity: 0.92;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .sync-enter,
+  .panel-exit,
   .sync-orb-pulse,
   .sync-arc-stop,
   .animate-pulse-dot,
@@ -312,4 +342,50 @@
 }
 .shadow-float {
   box-shadow: var(--shadow-floating);
+}
+
+.submit-dock-btn[data-live] {
+  box-shadow:
+    var(--shadow-floating),
+    inset 0 1px 0 color-mix(in oklch, var(--primary-foreground) 22%, transparent),
+    inset 0 -1px 0 color-mix(in oklch, oklch(0 0 0) 10%, transparent);
+}
+
+.dark .submit-dock-btn[data-live] {
+  box-shadow:
+    var(--shadow-floating),
+    inset 0 1px 0 color-mix(in oklch, var(--primary-foreground) 16%, transparent);
+}
+
+.submit-dock-arrow {
+  transition: transform 150ms var(--ease-out-strong);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .submit-dock-btn[data-live]:hover {
+    background-color: var(--primary-deep);
+    box-shadow:
+      0 0 0 1px color-mix(in oklch, var(--border) 88%, transparent),
+      0 26px 54px -26px color-mix(in oklch, var(--primary) 52%, transparent),
+      inset 0 1px 0 color-mix(in oklch, var(--primary-foreground) 28%, transparent);
+  }
+
+  .submit-dock-btn[data-live]:hover .submit-dock-arrow {
+    transform: translateX(2px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .submit-dock-btn {
+    transition-property: background-color, box-shadow, color;
+  }
+  .submit-dock-btn:active {
+    transform: none;
+  }
+  .submit-dock-arrow {
+    transition: none;
+  }
+  .submit-dock-btn[data-live]:hover .submit-dock-arrow {
+    transform: none;
+  }
 }

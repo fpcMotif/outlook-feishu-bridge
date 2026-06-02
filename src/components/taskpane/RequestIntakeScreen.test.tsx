@@ -1,5 +1,5 @@
 /* eslint-disable require-unicode-regexp */
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 let mockExistingSync: { recordId: string; detailUrl?: string | null; coworkerCount?: number } | null | undefined =
@@ -143,16 +143,15 @@ describe("RequestIntakeScreen login gate", () => {
 
     expect(screen.queryByRole("button", { name: /Continue with Feishu/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Quotation/i })).toBeInTheDocument();
-    expect(screen.getByLabelText("Email")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Feishu coworker" })).toBeInTheDocument();
     const coworkerSection = screen.getByText("Customer & coworker");
     expect(coworkerSection.compareDocumentPosition(screen.getByText("New request"))).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
-    expect(screen.queryByText("Search by name to choose a Feishu coworker")).not.toBeInTheDocument();
     expect(screen.queryByText(/Recent & suggested/i)).not.toBeInTheDocument();
+    expect(document.querySelector('[data-client-row="true"]')).toBeNull();
+    // No customer auto-matches for bayerpharma.de, so the gate's first hint wins (ADR-0020 submitSyncGate).
     expect(
-      screen.getByRole("button", { name: /Start a request above/i }),
+      screen.getByRole("button", { name: /Select a customer/i }),
     ).toBeDisabled();
   });
 });
@@ -172,37 +171,12 @@ describe("RequestIntakeScreen request details", () => {
     fillQuotation();
 
     expect(screen.getByText("Customer & coworker")).toBeInTheDocument();
-    expect(screen.getByLabelText("Email")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("m.hoffmann@bayerpharma.de")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Feishu coworker" })).toBeInTheDocument();
     expect(screen.getByDisplayValue("Need a quarterly L-Carnitine quote.")).toBeInTheDocument();
     expect(screen.queryByText(/Recent & suggested/i)).not.toBeInTheDocument();
+    // bayerpharma.de has no customer match, so the dock asks for a customer first (ADR-0020).
     expect(
-      screen.getByRole("button", { name: /Choose exactly one Feishu coworker/i }),
+      screen.getByRole("button", { name: /Select a customer/i }),
     ).toBeDisabled();
-  });
-
-  it("lets users confirm and update the retrieved email", () => {
-    renderRequestIntakeScreen(true);
-    fillQuotation();
-
-    const emailField = screen.getByLabelText("Email");
-
-    expect(emailField.tagName).toBe("TEXTAREA");
-
-    fireEvent.change(emailField, {
-      target: { value: "elise.hoffmann-research-and-development@bayerpharma.de" },
-    });
-
-    expect(
-      screen.getByDisplayValue("elise.hoffmann-research-and-development@bayerpharma.de"),
-    ).toBeInTheDocument();
-
-    fireEvent.change(emailField, {
-      target: { value: "élise.hoffmann@bayerpharma.de" },
-    });
-
-    expect(screen.getByDisplayValue("élise.hoffmann@bayerpharma.de")).toBeInTheDocument();
   });
 
   it("opens the mocked create-customer page in a new browser tab", () => {
@@ -259,12 +233,18 @@ describe("RequestIntakeScreen customer auto-match", () => {
 
 describe("RequestIntakeScreen coworker selection", () => {
   it("allows exactly one coworker and replaces the selection on the cards", async () => {
-    renderRequestIntakeScreen(true);
+    // fenchem.com auto-matches the fanpc customer so the dock can reach the ready state.
+    renderRequestIntakeScreen(true, "fanpc@fenchem.com");
     fillQuotation();
 
     fireEvent.click(await searchCoworker("Jenny Xu"));
     expect(screen.getByText("Jenny Xu")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Sync with Jenny Xu/i })).toBeInTheDocument();
+
+    // Replacing the coworker requires re-opening the search via the row's Change
+    // action (the picker collapses to the selected row after a pick).
+    const coworkerRow = screen.getByText("Jenny Xu").closest('[data-coworker-row="true"]') as HTMLElement;
+    fireEvent.click(within(coworkerRow).getByRole("button", { name: /change/i }));
 
     fireEvent.click(await searchCoworker("Michael Chen"));
     expect(screen.getByText("Michael Chen")).toBeInTheDocument();
@@ -275,7 +255,7 @@ describe("RequestIntakeScreen coworker selection", () => {
 
 describe("RequestIntakeScreen sync flow", () => {
   it("shows Act IV while syncing, then the success screen once sync resolves", async () => {
-    renderRequestIntakeScreen(true);
+    renderRequestIntakeScreen(true, "fanpc@fenchem.com");
     fillQuotation();
 
     fireEvent.click(await searchCoworker("Jenny Xu"));

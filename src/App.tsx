@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
+import { Loader2 } from "lucide-react";
 
-import { useOffice } from "./office/useOffice";
-import { TaskPane } from "./components/TaskPane";
 import { DebugPanel } from "./components/DebugPanel";
+import { TaskPane } from "./components/TaskPane";
+import { useOffice } from "./office/useOffice";
 
 // Debug panel is HIDDEN by default in every environment (dev, prod, ECS, CF).
 // The only way to surface it is the Ctrl+Alt+D hotkey — pressing again hides
@@ -31,16 +32,17 @@ export default function App() {
   let content;
   if (error) {
     content = (
-      <div className="flex h-screen items-center justify-center p-4">
-        <p className="text-destructive text-sm">{error}</p>
+      <div className="flex h-screen flex-col items-center justify-center gap-2 px-6 text-center">
+        <p className="text-destructive text-sm text-pretty">{error}</p>
       </div>
     );
   } else if (isReady) {
     content = <TaskPane host={host} />;
   } else {
     content = (
-      <div className="flex h-screen items-center justify-center p-4">
-        <p className="text-muted-foreground text-sm">Loading Office Add-in&hellip;</p>
+      <div className="flex h-screen flex-col items-center justify-center gap-3 px-6 text-center">
+        <Loader2 className="text-muted-foreground size-6 animate-spin" aria-hidden="true" />
+        <p className="text-muted-foreground text-sm text-pretty">Loading Office Add-in&hellip;</p>
       </div>
     );
   }

@@ -74,14 +74,6 @@ describe("intakeReducer customer auto-match guard", () => {
     expect(afterAutoMatch.selectedCustomer).toBe(STOCK);
   });
 
-  it("clientEmailChanged clears the stale match and re-arms auto-match", () => {
-    const overridden = intakeReducer(base, { type: "customerOverridden", customer: STOCK });
-    const next = intakeReducer(overridden, { type: "clientEmailChanged", value: "new@acme.com" });
-    expect(next.clientEmail).toBe("new@acme.com");
-    expect(next.selectedCustomer).toBeNull();
-    expect(next.customerTouched).toBe(false);
-  });
-
   it("mailFromChanged resets the client email and match when a new Mail Item is opened", () => {
     const touched = intakeReducer(base, { type: "customerOverridden", customer: STOCK });
     const next = intakeReducer(touched, { type: "mailFromChanged", mailFrom: "z@new.com" });

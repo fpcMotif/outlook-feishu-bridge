@@ -13,13 +13,13 @@ import { CustomerPicker } from "./CustomerPicker";
 import { ReceivedScreen } from "./ReceivedScreen";
 import {
   buildCreateCustomerTaskUrl,
-  buildFilledRequests,
   ExistingSyncCheckingScreen,
-  Hero,
+  IntakeHeader,
   NewRequestSection,
 } from "./RequestIntakeScaffold";
 import { resolveIntakeScreen } from "./RequestIntakeRouter";
 import { SubmitDock } from "./SubmitDock";
+import { buildFilledRequests, canSubmitSync, submitSyncHint } from "./submitSyncGate";
 
 export function RequestIntakeScreen({
   isLoggedIn,
@@ -67,7 +67,7 @@ export function RequestIntakeScreen({
     search: searchCustomers,
     matchEmail: matchCustomerEmail,
     triggerRefresh: triggerCustomerRefresh,
-  } = useCustomerSearch(isLoggedIn);
+  } = useCustomerSearch(isLoggedIn, usePreviewCoworkers);
 
   const { emailDomainPart } = useCustomerAutoMatch({
     isLoggedIn,
@@ -85,7 +85,13 @@ export function RequestIntakeScreen({
   const selectedCustomerName = state.selectedCustomer?.name;
   const filledCount = filledRequests.length;
   const selectedCount = state.selectedCoworker ? 1 : 0;
-  const selectedOpenId = state.selectedCoworker?.openId;
+
+  // Submit dock enablement: customer ∧ coworker ∧ ≥1 fulfilled request (ADR-0020).
+  const syncGate = {
+    hasCustomer: state.selectedCustomer !== null,
+    hasCoworker: state.selectedCoworker !== null,
+    fulfilledRequestCount: filledCount,
+  };
 
   const selectCoworker = (coworker: Coworker) => {
     dispatch({ type: "coworkerSelected", coworker });
@@ -189,7 +195,7 @@ export function RequestIntakeScreen({
   ]);
 
   const handleSubmit = () => {
-    if (filledCount === 0 || selectedCount === 0) return;
+    if (!canSubmitSync(syncGate)) return;
     runSync();
   };
 
@@ -234,21 +240,15 @@ export function RequestIntakeScreen({
     return <ExistingSyncCheckingScreen />;
   }
 
-  const readyToSync = filledCount > 0 && selectedCount > 0;
-  const submitHint = filledCount === 0 ? "Start a request above" : "Choose exactly one Feishu coworker";
-  const submitFooter = readyToSync
-    ? `${filledCount} request${filledCount > 1 ? "s" : ""} + 1 coworker ready for Base + Convex sync`
-    : "";
+  const readyToSync = canSubmitSync(syncGate);
+  const submitHint = submitSyncHint(syncGate);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="no-scrollbar relative min-h-0 flex-1 overflow-y-auto px-5 pt-0 pb-24">
-        {profileSlot}
-        <Hero />
-        <div className="space-y-5">
+    <>
+      <div className="no-scrollbar relative flex-1 overflow-y-auto px-5 pt-1 pb-[calc(8rem+1.5rem)]">
+        <IntakeHeader profileSlot={profileSlot} />
+        <div className="space-y-7">
           <CoworkerPicker
-            clientEmail={state.clientEmail}
-            onClientEmailChange={(value) => dispatch({ type: "clientEmailChanged", value })}
             customerSlot={
               <CustomerPicker
                 directory={customerDirectory}
@@ -264,7 +264,7 @@ export function RequestIntakeScreen({
             }
             sessionId={sessionId}
             userAccessToken={userAccessToken}
-            selectedOpenId={selectedOpenId}
+            selectedCoworker={state.selectedCoworker}
             onSelect={selectCoworker}
             usePreviewCoworkers={usePreviewCoworkers}
           />
@@ -281,9 +281,8 @@ export function RequestIntakeScreen({
         sending={false}
         hint={submitHint}
         label={readyToSync && state.selectedCoworker ? `Sync with ${state.selectedCoworker.name}` : undefined}
-        footer={submitFooter}
         onSubmit={handleSubmit}
       />
-    </div>
+    </>
   );
 }

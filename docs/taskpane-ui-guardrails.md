@@ -58,6 +58,22 @@ tokens over ad-hoc values.
   unit-tested helper (`taskpaneSearchKeyboard.ts`); `scrollIntoView` is guarded
   with `?.` because jsdom does not implement it.
 
+## Theme toggle
+
+- A user-facing light/dark switch (`ThemeToggle`, id `theme-toggle`) lives in the
+  logged-in profile header next to the account menu. `initThemeFromStorage()` in
+  `main.tsx` applies the persisted theme to `<html>` (`.dark` class) before React
+  paints; `src/lib/theme.ts` is the single source of truth for read/apply/persist
+  (storage key `theme` = `light`/`dark`, migrating the legacy `dev-dark-mode` key
+  and seeding from `prefers-color-scheme`). One toggle only — do not reintroduce a
+  second injector (`document.createElement`, a fixed FAB in `App`, or a dev-gated
+  duplicate). See [ADR-0020](adr/0020-selective-merge-pr25-build-intake-and-user-theme.md).
+
+## Submit dock sync gate
+
+The bottom Sync button requires customer, coworker, and at least one request
+note with non-empty text. See [submit-dock-sync-gate.md](./submit-dock-sync-gate.md).
+
 ## Section structure (prior incident)
 
 Same visual role = same component and same DOM structure. First-level
@@ -74,8 +90,8 @@ hero is intentionally not a `TaskpaneSection`. Inner labels (e.g. the
 1. `bun run dev` (or `bun run dev:https` for sideloaded Outlook).
 2. Screenshot the key states at ~360px: connect, request intake,
    coworker/customer pickers (empty + results + selected), sync progress,
-   received/success, and the profile popover. Toggle the DEV dark switch and
-   recapture.
+   received/success, and the profile popover. Toggle the light/dark theme switch
+   and recapture.
 3. Critique with the frontend-design skill against this token system (focus ring,
    color semantics, radius, shadow utilities).
 4. Adjust **tokens/components**, not one-off inline values.

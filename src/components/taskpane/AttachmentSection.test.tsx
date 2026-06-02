@@ -44,6 +44,39 @@ afterEach(() => {
 });
 
 describe("AttachmentSection", () => {
+  it("groups attachment sources without preview controls", () => {
+    setup({
+      mailAttachments: [mail("a1", "RFQ-2026-Q1.pdf", 180 * 1024)],
+      uploadedFiles: [upload("u1", "sample.docx")],
+    });
+
+    expect(screen.getByText("Outlook")).toBeInTheDocument();
+    expect(screen.queryByText(/Outlook mail/i)).not.toBeInTheDocument();
+    expect(screen.getByText("Uploaded")).toBeInTheDocument();
+    expect(screen.getByText("180.0 KB")).toBeInTheDocument();
+    expect(screen.queryByText(/Outlook ·/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Uploaded file ·/i)).not.toBeInTheDocument();
+    expect(screen.getAllByText("Add file").length).toBeGreaterThan(0);
+    expect(screen.queryByText("pdf · xls · doc · image")).not.toBeInTheDocument();
+    expect(screen.queryByText("Ready")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /preview/i })).not.toBeInTheDocument();
+  });
+
+  it("uses only the checkbox for selected attachment state", () => {
+    setup({
+      mailAttachments: [mail("a1", "RFQ-2026-Q1.pdf")],
+      selectedIds: ["a1"],
+      uploadedFiles: [upload("u1", "quote.xlsx")],
+    });
+
+    expect(screen.queryByText("2 ready")).not.toBeInTheDocument();
+    expect(screen.queryByText("Selected")).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /RFQ-2026-Q1\.pdf/i })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+  });
+
   it("toggles a mail attachment via its checkbox", () => {
     const { onToggleMail } = setup({ mailAttachments: [mail("a1", "RFQ-2026-Q1.pdf")] });
     fireEvent.click(screen.getByRole("checkbox", { name: /RFQ-2026-Q1\.pdf/i }));
@@ -58,7 +91,13 @@ describe("AttachmentSection", () => {
     expect(onAddFiles.mock.calls[0][0][0]).toBe(file);
   });
 
-  it("shows a rejection reason and removes an uploaded file", () => {
+  it("removes an uploaded file from the status control", () => {
+    const { onRemoveUpload } = setup({ uploadedFiles: [upload("u1", "quote.xlsx")] });
+    fireEvent.click(screen.getByRole("button", { name: /remove quote\.xlsx/i }));
+    expect(onRemoveUpload).toHaveBeenCalledWith("u1");
+  });
+
+  it("shows a rejection reason with the same status remove control", () => {
     const { onRemoveUpload } = setup({ uploadedFiles: [upload("u1", "bad.exe", "unsupported type")] });
     expect(screen.getByText("unsupported type")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /remove bad\.exe/i }));

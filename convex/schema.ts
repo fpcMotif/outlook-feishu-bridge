@@ -128,10 +128,14 @@ export default defineSchema({
   feishuContacts: defineTable({
     openId: v.string(),
     name: v.string(),
-    email: v.optional(v.string()), // enterprise_email only; omitted when absent
-    department: v.optional(v.string()), // joined department name(s)
-    departmentIds: v.optional(v.array(v.string())), // open_department_ids
-    avatarUrl: v.optional(v.string()), // volatile (ADR-0003); re-stamped each run
+    // enterprise_email only; omitted when absent
+    email: v.optional(v.string()),
+    // joined department name(s)
+    department: v.optional(v.string()),
+    // open_department_ids
+    departmentIds: v.optional(v.array(v.string())),
+    // volatile (ADR-0003); re-stamped each run
+    avatarUrl: v.optional(v.string()),
     searchBlob: v.string(),
     mirroredAt: v.number(),
   })

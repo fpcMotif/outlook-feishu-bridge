@@ -1,9 +1,10 @@
 /* eslint-disable max-lines-per-function */
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   base64ToBlob,
   mimeFromName,
+  postBytesToConvex,
   stageAndUploadAttachments,
   type AttachmentStagingDeps,
 } from "./attachmentUpload";
@@ -77,5 +78,38 @@ describe("stageAndUploadAttachments", () => {
       { storageId: "st_a", fileName: "a.pdf" },
       { storageId: "st_b", fileName: "b.png" },
     ]);
+  });
+});
+
+describe("postBytesToConvex", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("POSTs the blob to the upload URL and returns the storageId", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ storageId: "st_1" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const blob = new Blob(["x"], { type: "application/pdf" });
+
+    await expect(postBytesToConvex("https://up/1", blob)).resolves.toEqual({
+      storageId: "st_1",
+    });
+
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://up/1");
+    expect(opts.method).toBe("POST");
+    expect(opts.headers["Content-Type"]).toBe("application/pdf");
+    expect(opts.body).toBe(blob);
+  });
+
+  it("throws when the upload response is not ok", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 413 }));
+
+    await expect(
+      postBytesToConvex("https://up/1", new Blob(["x"])),
+    ).rejects.toThrow(/413/);
   });
 });

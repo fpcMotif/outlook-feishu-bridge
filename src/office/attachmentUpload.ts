@@ -69,3 +69,19 @@ export async function stageAndUploadAttachments(
   const { attachments } = await deps.uploadToDrive(staged);
   return attachments;
 }
+
+// Default uploadBytes: POST raw bytes to a Convex storage upload URL (1 h TTL),
+// which responds with the new { storageId }. The SPA wires this into the staging
+// deps; injected above so the orchestration stays fetch-free in tests.
+export async function postBytesToConvex(
+  url: string,
+  blob: Blob,
+): Promise<{ storageId: string }> {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": blob.type || "application/octet-stream" },
+    body: blob,
+  });
+  if (!res.ok) throw new Error(`Convex storage upload failed (${res.status})`);
+  return (await res.json()) as { storageId: string };
+}

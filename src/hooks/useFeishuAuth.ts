@@ -1,3 +1,4 @@
+/* eslint-disable max-lines-per-function */
 import { useState, useCallback } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
@@ -190,7 +191,14 @@ export function useFeishuAuth(): FeishuAuthState {
   const logout = useCallback(async () => {
     localStorage.removeItem(FALLBACK_KEY);
     setFallback(null);
-    await logoutMutation({ sessionId });
+    // Best-effort server revoke: the local session is already cleared, so a
+    // network/mutation failure must not surface as an unhandled rejection at
+    // the (void) onLogout call site.
+    try {
+      await logoutMutation({ sessionId });
+    } catch (err) {
+      console.error("Feishu logout: server session revoke failed", err);
+    }
   }, [logoutMutation, sessionId]);
 
   // Convex (server-stored token) takes precedence; the fallback fills in only

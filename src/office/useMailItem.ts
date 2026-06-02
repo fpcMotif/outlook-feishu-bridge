@@ -1,3 +1,4 @@
+/* eslint-disable max-lines-per-function */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { readMailBodyText } from "./mailBody";
 import {
@@ -49,10 +50,26 @@ export function useMailItem(autoRead = false) {
     }
   }, []);
 
+  // When the host auto-reads, also subscribe to Office ItemChanged so a user
+  // selecting a different message refreshes the pane — otherwise mailItem keeps
+  // showing the first email's data.
   useEffect(() => {
-    if (!autoRead || didAutoRead.current) return;
-    didAutoRead.current = true;
-    void readCurrentItem();
+    if (!autoRead) return;
+    if (!didAutoRead.current) {
+      didAutoRead.current = true;
+      void readCurrentItem();
+    }
+    if (typeof Office === "undefined") return;
+    const mailbox = Office.context?.mailbox;
+    if (!mailbox?.addHandlerAsync) return;
+    const itemChanged = Office.EventType.ItemChanged;
+    const onItemChanged = () => {
+      void readCurrentItem();
+    };
+    mailbox.addHandlerAsync(itemChanged, onItemChanged);
+    return () => {
+      mailbox.removeHandlerAsync?.(itemChanged);
+    };
   }, [autoRead, readCurrentItem]);
 
   return { mailItem, loading, error, readCurrentItem };

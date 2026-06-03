@@ -162,8 +162,14 @@ deploy_cloudflare() {
   echo "==> vite build (base=/, direct Sentry ingest)"
   # MSYS_NO_PATHCONV stops Git Bash rewriting the bare / base into a Windows path.
   MSYS_NO_PATHCONV=1 bun run build -- --base=/
-  echo "==> wrangler pages deploy dist (project: outlook-feishu-bridge)"
-  bunx wrangler pages deploy dist
+  echo "==> wrangler pages deploy dist (project: outlook-feishu-bridge, --branch=main)"
+  # --branch=main pins the PRODUCTION Global Host deployment (matching CI in
+  # .github/workflows/deploy.yml). Without it wrangler infers the current git
+  # branch and, off main, publishes a *preview* (feat-xyz.<project>.pages.dev) —
+  # so the hardcoded "OK Global Host" below would lie. --commit-dirty=true skips
+  # wrangler's interactive prompt when the local tree has uncommitted changes
+  # (CI runs on a clean checkout, so it doesn't need this).
+  bunx wrangler pages deploy dist --branch=main --commit-dirty=true
   echo "OK Global Host -> https://outlook-feishu-bridge.pages.dev/"
 }
 

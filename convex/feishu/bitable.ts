@@ -182,7 +182,7 @@ export const createServiceRecord = internalAction({
         method: "PUT",
         auth: "tenant",
         json: { fields: salesFields },
-        label: "Bitable patch Sales after Main Email",
+        label: "Bitable patch Sales after create",
       });
     }
     return { recordId };

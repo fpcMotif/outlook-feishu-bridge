@@ -34,10 +34,13 @@ const EMAIL_BODY_COLUMN = "Email Content";
 // type 17). CONFIRMED via listFields (2026-06-03).
 const ATTACHMENTS_COLUMN = "Sales Files";
 
-// Client email on the Service row. Feishu automations expect this column to be
-// set before the `Sales` User column (two-phase create in bitable.ts). Confirm
-// the live name via `bunx convex run feishu/bitable:listFields`.
-const MAIN_EMAIL_COLUMN = "Main Email";
+// Intake source on the Service row — SingleSelect (type 3), NOT Text. CONFIRMED
+// via listFields (2026-06-03): fld0yFgPbj, options `Email ` (trailing space) and
+// `Form`. Outlook add-in writes the `Email ` option on create (source = email
+// intake), never the real clientEmail — that address is used only for Client
+// DuplexLink resolution (domain match via bitable.ts) or the user-selected link.
+const DATA_FROM_COLUMN = "Data From";
+const DATA_FROM_EMAIL_OPTION = "Email ";
 
 export interface ServiceRowInput {
   subject?: string;
@@ -94,24 +97,25 @@ function setText(
   if (value && value.trim() && !skip.has(column)) fields[column] = value;
 }
 
+/** Sets the `Data From` SingleSelect to the email-intake option (not clientEmail). */
+function setDataFromEmailSource(fields: Record<string, unknown>, skip: Set<string>): void {
+  if (!skip.has(DATA_FROM_COLUMN)) fields[DATA_FROM_COLUMN] = DATA_FROM_EMAIL_OPTION;
+}
+
 function resolveSelectedSales(
   input: ServiceRowInput,
 ): { openId: string; name?: string } | undefined {
   return input.selectedSales ?? input.initiator;
 }
 
-/** Non-empty client email required before the `Sales` User column is written. */
-export function requireMainEmailForSalesWrite(clientEmail: string | undefined): string {
-  const mainEmail = clientEmail?.trim() ?? "";
-  if (!mainEmail) {
-    throw new Error("Bitable Service row requires Main Email before Sales");
-  }
-  return mainEmail;
+function shouldPatchSalesAfterCreate(input: ServiceRowInput): boolean {
+  return Boolean(resolveSelectedSales(input)?.openId);
 }
 
 /**
- * Phase-1 create fields: everything except `Sales`. Writes `Main Email` from the
- * confirmed client email so Feishu automations can run before Sales is patched.
+ * Phase-1 create fields: everything except `Sales` (including `Data From` =
+ * `Email `). Sales is patched in a follow-up PUT (bitable.ts) so Feishu Base
+ * automations can settle on the row before the User column is set.
  */
 export function buildServiceCreateFields(
   input: ServiceRowInput,
@@ -121,9 +125,7 @@ export function buildServiceCreateFields(
   const skip = readSkipSet();
   if (skip.size > 0) console.log(`[bitable] DIAG_SKIP_FIELDS active: ${[...skip].join("|")}`);
 
-  const mainEmail = input.clientEmail?.trim();
-  if (mainEmail && !skip.has(MAIN_EMAIL_COLUMN)) fields[MAIN_EMAIL_COLUMN] = mainEmail;
-
+  setDataFromEmailSource(fields, skip);
   setText(fields, skip, REQUEST_NOTE_COLUMN, input.requestNote);
   setText(fields, skip, EMAIL_BODY_COLUMN, input.body);
   setText(fields, skip, "Email Subject", input.subject);
@@ -147,13 +149,13 @@ export function buildServiceCreateFields(
   return fields;
 }
 
-/** Phase-2 patch: `Sales` User column only (after Main Email is on the row). */
+/** Phase-2 patch: `Sales` User column only (after `Data From` on create). */
 export function buildServiceSalesFields(input: ServiceRowInput): Record<string, unknown> {
+  if (!shouldPatchSalesAfterCreate(input)) return {};
+
   const skip = readSkipSet();
   const sales = resolveSelectedSales(input);
   if (!sales?.openId || skip.has("Sales")) return {};
-
-  requireMainEmailForSalesWrite(input.clientEmail);
 
   return { Sales: [{ id: sales.openId }] };
 }

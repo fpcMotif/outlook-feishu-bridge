@@ -198,7 +198,7 @@ describe("createServiceRecord idempotency", () => {
     );
   });
 
-  it("creates without Sales then patches Sales after Main Email is set", async () => {
+  it("creates without Sales then patches Sales in a follow-up PUT", async () => {
     callFeishu
       .mockResolvedValueOnce({ record: { record_id: "rec_service_1" } })
       .mockResolvedValueOnce({ record: { record_id: "rec_service_1" } });
@@ -220,7 +220,7 @@ describe("createServiceRecord idempotency", () => {
     expect(patchOpts).toBeDefined();
     const createJson = createOpts!.json as { fields: Record<string, unknown> };
     const patchJson = patchOpts!.json as { fields: Record<string, unknown> };
-    expect(createJson.fields["Main Email"]).toBe("buyer@acme.com");
+    expect(createJson.fields["Data From"]).toBe("Email ");
     expect("Sales" in createJson.fields).toBe(false);
     expect(patchJson.fields.Sales).toEqual([{ id: "ou_rep" }]);
     expect(patchOpts!.path).toContain("/records/rec_service_1");

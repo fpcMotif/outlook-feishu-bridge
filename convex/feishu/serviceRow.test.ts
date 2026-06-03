@@ -10,7 +10,6 @@ import {
   buildServiceCreateFields,
   buildServiceFields,
   buildServiceSalesFields,
-  requireMainEmailForSalesWrite,
   type ServiceRowInput,
 } from "./serviceRow";
 
@@ -27,23 +26,19 @@ describe("buildServiceFields", () => {
     expect(fields["Email Subject"]).toBe("Inquiry: bulk L-Carnitine");
   });
 
-  it("writes Main Email on create from the confirmed client email", () => {
+  it("create fields write Data From and omit Sales (Sales patched in phase 2)", () => {
     const fields = buildServiceCreateFields(
-      { ...BASE, clientEmail: "buyer@acme.com" },
+      { ...BASE, clientEmail: "buyer@acme.com", selectedSales: { openId: "ou_rep", name: "Rep" } },
       null,
     );
-    expect(fields["Main Email"]).toBe("buyer@acme.com");
+    expect(fields["Data From"]).toBe("Email ");
+    expect(fields["Data From"]).not.toBe("buyer@acme.com");
     expect("Sales" in fields).toBe(false);
-  });
-
-  it("omits Main Email when clientEmail is blank", () => {
-    const fields = buildServiceCreateFields({ ...BASE, clientEmail: "   " }, null);
-    expect("Main Email" in fields).toBe(false);
   });
 });
 
 describe("buildServiceSalesFields", () => {
-  it("writes Sales after Main Email is present", () => {
+  it("writes Sales when a salesperson is selected", () => {
     const fields = buildServiceSalesFields({
       ...BASE,
       clientEmail: "buyer@acme.com",
@@ -53,17 +48,16 @@ describe("buildServiceSalesFields", () => {
   });
 
   it("omits Sales when no salesperson is selected", () => {
-    expect(buildServiceSalesFields({ ...BASE, clientEmail: "buyer@acme.com" })).toEqual({});
+    expect(buildServiceSalesFields(BASE)).toEqual({});
   });
 
-  it("throws when Sales is requested without Main Email", () => {
-    expect(() =>
+  it("omits Sales when no salesperson is selected even with clientEmail", () => {
+    expect(
       buildServiceSalesFields({
         ...BASE,
-        selectedSales: { openId: "ou_rep", name: "Rep" },
+        clientEmail: "buyer@acme.com",
       }),
-    ).toThrow(/Main Email/);
-    expect(() => requireMainEmailForSalesWrite(undefined)).toThrow(/Main Email/);
+    ).toEqual({});
   });
 
   it("accepts legacy initiator as selectedSales", () => {
@@ -77,7 +71,7 @@ describe("buildServiceSalesFields", () => {
 });
 
 describe("buildServiceFields — merged correction payload", () => {
-  it("includes both Main Email and Sales", () => {
+  it("includes Sales in the full correction payload when Data From is present", () => {
     const fields = buildServiceFields(
       {
         ...BASE,
@@ -86,7 +80,7 @@ describe("buildServiceFields — merged correction payload", () => {
       },
       null,
     );
-    expect(fields["Main Email"]).toBe("buyer@acme.com");
+    expect(fields["Data From"]).toBe("Email ");
     expect(fields.Sales).toEqual([{ id: "ou_rep" }]);
   });
 

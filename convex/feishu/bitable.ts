@@ -2,7 +2,12 @@
 import { internalAction, type ActionCtx } from "../_generated/server";
 import { v } from "convex/values";
 import { callFeishu } from "./call";
-import { buildServiceFields, type ServiceRowInput } from "./serviceRow";
+import {
+  buildServiceCreateFields,
+  buildServiceFields,
+  buildServiceSalesFields,
+  type ServiceRowInput,
+} from "./serviceRow";
 import { emailDomain } from "./customers";
 import { isDevFixtureRecordId } from "./devCustomerFixtures";
 import {
@@ -48,6 +53,7 @@ const serviceRowArgs = {
   body: v.optional(v.string()),
   attachments: v.optional(v.array(v.object({ fileToken: v.string() }))),
   selectedCoworkers: v.optional(v.array(selectedCoworkerValidator)),
+  selectedSales: v.optional(initiatorValidator),
   initiator: v.optional(initiatorValidator),
   // ADR-0017: Outlook `item.conversationId` lands in the Service row's
   // `Email Conversation ID` column as the Bitable-to-Outlook join key.
@@ -130,7 +136,7 @@ export function logServiceRecordIntake(
     `[bitable] createServiceRecord clientLinked=${Boolean(resolvedClientRecordId)} ` +
       `note=${args.requestNote?.trim() ? "y" : "n"} bodyLen=${args.body?.length ?? 0} ` +
       `attachments=${args.attachments?.length ?? 0} coworkers=${args.selectedCoworkers?.length ?? 0} ` +
-      `hasInitiator=${Boolean(args.initiator)} subjectLen=${args.subject?.length ?? 0} ` +
+      `hasSales=${Boolean(args.selectedSales?.openId ?? args.initiator?.openId)} subjectLen=${args.subject?.length ?? 0} ` +
       `convIdLen=${args.emailConversationId?.length ?? 0} fieldKeys=[${Object.keys(fields).join(",")}]`,
   );
   if (process.env.BITABLE_DIAG_LOG === "1") {
@@ -142,7 +148,7 @@ export function logServiceRecordIntake(
         resolvedClientRecordId,
         dateOfOffer: args.dateOfOffer,
         emailConversationId: args.emailConversationId,
-        initiator: args.initiator,
+        selectedSales: args.selectedSales ?? args.initiator,
         coworkers: args.selectedCoworkers,
         requestNote: args.requestNote,
         bodyLen: args.body?.length ?? 0,
@@ -158,17 +164,28 @@ export const createServiceRecord = internalAction({
   handler: async (ctx, args): Promise<{ recordId: string }> => {
     const { appToken, tableId } = requireBitableEnv();
     const clientRecordId = await resolveClientRecordId(ctx, appToken, args);
-    const fields = buildServiceFields(args, clientRecordId);
-    logServiceRecordIntake(args, clientRecordId, fields);
+    const createFields = buildServiceCreateFields(args, clientRecordId);
+    logServiceRecordIntake(args, clientRecordId, createFields);
     const data = await callFeishu<{ record?: { record_id: string } }>(ctx, {
       path: `/bitable/v1/apps/${appToken}/tables/${tableId}/records`,
       method: "POST",
       auth: "tenant",
-      json: { fields },
+      json: { fields: createFields },
       query: args.clientToken ? { client_token: args.clientToken } : undefined,
       label: "Bitable create service row",
     });
-    return { recordId: data.record?.record_id ?? "" };
+    const recordId = data.record?.record_id ?? "";
+    const salesFields = buildServiceSalesFields(args);
+    if (recordId && Object.keys(salesFields).length > 0) {
+      await callFeishu<{ record?: { record_id: string } }>(ctx, {
+        path: `/bitable/v1/apps/${appToken}/tables/${tableId}/records/${recordId}`,
+        method: "PUT",
+        auth: "tenant",
+        json: { fields: salesFields },
+        label: "Bitable patch Sales after Main Email",
+      });
+    }
+    return { recordId };
   },
 });
 

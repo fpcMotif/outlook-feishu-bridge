@@ -1,5 +1,5 @@
 /* eslint-disable max-lines-per-function */
-import { useCallback, useMemo, useReducer, useRef, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, type ReactNode } from "react";
 
 import type { Coworker } from "./coworkers";
 import { initialIntakeState, intakeReducer } from "./intakeReducer";
@@ -9,6 +9,7 @@ import { useCustomerSearch } from "../../hooks/useCustomerSearch";
 import { useRequestSync } from "../../hooks/useRequestSync";
 import { useSelfForward, type SelfForwardResult } from "../../hooks/useSelfForward";
 import { CoworkerPicker } from "./CoworkerPicker";
+import { SalesPicker } from "./SalesPicker";
 import { CustomerPicker } from "./CustomerPicker";
 import { ReceivedScreen } from "./ReceivedScreen";
 import { buildCreateCustomerTaskUrl } from "./buildCreateCustomerTaskUrl";
@@ -101,8 +102,24 @@ export function RequestIntakeScreen({
     fulfilledRequestCount: filledCount,
   };
 
+  useEffect(() => {
+    if (!user?.openId) return;
+    dispatch({
+      type: "salesDefaulted",
+      sales: {
+        openId: user.openId,
+        name: user.userName ?? "You",
+        avatarUrl: user.avatarUrl,
+      },
+    });
+  }, [user?.openId, user?.userName, user?.avatarUrl]);
+
   const selectCoworker = (coworker: Coworker) => {
     dispatch({ type: "coworkerSelected", coworker });
+  };
+
+  const selectSales = (sales: Coworker) => {
+    dispatch({ type: "salesSelected", sales });
   };
 
   const openCreateCustomerMock = useCallback((customerName: string) => {
@@ -241,6 +258,15 @@ export function RequestIntakeScreen({
         <IntakeHeader profileSlot={profileSlot} />
         <div className="space-y-7">
           <CoworkerPicker
+            salesSlot={
+              <SalesPicker
+                sessionId={sessionId}
+                userAccessToken={userAccessToken}
+                selectedSales={state.selectedSales}
+                onSelect={selectSales}
+                usePreviewCoworkers={usePreviewCoworkers}
+              />
+            }
             customerSlot={
               <CustomerPicker
                 directory={customerDirectory}

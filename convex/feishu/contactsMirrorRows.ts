@@ -61,14 +61,16 @@ export interface ContactUpsertRow {
   nameFold?: string;
 }
 
-// Slim row the colleague picker preloads (ADR-0024). No avatarUrl: the URLs are
-// volatile (ADR-0003) and shipping <=800 of them bloats the login payload, so
-// avatars are lazy-loaded on selection. Pinyin fields default to "" client-side.
+// Slim row the colleague picker preloads (ADR-0024). Includes avatarUrl so the
+// search dropdown shows real photos; the URL is volatile (ADR-0003) so the
+// consumer must fall back to initials/icon on a 404. Pinyin fields default to ""
+// client-side.
 export interface ContactPickerRow {
   openId: string;
   name: string;
   email?: string;
   department?: string;
+  avatarUrl?: string;
   pinyinFull: string;
   pinyinInitials: string;
   pinyinAlts: string;

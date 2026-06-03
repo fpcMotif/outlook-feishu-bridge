@@ -34,6 +34,7 @@ const intakeArgs = {
   dateTimeCreated: v.optional(v.number()),
   clientEmail: v.optional(v.string()),
   selectedCustomer: v.optional(selectedCustomerValidator),
+  selectedSales: v.optional(initiatorValidator),
   initiator: v.optional(initiatorValidator),
   // ADR-0022: the SPA now submits one consolidated note instead of the per-
   // category requestSelections. `body` (already above) rides to the Base too.
@@ -74,6 +75,7 @@ interface RequestSyncArgs {
   dateTimeCreated?: number;
   clientEmail?: string;
   selectedCustomer?: { recordId: string; name: string };
+  selectedSales?: { openId: string; name?: string };
   initiator?: { openId: string; name?: string };
   requestNote?: string;
   attachments?: { fileToken: string }[];
@@ -97,10 +99,14 @@ function buildEmailRecordBackup(args: RequestSyncArgs, sentToBitable: boolean) {
       requestNote: args.requestNote,
       selectedCoworkers: args.selectedCoworkers,
       selectedCustomer: args.selectedCustomer,
-      initiator: args.initiator,
+      initiator: args.selectedSales ?? args.initiator,
     },
     { sentToBitable },
   );
+}
+
+function resolveSyncSales(args: RequestSyncArgs): RequestSyncArgs["selectedSales"] {
+  return args.selectedSales ?? args.initiator;
 }
 
 async function markFailure(
@@ -126,6 +132,7 @@ async function createServiceRow(
   selectedCoworkers: SelectedCoworker[],
   clientToken: string,
 ): Promise<string> {
+  const selectedSales = resolveSyncSales(args);
   const { recordId } = await ctx.runAction(internal.feishu.bitable.createServiceRecord, {
     subject: args.subject,
     clientEmail: args.clientEmail ?? args.from,
@@ -135,7 +142,8 @@ async function createServiceRow(
     body: args.body,
     attachments: args.attachments,
     selectedCoworkers,
-    initiator: args.initiator,
+    selectedSales,
+    initiator: selectedSales,
     emailConversationId: args.conversationId,
     clientToken,
   });
@@ -234,6 +242,7 @@ export const reconcilePendingBitableSync = internalAction({
             // the full body is never persisted on the backup.
             body: record.bodyPreview,
             selectedCoworkers,
+            selectedSales: record.initiator,
             initiator: record.initiator,
             emailConversationId: record.conversationId,
             clientToken: record.bitableClientToken,
@@ -279,7 +288,8 @@ export const correctRequest = action({
       body: args.body,
       attachments: args.attachments,
       selectedCoworkers,
-      initiator: args.initiator,
+      selectedSales: resolveSyncSales(args),
+      initiator: resolveSyncSales(args),
       emailConversationId: args.conversationId,
     });
     return { recordId, detailUrl: buildConfiguredBitableRecordDetailUrl(recordId) };

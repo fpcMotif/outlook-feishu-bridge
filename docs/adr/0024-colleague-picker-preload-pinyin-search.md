@@ -36,7 +36,7 @@ We ran an `ultracode` design workflow (`design-contact-search`, 18 agents): 4 ri
 
 **Freshness — biweekly + refresh only (decided).** No live-Feishu fallback. A brand-new hire/rename is invisible until the next biweekly sync or a panel-open `refresh()` kick. This fully eliminates the cross-border per-keystroke path.
 
-**Avatars — dropped from the preload (decided).** `listForPicker` does **not** ship `avatarUrl`. Avatar URLs are volatile (ADR-0003) and shipping ≤800 of them inflates the login payload; fetch/refresh the avatar lazily on selection. The picker falls back to initials.
+**Avatars — included in the preload (revised 2026-06-03).** Originally dropped (lazy-load on selection) to keep the payload lean, but the search *dropdown* needs photos, so `listForPicker` ships `avatarUrl` after all (~5–80 KB extra across ≤800 rows — acceptable at this scale). The URLs are volatile (ADR-0003); `CoworkerOption` already falls back to the coworker icon on a 404, and the biweekly sync re-stamps them.
 
 ## Build refinements (2026-06-03)
 

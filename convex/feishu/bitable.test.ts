@@ -22,11 +22,7 @@ const SERVICE_TABLE_ID = "tbl_service";
 
 type CreateServiceRecordHandler = (
   ctx: ActionCtx,
-  args: {
-    subject?: string;
-    selectedCoworkers?: { openId: string; name: string }[];
-    clientToken?: string;
-  },
+  args: ServiceRowInput & { clientToken?: string },
 ) => Promise<{ recordId: string }>;
 
 const createServiceRecordHandler = (
@@ -200,5 +196,33 @@ describe("createServiceRecord idempotency", () => {
         query: { client_token: "client-token-1" },
       }),
     );
+  });
+
+  it("creates without Sales then patches Sales after Main Email is set", async () => {
+    callFeishu
+      .mockResolvedValueOnce({ record: { record_id: "rec_service_1" } })
+      .mockResolvedValueOnce({ record: { record_id: "rec_service_1" } });
+
+    await expect(
+      createServiceRecordHandler(ctx, {
+        subject: "Need quote",
+        clientEmail: "buyer@acme.com",
+        selectedCoworkers: [{ openId: "ou_jenny", name: "Jenny" }],
+        selectedSales: { openId: "ou_rep", name: "Rep" },
+      }),
+    ).resolves.toEqual({ recordId: "rec_service_1" });
+
+    const createOpts = callFeishu.mock.calls.find(
+      ([, opts]) => opts.method === "POST" && opts.path.endsWith("/records"),
+    )?.[1];
+    const patchOpts = callFeishu.mock.calls.find(([, opts]) => opts.method === "PUT")?.[1];
+    expect(createOpts).toBeDefined();
+    expect(patchOpts).toBeDefined();
+    const createJson = createOpts!.json as { fields: Record<string, unknown> };
+    const patchJson = patchOpts!.json as { fields: Record<string, unknown> };
+    expect(createJson.fields["Main Email"]).toBe("buyer@acme.com");
+    expect("Sales" in createJson.fields).toBe(false);
+    expect(patchJson.fields.Sales).toEqual([{ id: "ou_rep" }]);
+    expect(patchOpts!.path).toContain("/records/rec_service_1");
   });
 });

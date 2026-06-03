@@ -77,7 +77,7 @@ function CoworkerSelectedLeading({ avatarUrl }: { avatarUrl: string }) {
   );
 }
 
-function CoworkerOption({
+export function CoworkerOption({
   coworker,
   selected,
   onSelect,
@@ -167,6 +167,7 @@ function CoworkerSearchPanel({
 
 export function CoworkerPicker({
   customerSlot,
+  salesSlot,
   sessionId,
   userAccessToken,
   selectedCoworker: selectedCoworkerProp,
@@ -174,6 +175,8 @@ export function CoworkerPicker({
   usePreviewCoworkers = false,
 }: {
   customerSlot?: React.ReactNode;
+  /** Sales rep row — rendered between customer and coworker (ADR-0014 picker). */
+  salesSlot?: React.ReactNode;
   sessionId: string;
   userAccessToken?: string;
   /** Authoritative selection from intake state (survives outside search/recents maps). */
@@ -288,12 +291,17 @@ export function CoworkerPicker({
       </CoworkerSearchPanel>
     ) : null;
 
+  const stackDivider = (above: React.ReactNode, below: React.ReactNode) =>
+    above && below ? <TaskpaneInsetDivider /> : null;
+
   return (
-    <TaskpaneSection id="client-coworker-title" title="Customer & coworker">
+    <TaskpaneSection id="client-coworker-title" title="Customer, sales & coworker">
       <TaskpaneCardBoundaryContext.Provider value={cardRef}>
         <section ref={cardRef} className="bg-card-soft overflow-visible rounded-xl shadow-edge">
         {customerSlot ? <div>{customerSlot}</div> : null}
-        {customerSlot && coworkerContent ? <TaskpaneInsetDivider /> : null}
+        {stackDivider(customerSlot, salesSlot)}
+        {salesSlot ? <div>{salesSlot}</div> : null}
+        {stackDivider(salesSlot ?? customerSlot, coworkerContent)}
         {coworkerContent ? <div>{coworkerContent}</div> : null}
         </section>
       </TaskpaneCardBoundaryContext.Provider>

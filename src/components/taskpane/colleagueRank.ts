@@ -13,6 +13,7 @@ export interface ColleagueRow {
   name: string;
   email?: string;
   department?: string;
+  avatarUrl?: string;
   pinyinFull: string;
   pinyinInitials: string;
   pinyinAlts: string;

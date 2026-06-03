@@ -30,6 +30,8 @@ describe("initialIntakeState", () => {
       mailFrom: "a@b.com",
       screen: "build",
       selectedCoworker: null,
+      selectedSales: null,
+      salesTouched: false,
       selectedCustomer: null,
       customerTouched: false,
       bitableRecordId: null,
@@ -38,6 +40,36 @@ describe("initialIntakeState", () => {
       selfForwardError: null,
     });
     expect(s.notes).toEqual({});
+  });
+});
+
+describe("intakeReducer sales selection", () => {
+  const base = initialIntakeState("a@b.com");
+
+  it("salesDefaulted sets self only when untouched", () => {
+    const once = intakeReducer(base, {
+      type: "salesDefaulted",
+      sales: { openId: "ou_self", name: "You" },
+    });
+    expect(once.selectedSales).toEqual({ openId: "ou_self", name: "You" });
+    const again = intakeReducer(once, {
+      type: "salesDefaulted",
+      sales: { openId: "ou_other", name: "Other" },
+    });
+    expect(again.selectedSales?.openId).toBe("ou_self");
+  });
+
+  it("salesSelected overrides and blocks later defaults", () => {
+    const picked = intakeReducer(base, {
+      type: "salesSelected",
+      sales: { openId: "ou_other", name: "Other" },
+    });
+    const blocked = intakeReducer(picked, {
+      type: "salesDefaulted",
+      sales: { openId: "ou_self", name: "You" },
+    });
+    expect(blocked.selectedSales?.openId).toBe("ou_other");
+    expect(blocked.salesTouched).toBe(true);
   });
 });
 
@@ -500,6 +532,8 @@ describe("intakeReducer startedOver reset", () => {
       notes: {},
       screen: "build",
       selectedCoworker: null,
+      selectedSales: null,
+      salesTouched: false,
       selectedCustomer: null,
       customerTouched: false,
       bitableRecordId: null,

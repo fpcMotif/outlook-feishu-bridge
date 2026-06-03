@@ -34,6 +34,11 @@ const EMAIL_BODY_COLUMN = "Email Content";
 // type 17). CONFIRMED via listFields (2026-06-03).
 const ATTACHMENTS_COLUMN = "Sales Files";
 
+// Client email on the Service row. Feishu automations expect this column to be
+// set before the `Sales` User column (two-phase create in bitable.ts). Confirm
+// the live name via `bunx convex run feishu/bitable:listFields`.
+const MAIN_EMAIL_COLUMN = "Main Email";
+
 export interface ServiceRowInput {
   subject?: string;
   clientEmail?: string;
@@ -51,6 +56,9 @@ export interface ServiceRowInput {
   // single `Attachments` column as [{ file_token }] (ADR-0022).
   attachments?: { fileToken: string }[];
   selectedCoworkers?: { openId: string; name: string; avatarUrl?: string }[];
+  /** Sales rep on the row (picker override; defaults to signed-in user in the SPA). */
+  selectedSales?: { openId: string; name?: string };
+  /** @deprecated Use selectedSales — kept for reconcile rows stored before the picker. */
   initiator?: { openId: string; name?: string };
   // Outlook `item.conversationId` — the salesperson-mailbox-local thread id for
   // the original client email. Lands in the Service row's `Email Conversation ID`
@@ -86,14 +94,26 @@ function setText(
   if (value && value.trim() && !skip.has(column)) fields[column] = value;
 }
 
+function resolveSelectedSales(
+  input: ServiceRowInput,
+): { openId: string; name?: string } | undefined {
+  return input.selectedSales ?? input.initiator;
+}
+
+/** Non-empty client email required before the `Sales` User column is written. */
+export function requireMainEmailForSalesWrite(clientEmail: string | undefined): string {
+  const mainEmail = clientEmail?.trim() ?? "";
+  if (!mainEmail) {
+    throw new Error("Bitable Service row requires Main Email before Sales");
+  }
+  return mainEmail;
+}
+
 /**
- * Build the Service row's `fields` — "derivable only" (ADR-0010) plus the
- * additions ADR-0014 introduced (`Sales` Initiator + `Email Subject`).
- * Business Branch / Service Type are intentionally left blank (filled
- * manually in Bitable). The `Request Type` MultiSelect is likewise NOT written
- * — Feishu owns that column (see the FORBIDDEN note at the top of the file).
+ * Phase-1 create fields: everything except `Sales`. Writes `Main Email` from the
+ * confirmed client email so Feishu automations can run before Sales is patched.
  */
-export function buildServiceFields(
+export function buildServiceCreateFields(
   input: ServiceRowInput,
   clientRecordId: string | null,
 ): Record<string, unknown> {
@@ -101,17 +121,14 @@ export function buildServiceFields(
   const skip = readSkipSet();
   if (skip.size > 0) console.log(`[bitable] DIAG_SKIP_FIELDS active: ${[...skip].join("|")}`);
 
-  // Plain-Text columns. Request Type stays FORBIDDEN (Feishu owns it) — only the
-  // salesperson's note crosses. `Quotation Note` + `Email Content` are ADR-0022 (body
-  // is full / no cap); `Email Subject` is ADR-0014; `Email Conversation ID` is the
-  // ADR-0017 Bitable→Outlook join key.
+  const mainEmail = input.clientEmail?.trim();
+  if (mainEmail && !skip.has(MAIN_EMAIL_COLUMN)) fields[MAIN_EMAIL_COLUMN] = mainEmail;
+
   setText(fields, skip, REQUEST_NOTE_COLUMN, input.requestNote);
   setText(fields, skip, EMAIL_BODY_COLUMN, input.body);
   setText(fields, skip, "Email Subject", input.subject);
   setText(fields, skip, "Email Conversation ID", input.emailConversationId);
 
-  // ADR-0022: staged Drive file tokens -> the single Attachment cell. On WRITE
-  // only file_token is load-bearing (name/type/size/url are read-only).
   if (input.attachments && input.attachments.length > 0 && !skip.has(ATTACHMENTS_COLUMN)) {
     fields[ATTACHMENTS_COLUMN] = input.attachments.map((a) => ({ file_token: a.fileToken }));
   }
@@ -125,12 +142,31 @@ export function buildServiceFields(
 
   if (input.dateOfOffer !== undefined && !skip.has("Date of Offer")) fields["Date of Offer"] = input.dateOfOffer;
 
-  // The Client DuplexLink is the business-critical customer link. It must not
-  // be disabled by the temporary diagnostic skip switch.
   if (clientRecordId) fields["Client"] = [clientRecordId];
 
-  // ADR-0014: the Initiator lands in the `Sales` User column.
-  if (input.initiator?.openId && !skip.has("Sales")) fields["Sales"] = [{ id: input.initiator.openId }];
-
   return fields;
+}
+
+/** Phase-2 patch: `Sales` User column only (after Main Email is on the row). */
+export function buildServiceSalesFields(input: ServiceRowInput): Record<string, unknown> {
+  const skip = readSkipSet();
+  const sales = resolveSelectedSales(input);
+  if (!sales?.openId || skip.has("Sales")) return {};
+
+  requireMainEmailForSalesWrite(input.clientEmail);
+
+  return { Sales: [{ id: sales.openId }] };
+}
+
+/**
+ * Full correction payload (create fields + Sales). Used by bounded PUT updates.
+ */
+export function buildServiceFields(
+  input: ServiceRowInput,
+  clientRecordId: string | null,
+): Record<string, unknown> {
+  return {
+    ...buildServiceCreateFields(input, clientRecordId),
+    ...buildServiceSalesFields(input),
+  };
 }

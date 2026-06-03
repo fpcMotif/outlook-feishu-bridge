@@ -29,9 +29,9 @@ const SEARCH_LATENCY_BUDGET_MS = 20;
 let sessionMaxMs = 0;
 
 function toCoworker(row: ColleagueRow): Coworker {
-  // avatarUrl is intentionally absent — the dropdown falls back to the coworker
-  // icon (ADR-0024: avatars are lazy-loaded on selection, not shipped in bulk).
-  return { openId: row.openId, name: row.name };
+  // avatarUrl is volatile (ADR-0003); CoworkerOption falls back to the icon if it
+  // 404s. Included so the search dropdown shows real photos (ADR-0024 revision).
+  return { openId: row.openId, name: row.name, avatarUrl: row.avatarUrl };
 }
 
 // Real Feishu directory search, now served from the preloaded mirror (ADR-0024;

@@ -255,7 +255,7 @@ describe("RequestIntakeScreen sync wiring", () => {
   // call so the backend can write the `Sales` User column. Distinct from the
   // assignee Coworker — the salesperson who clicked Sync vs the one who'll
   // handle the request.
-  it("passes the signed-in user as the Initiator on sync", async () => {
+  it("passes the signed-in user as selectedSales on sync by default", async () => {
     renderScreen({ openId: "ou_jenny_initiator", userName: "Jenny Xu" });
     fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
       target: { value: "Need a quarterly L-Carnitine quote." },
@@ -265,6 +265,7 @@ describe("RequestIntakeScreen sync wiring", () => {
 
     await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(1));
     expect(mockSync.mock.calls[0][0]).toMatchObject({
+      selectedSales: { openId: "ou_jenny_initiator", name: "Jenny Xu" },
       initiator: { openId: "ou_jenny_initiator", name: "Jenny Xu" },
     });
   });

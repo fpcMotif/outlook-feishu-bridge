@@ -34,7 +34,7 @@ export function TaskpaneSelectionRow({
   label: string;
   onChange?: () => void;
   changeLabel?: string;
-  dataRow?: "customer" | "coworker";
+  dataRow?: "customer" | "sales" | "coworker";
 }) {
   const rowProps = dataRow ? { [`data-${dataRow}-row`]: "true" as const } : {};
 

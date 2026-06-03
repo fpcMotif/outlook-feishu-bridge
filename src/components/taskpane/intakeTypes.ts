@@ -39,6 +39,8 @@ export interface IntakeState {
   mailFrom: string;
   screen: IntakeScreenName;
   selectedCoworker: Coworker | null;
+  selectedSales: Coworker | null;
+  salesTouched: boolean;
   selectedCustomer: CustomerRecord | null;
   customerTouched: boolean;
   bitableRecordId: string | null;
@@ -59,6 +61,8 @@ export type IntakeAction =
   | { type: "noteChanged"; id: string; value: string }
   | { type: "screenChanged"; screen: IntakeScreenName }
   | { type: "coworkerSelected"; coworker: Coworker }
+  | { type: "salesSelected"; sales: Coworker }
+  | { type: "salesDefaulted"; sales: Coworker }
   | { type: "customerAutoMatched"; customer: CustomerRecord | null }
   | { type: "customerOverridden"; customer: CustomerRecord | null }
   | { type: "syncStarted" }

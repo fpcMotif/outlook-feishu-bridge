@@ -29,7 +29,16 @@ export function buildSyncPayload(
     selectedCustomer: state.selectedCustomer
       ? { recordId: state.selectedCustomer.recordId, name: state.selectedCustomer.name }
       : undefined,
-    initiator: user?.openId ? { openId: user.openId, name: user.userName } : undefined,
+    selectedSales: state.selectedSales
+      ? { openId: state.selectedSales.openId, name: state.selectedSales.name }
+      : user?.openId
+        ? { openId: user.openId, name: user.userName }
+        : undefined,
+    initiator: state.selectedSales
+      ? { openId: state.selectedSales.openId, name: state.selectedSales.name }
+      : user?.openId
+        ? { openId: user.openId, name: user.userName }
+        : undefined,
     requestNote,
     selectedCoworkers: state.selectedCoworker ? [state.selectedCoworker] : [],
   };

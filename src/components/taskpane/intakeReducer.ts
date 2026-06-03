@@ -34,6 +34,8 @@ export function initialIntakeState(mailFrom: string): IntakeState {
     mailFrom,
     screen: "build",
     selectedCoworker: null,
+    selectedSales: null,
+    salesTouched: false,
     selectedCustomer: null,
     customerTouched: false,
     bitableRecordId: null,
@@ -68,6 +70,11 @@ export function intakeReducer(
       return { ...state, screen: action.screen };
     case "coworkerSelected":
       return { ...state, selectedCoworker: action.coworker };
+    case "salesSelected":
+      return { ...state, selectedSales: action.sales, salesTouched: true };
+    case "salesDefaulted":
+      if (state.salesTouched || state.selectedSales) return state;
+      return { ...state, selectedSales: action.sales };
     case "customerAutoMatched":
       if (state.customerTouched) return state;
       return { ...state, selectedCustomer: action.customer };
@@ -238,6 +245,8 @@ export function intakeReducer(
         notes: {},
         screen: "build",
         selectedCoworker: null,
+        selectedSales: null,
+        salesTouched: false,
         selectedCustomer: null,
         customerTouched: false,
         bitableRecordId: null,

@@ -251,9 +251,9 @@ export const search = query({
 
 // ADR-0024: bounded preload for the colleague picker. Ships the whole directory
 // (<=800) once per login; the client ranks it in memory per keystroke (no search
-// index, no per-keystroke server call). Slim projection with NO avatarUrl — the
-// URLs are volatile (ADR-0003) and <=800 of them would bloat the login payload,
-// so avatars are lazy-loaded on selection. The read-path guard mirrors the
+// index, no per-keystroke server call). Includes avatarUrl so the dropdown shows
+// real photos (~5-80KB extra at this scale); the URL is volatile (ADR-0003) so
+// the client falls back to the icon on a 404. The read-path guard mirrors the
 // sync-time exceedsAssumedMax alarm so a directory that outgrows the bound is
 // loud, not silently truncated.
 export const listForPicker = query({
@@ -274,6 +274,7 @@ export const listForPicker = query({
       name: row.name,
       email: row.email,
       department: row.department,
+      avatarUrl: row.avatarUrl,
       pinyinFull: row.pinyinFull ?? "",
       pinyinInitials: row.pinyinInitials ?? "",
       pinyinAlts: row.pinyinAlts ?? "",

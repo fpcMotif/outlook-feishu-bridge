@@ -6,7 +6,13 @@
 
 import { describe, expect, it } from "vitest";
 
-import { buildServiceFields, type ServiceRowInput } from "./serviceRow";
+import {
+  buildServiceCreateFields,
+  buildServiceFields,
+  buildServiceSalesFields,
+  requireMainEmailForSalesWrite,
+  type ServiceRowInput,
+} from "./serviceRow";
 
 const BASE: ServiceRowInput = {
   subject: "Inquiry: bulk L-Carnitine",
@@ -21,23 +27,67 @@ describe("buildServiceFields", () => {
     expect(fields["Email Subject"]).toBe("Inquiry: bulk L-Carnitine");
   });
 
-  // ADR-0014: the Initiator (signed-in salesperson) lands in the `Sales` User
-  // column in Feishu's official user-field shape `[{ id: open_id }]` — verified
-  // against larksuite/oapi-sdk-go in ADR-0012 / ADR-0014.
-  it("writes the Initiator open_id to the `Sales` User column when present", () => {
-    const fields = buildServiceFields(
-      { ...BASE, initiator: { openId: "ou_initiator", name: "Florian Meurer" } },
+  it("writes Main Email on create from the confirmed client email", () => {
+    const fields = buildServiceCreateFields(
+      { ...BASE, clientEmail: "buyer@acme.com" },
       null,
     );
-    expect(fields["Sales"]).toEqual([{ id: "ou_initiator" }]);
+    expect(fields["Main Email"]).toBe("buyer@acme.com");
+    expect("Sales" in fields).toBe(false);
   });
 
-  // Initiator is optional — when not provided (e.g. dev-preview path with no
-  // real Feishu login), the Sales column is simply not set; the row still
-  // creates successfully.
-  it("omits the `Sales` column entirely when no Initiator is provided", () => {
-    const fields = buildServiceFields(BASE, null);
-    expect("Sales" in fields).toBe(false);
+  it("omits Main Email when clientEmail is blank", () => {
+    const fields = buildServiceCreateFields({ ...BASE, clientEmail: "   " }, null);
+    expect("Main Email" in fields).toBe(false);
+  });
+});
+
+describe("buildServiceSalesFields", () => {
+  it("writes Sales after Main Email is present", () => {
+    const fields = buildServiceSalesFields({
+      ...BASE,
+      clientEmail: "buyer@acme.com",
+      selectedSales: { openId: "ou_rep", name: "Rep" },
+    });
+    expect(fields.Sales).toEqual([{ id: "ou_rep" }]);
+  });
+
+  it("omits Sales when no salesperson is selected", () => {
+    expect(buildServiceSalesFields({ ...BASE, clientEmail: "buyer@acme.com" })).toEqual({});
+  });
+
+  it("throws when Sales is requested without Main Email", () => {
+    expect(() =>
+      buildServiceSalesFields({
+        ...BASE,
+        selectedSales: { openId: "ou_rep", name: "Rep" },
+      }),
+    ).toThrow(/Main Email/);
+    expect(() => requireMainEmailForSalesWrite(undefined)).toThrow(/Main Email/);
+  });
+
+  it("accepts legacy initiator as selectedSales", () => {
+    const fields = buildServiceSalesFields({
+      ...BASE,
+      clientEmail: "buyer@acme.com",
+      initiator: { openId: "ou_legacy", name: "Legacy" },
+    });
+    expect(fields.Sales).toEqual([{ id: "ou_legacy" }]);
+  });
+});
+
+describe("buildServiceFields — merged correction payload", () => {
+  it("includes both Main Email and Sales", () => {
+    const fields = buildServiceFields(
+      {
+        ...BASE,
+        clientEmail: "buyer@acme.com",
+        selectedSales: { openId: "ou_rep", name: "Rep" },
+      },
+      null,
+    );
+    expect(fields["Main Email"]).toBe("buyer@acme.com");
+    expect(fields.Sales).toEqual([{ id: "ou_rep" }]);
   });
 
   it("always writes the Client DuplexLink when a customer record id is resolved", () => {

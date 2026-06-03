@@ -1,26 +1,35 @@
-// Pure helpers for the attachment picker (ADR-0022). No Office.js and no I/O —
-// the picker's selection filtering and upload validation are unit-tested here in
-// isolation; the byte download + Convex/Drive upload live in their own modules.
+// Pure helpers for the attachment picker (ADR-0022). No Office.js and no I/O;
+// selection filtering and upload validation are unit-tested here in isolation.
 
 import type { AttachmentInfo } from "./mailItem";
 
 // ADR-0022 decision #4: single-shot Feishu Drive upload caps a file at 20 MB, and
-// v1 caps the cell at 10 files (pending the UNVERIFIED per-cell Feishu limit).
+// v1 caps the selected cell payload at 10 files.
 export const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 export const MAX_ATTACHMENT_COUNT = 10;
 
-// Extensions accepted for user UPLOADS (pdf / excel / word / image). Existing mail
-// attachments are offered as-is — they are already real files from the inbox.
+// Extensions accepted for user uploads. Existing mail attachments are offered
+// as-is because they are already real files from the inbox.
 export const ALLOWED_UPLOAD_EXTENSIONS = [
   "pdf",
-  "xls", "xlsx", "csv",
-  "doc", "docx",
-  "png", "jpg", "jpeg", "gif", "webp", "bmp",
+  "xls",
+  "xlsx",
+  "csv",
+  "doc",
+  "docx",
+  "png",
+  "jpg",
+  "jpeg",
+  "gif",
+  "webp",
+  "bmp",
 ];
 
-// Mail attachments the picker may offer: real file attachments only — inline
+// Mail attachments the picker may offer: real file attachments only. Inline
 // images and cloud/item attachment types are dropped (ADR-0022).
-export function selectableMailAttachments(attachments: AttachmentInfo[]): AttachmentInfo[] {
+export function selectableMailAttachments(
+  attachments: AttachmentInfo[],
+): AttachmentInfo[] {
   return attachments.filter((a) => a.attachmentType === "file" && !a.isInline);
 }
 
@@ -41,10 +50,20 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-// Validate one candidate upload by name + size. Returns null when acceptable, else
-// a short human reason shown inline next to the file (never a blocking alert).
-export function uploadRejectionReason(file: { name: string; size: number }): string | null {
+// Attachment row subtitle: size only (no date or other metadata).
+export function formatAttachmentMeta(bytes: number): string {
+  return formatBytes(bytes);
+}
+
+// Validate one candidate upload by name + size. Returns null when acceptable,
+// otherwise a short human reason shown inline next to the file.
+export function uploadRejectionReason(file: {
+  name: string;
+  size: number;
+}): string | null {
   if (!isAllowedUploadName(file.name)) return "unsupported type";
-  if (file.size > MAX_ATTACHMENT_BYTES) return `${formatBytes(file.size)} exceeds 20 MB`;
+  if (file.size > MAX_ATTACHMENT_BYTES) {
+    return `${formatBytes(file.size)} exceeds 20 MB`;
+  }
   return null;
 }

@@ -18,4 +18,21 @@ export default defineConfig(({ mode }) => ({
   server: {
     port: 3000,
   },
+  build: {
+    rolldownOptions: {
+      output: {
+        // Split heavy vendors into their own chunks so no single chunk trips
+        // Rolldown's 500 kB warning and browsers can cache them independently of
+        // app code. Order matters: specific groups before the catch-all.
+        manualChunks(id: string) {
+          if (!id.includes('node_modules')) return undefined
+          if (/[\\/](react|react-dom|scheduler)[\\/]/.test(id)) return 'react'
+          if (id.includes('@sentry')) return 'sentry'
+          if (id.includes('convex')) return 'convex'
+          if (id.includes('turndown')) return 'turndown'
+          return 'vendor'
+        },
+      },
+    },
+  },
 }))

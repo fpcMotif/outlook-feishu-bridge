@@ -5,6 +5,7 @@ import {
   base64ToBlob,
   mimeFromName,
   postBytesToConvex,
+  postBytesToConvexWithProgress,
   stageAndUploadAttachments,
   type AttachmentStagingDeps,
 } from "./attachmentUpload";
@@ -79,6 +80,28 @@ describe("stageAndUploadAttachments", () => {
       { storageId: "st_b", fileName: "b.png" },
     ]);
   });
+
+  it("skips byte upload when a source already has a storageId", async () => {
+    const deps: AttachmentStagingDeps = {
+      generateUploadUrl: vi.fn(),
+      uploadBytes: vi.fn(),
+      uploadToDrive: vi.fn().mockResolvedValue({
+        attachments: [{ fileToken: "tok_cached" }],
+      }),
+    };
+
+    await expect(
+      stageAndUploadAttachments(deps, [
+        { name: "cached.pdf", storageId: "st_cached" },
+      ]),
+    ).resolves.toEqual([{ fileToken: "tok_cached" }]);
+
+    expect(deps.generateUploadUrl).not.toHaveBeenCalled();
+    expect(deps.uploadBytes).not.toHaveBeenCalled();
+    expect(deps.uploadToDrive).toHaveBeenCalledWith([
+      { storageId: "st_cached", fileName: "cached.pdf" },
+    ]);
+  });
 });
 
 describe("postBytesToConvex", () => {
@@ -111,5 +134,51 @@ describe("postBytesToConvex", () => {
     await expect(
       postBytesToConvex("https://up/1", new Blob(["x"])),
     ).rejects.toThrow(/413/);
+  });
+});
+
+describe("postBytesToConvexWithProgress", () => {
+  class MockXHR {
+    status = 200;
+    responseText = JSON.stringify({ storageId: "st_xhr" });
+    private xhrHandlers: Record<string, () => void> = {};
+    private uploadHandlers: Record<string, (e: ProgressEvent) => void> = {};
+    // Real XMLHttpRequestUpload / XMLHttpRequest expose addEventListener, not
+    // just on<event> setters — mirror that so the production code path is tested.
+    upload = {
+      addEventListener: (type: string, cb: (e: ProgressEvent) => void): void => {
+        this.uploadHandlers[type] = cb;
+      },
+    };
+    open = vi.fn();
+    setRequestHeader = vi.fn();
+    addEventListener = (type: string, cb: () => void): void => {
+      this.xhrHandlers[type] = cb;
+    };
+    send = vi.fn(() => {
+      this.uploadHandlers.progress?.({
+        lengthComputable: true,
+        loaded: 50,
+        total: 100,
+      } as ProgressEvent);
+      this.xhrHandlers.load?.();
+    });
+  }
+
+  it("reports upload progress then returns the storageId", async () => {
+    const progress = vi.fn();
+    const Original = globalThis.XMLHttpRequest;
+    vi.stubGlobal("XMLHttpRequest", MockXHR as unknown as typeof XMLHttpRequest);
+
+    await expect(
+      postBytesToConvexWithProgress(
+        "https://up/1",
+        new Blob(["xx"], { type: "application/pdf" }),
+        progress,
+      ),
+    ).resolves.toEqual({ storageId: "st_xhr" });
+
+    expect(progress).toHaveBeenCalledWith(50);
+    globalThis.XMLHttpRequest = Original;
   });
 });

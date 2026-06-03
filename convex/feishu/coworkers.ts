@@ -177,9 +177,7 @@ export const setCoworkerSearchCache = internalMutation({
     const [current, ...duplicates] = existing;
     if (current) {
       await ctx.db.patch(current._id, payload);
-      for (const duplicate of duplicates) {
-        await ctx.db.delete(duplicate._id);
-      }
+      await Promise.all(duplicates.map((duplicate) => ctx.db.delete(duplicate._id)));
       console.log(
         `[coworkers] cache update session=${args.sessionId} q="${normalized.slice(0, 40)}" size=${args.results.length}`,
       );
@@ -203,9 +201,7 @@ export const setCoworkerSearchCache = internalMutation({
     if (entries.length <= COWORKER_SEARCH_CACHE_MAX_ENTRIES_PER_SESSION) return;
 
     const toDrop = entries.slice(COWORKER_SEARCH_CACHE_MAX_ENTRIES_PER_SESSION);
-    for (const row of toDrop) {
-      await ctx.db.delete(row._id);
-    }
+    await Promise.all(toDrop.map((row) => ctx.db.delete(row._id)));
     console.log(
       `[coworkers] cache eviction session=${args.sessionId} removed=${toDrop.length} keeping=${Math.min(entries.length, COWORKER_SEARCH_CACHE_MAX_ENTRIES_PER_SESSION)}`,
     );
@@ -220,9 +216,7 @@ export const cleanupExpiredCoworkerSearchCache = internalMutation({
       .query("coworkerSearchCache")
       .withIndex("by_cachedAt", (q) => q.lt("cachedAt", cutoff))
       .take(COWORKER_SEARCH_CACHE_CLEANUP_BATCH_SIZE);
-    for (const row of expired) {
-      await ctx.db.delete(row._id);
-    }
+    await Promise.all(expired.map((row) => ctx.db.delete(row._id)));
     if (expired.length > 0) {
       console.log(`[coworkers] cache ttl cleanup removed=${expired.length}`);
     }

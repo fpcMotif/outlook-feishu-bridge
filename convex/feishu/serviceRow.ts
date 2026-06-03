@@ -17,19 +17,22 @@
 // the mapping was removed. Do not re-add a Request Type write.
 
 // Bitable column name for the consolidated salesperson note. ADR-0022 collapsed
-// the three per-category Note columns (Quotation/Sample/R&D Support) into one.
-// MUST match the live Base column exactly — the add-in cannot create columns, so
-// a rename without a matching Base column silently drops the write. Confirm
-// against the live Base before deploy.
-const REQUEST_NOTE_COLUMN = "Request Note";
+// the three per-category Note columns (Quotation/Sample/R&D Support) into one;
+// the live Base reuses the existing `Quotation Note` Text column for it.
+// CONFIRMED against the live schema via listFields (2026-06-03). MUST match the
+// live Base column exactly — the add-in cannot create columns, so a rename
+// without a matching Base column silently drops the write / fails the create
+// with 1254045 FieldNameNotFound (which is exactly what the assumed names did).
+const REQUEST_NOTE_COLUMN = "Quotation Note";
 
-// Bitable column for the plain-text mail body (ADR-0022). Same naming caveat as
-// REQUEST_NOTE_COLUMN — must match the live Base column exactly.
-const EMAIL_BODY_COLUMN = "Email Body";
+// Bitable column for the plain-text mail body (ADR-0022). Live column is
+// `Email Content` (Text, type 1). CONFIRMED via listFields (2026-06-03).
+const EMAIL_BODY_COLUMN = "Email Content";
 
 // Bitable Attachment column (Feishu field type 17) carrying the staged Feishu
-// Drive `file_token`s (ADR-0022). Same naming caveat — must match the live Base.
-const ATTACHMENTS_COLUMN = "Attachments";
+// Drive `file_token`s (ADR-0022). Live column is `Sales Files` (Attachment,
+// type 17). CONFIRMED via listFields (2026-06-03).
+const ATTACHMENTS_COLUMN = "Sales Files";
 
 export interface ServiceRowInput {
   subject?: string;
@@ -37,10 +40,10 @@ export interface ServiceRowInput {
   clientRecordId?: string;
   dateOfOffer?: number;
   // The salesperson's single consolidated note (ADR-0022). Replaces the retired
-  // per-category requestSelections[]; written to the `Request Note` column.
+  // per-category requestSelections[]; written to the `Quotation Note` column.
   requestNote?: string;
   // The Mail Item's plain-text body via Office.js CoercionType.Text (excludes
-  // attachments/inline images). Written in full to `Email Body` — no cap, since
+  // attachments/inline images). Written in full to `Email Content` — no cap, since
   // inbound is a single received message (ADR-0022).
   body?: string;
   // Feishu Drive `file_token`s for the selected mail attachments + uploaded files
@@ -99,7 +102,7 @@ export function buildServiceFields(
   if (skip.size > 0) console.log(`[bitable] DIAG_SKIP_FIELDS active: ${[...skip].join("|")}`);
 
   // Plain-Text columns. Request Type stays FORBIDDEN (Feishu owns it) — only the
-  // salesperson's note crosses. `Request Note` + `Email Body` are ADR-0022 (body
+  // salesperson's note crosses. `Quotation Note` + `Email Content` are ADR-0022 (body
   // is full / no cap); `Email Subject` is ADR-0014; `Email Conversation ID` is the
   // ADR-0017 Bitable→Outlook join key.
   setText(fields, skip, REQUEST_NOTE_COLUMN, input.requestNote);

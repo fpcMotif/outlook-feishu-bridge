@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CoworkerPicker } from "./CoworkerPicker";
 import { CustomerPicker } from "./CustomerPicker";
+import { TASKPANE_SEARCH_PANEL_SHELL_HEADER } from "./taskpaneSearchPanelLayout";
 
 vi.mock("../../hooks/useCoworkerSearch", () => ({
   useCoworkerSearch: () => vi.fn(() => Promise.resolve([])),
@@ -438,6 +439,32 @@ describe("CustomerPicker owner filter", () => {
   });
 });
 
+describe("CustomerPicker stacked layout", () => {
+  it("uses stacked shell padding when embedded in the intake card", () => {
+    render(
+      <CoworkerPicker
+        sessionId="sess"
+        selectedCoworker={null}
+        onSelect={vi.fn()}
+        customerSlot={
+          <CustomerPicker
+            directory={{ status: "ready", records: [] }}
+            searchCustomers={vi.fn()}
+            emailDomain="unknown.io"
+            selectedCustomer={null}
+            embedded
+            onChange={vi.fn()}
+          />
+        }
+      />,
+    );
+
+    const panel = screen.getByText("Pick a customer").closest("section");
+    expect(panel).not.toBeNull();
+    expect(panel).toHaveClass(...TASKPANE_SEARCH_PANEL_SHELL_HEADER.split(" "));
+  });
+});
+
 describe("CustomerPicker dismiss scope", () => {
   const jennyRow = {
     recordId: "rec_jenny",
@@ -499,12 +526,12 @@ describe("CustomerPicker dismiss scope", () => {
 
   it("keeps customer search open when clicking inside the search panel", () => {
     renderEmbeddedCustomerSearch();
-    expect(screen.getByRole("listbox", { name: /customer results/i })).toBeInTheDocument();
+    expect(screen.getByLabelText("Customer results")).toBeInTheDocument();
 
     fireEvent.mouseDown(screen.getByRole("combobox", { name: /search customers/i }));
     fireEvent.mouseDown(screen.getByRole("button", { name: /show mine/i }));
 
-    expect(screen.getByRole("listbox", { name: /customer results/i })).toBeInTheDocument();
+    expect(screen.getByLabelText("Customer results")).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: /search customers/i })).toBeInTheDocument();
   });
 

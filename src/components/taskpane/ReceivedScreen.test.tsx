@@ -1,7 +1,8 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ReceivedScreen, relativeSubmittedTime } from "./ReceivedScreen";
+import { ReceivedScreen } from "./ReceivedScreen";
+import { relativeSubmittedTime } from "./relativeSubmittedTime";
 
 const NOW = new Date("2026-06-02T05:00:00Z").getTime();
 
@@ -86,6 +87,14 @@ describe("ReceivedScreen layout", () => {
 });
 
 describe("ReceivedScreen submitted timestamp", () => {
+  beforeEach(() => {
+    vi.setSystemTime(NOW);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("keeps fresh submit copy as Just now", () => {
     render(<ReceivedScreen coworkerCount={1} recordId="rec1" />);
 

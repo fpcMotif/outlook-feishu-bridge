@@ -1,9 +1,18 @@
-/** Shared shell spacing for customer/coworker search panels inside one card. */
-export const TASKPANE_SEARCH_PANEL_SHELL = "px-3 py-2";
+/** Standalone customer search card (not stacked in the intake card). */
+export const TASKPANE_SEARCH_PANEL_SHELL = "px-3 pt-2 pb-2";
 
-/** Fixed header row height so both panels align when stacked. */
+/** Stacked intake card rows — extra pb balances space around each search field. */
+export const TASKPANE_SEARCH_PANEL_SHELL_STACKED = "px-3 pt-2 pb-4";
+
+/** Top row in the stacked card (customer search above the inset divider). */
+export const TASKPANE_SEARCH_PANEL_SHELL_HEADER = TASKPANE_SEARCH_PANEL_SHELL_STACKED;
+
+/** Bottom row in the stacked card (coworker search). */
+export const TASKPANE_SEARCH_PANEL_SHELL_FOOTER = TASKPANE_SEARCH_PANEL_SHELL_STACKED;
+
+/** Header row; customer panel height comes from the Show mine control (min-h-10). */
 export const TASKPANE_SEARCH_PANEL_HEADER =
-  "flex min-h-10 items-center justify-between gap-2 pb-2";
+  "flex items-center justify-between gap-2 pb-2";
 
 export const TASKPANE_SEARCH_PANEL_TITLE =
   "text-muted-foreground text-[11px] font-semibold uppercase";

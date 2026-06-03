@@ -181,7 +181,11 @@ export function stalePageIds<TId>(
   rows: readonly PrunableRow<TId>[],
   seenRecordIds: ReadonlySet<string>,
 ): TId[] {
-  return rows.filter((row) => !seenRecordIds.has(row.recordId)).map((row) => row._id);
+  const ids: TId[] = [];
+  for (const row of rows) {
+    if (!seenRecordIds.has(row.recordId)) ids.push(row._id);
+  }
+  return ids;
 }
 
 // HARD SAFETY GATE: prune ONLY after a fully verified, complete sync. A partial

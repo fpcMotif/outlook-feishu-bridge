@@ -108,8 +108,13 @@ async function markFailure(
   lookup: { internetMessageId: string; requestSyncKey?: string },
   e: unknown,
 ) {
+  // Forward ONLY the two lookup keys. Callers pass whole objects — the reconcile
+  // path passes a full `emailRecords` doc (with `_creationTime`/`_id`/`bodyPreview`/…)
+  // and syncRequest passes the `backup` (subject/from/…). Spreading those tripped
+  // markBitableSyncFailed's validator with `extra field _creationTime`.
   await ctx.runMutation(internal.emails.markBitableSyncFailed, {
-    ...lookup,
+    internetMessageId: lookup.internetMessageId,
+    requestSyncKey: lookup.requestSyncKey,
     error: errorMessage(e),
     attemptedAt: Date.now(),
   });
@@ -212,40 +217,42 @@ export const reconcilePendingBitableSync = internalAction({
       now: Date.now(),
       limit: RECONCILE_LIMIT,
     });
-    let synced = 0;
-    let failed = 0;
-    for (const record of due) {
-      try {
-        const selectedCoworkers = requireExactlyOneCoworker(record.selectedCoworkers);
-        if (!record.bitableClientToken) {
-          throw new Error(`Missing bitableClientToken for ${record.internetMessageId}`);
+    const outcomes = await Promise.all(
+      due.map(async (record) => {
+        try {
+          const selectedCoworkers = requireExactlyOneCoworker(record.selectedCoworkers);
+          if (!record.bitableClientToken) {
+            throw new Error(`Missing bitableClientToken for ${record.internetMessageId}`);
+          }
+          const { recordId } = await ctx.runAction(internal.feishu.bitable.createServiceRecord, {
+            subject: record.subject,
+            clientEmail: record.clientEmail ?? record.from,
+            clientRecordId: record.selectedCustomer?.recordId,
+            dateOfOffer: record.dateTimeCreated,
+            requestNote: record.requestNote,
+            // ADR-0022: only the stored ≤500-char preview is available on retry —
+            // the full body is never persisted on the backup.
+            body: record.bodyPreview,
+            selectedCoworkers,
+            initiator: record.initiator,
+            emailConversationId: record.conversationId,
+            clientToken: record.bitableClientToken,
+          });
+          await ctx.runMutation(internal.emails.markBitableSyncSucceeded, {
+            internetMessageId: record.internetMessageId,
+            requestSyncKey: record.requestSyncKey,
+            bitableRecordId: recordId,
+            attemptedAt: Date.now(),
+          });
+          return "synced" as const;
+        } catch (e: unknown) {
+          await markFailure(ctx, record, e);
+          return "failed" as const;
         }
-        const { recordId } = await ctx.runAction(internal.feishu.bitable.createServiceRecord, {
-          subject: record.subject,
-          clientEmail: record.clientEmail ?? record.from,
-          clientRecordId: record.selectedCustomer?.recordId,
-          dateOfOffer: record.dateTimeCreated,
-          requestNote: record.requestNote,
-          // ADR-0022: only the stored ≤500-char preview is available on retry —
-          // the full body is never persisted on the backup.
-          body: record.bodyPreview,
-          selectedCoworkers,
-          initiator: record.initiator,
-          emailConversationId: record.conversationId,
-          clientToken: record.bitableClientToken,
-        });
-        await ctx.runMutation(internal.emails.markBitableSyncSucceeded, {
-          internetMessageId: record.internetMessageId,
-          requestSyncKey: record.requestSyncKey,
-          bitableRecordId: recordId,
-          attemptedAt: Date.now(),
-        });
-        synced += 1;
-      } catch (e: unknown) {
-        await markFailure(ctx, record, e);
-        failed += 1;
-      }
-    }
+      }),
+    );
+    const synced = outcomes.filter((o) => o === "synced").length;
+    const failed = outcomes.filter((o) => o === "failed").length;
     if (due.length > 0) {
       console.log(
         `[requestSync] reconcilePendingBitableSync checked=${due.length} synced=${synced} failed=${failed}`,

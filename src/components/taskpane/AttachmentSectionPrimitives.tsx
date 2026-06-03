@@ -1,38 +1,107 @@
-import { FileSpreadsheet, FileText, Image as ImageIcon } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode } from "react";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-import { fileExtension } from "../../office/attachments";
+import { extOf, iconFor } from "./attachmentFileDisplay";
+import { TrashIcon } from "./icons/TrashIcon";
 
-export const META_CLASS = "shrink-0 text-[11px] text-muted-foreground tabular-nums";
+export { FileTypeIconWithUploadProgress } from "./AttachmentUploadIcon";
+
+export const META_CLASS =
+  "shrink-0 text-[11px] text-muted-foreground tabular-nums";
+
 export const ROW_PRESS =
   "transition-transform duration-150 ease-[var(--ease-out-strong)] active:scale-[0.96]";
 
-const ROW_GRID =
-  "grid min-h-12 min-w-0 grid-cols-[2.5rem_1.25rem_minmax(0,1fr)_auto] items-center gap-x-2 px-2 py-2";
-const GROUP_TITLE_CLASS =
-  "text-muted-foreground flex min-h-7 items-center justify-between px-2 text-[10px] leading-none font-semibold tracking-wide uppercase";
-const SPREADSHEET_EXT = new Set(["xls", "xlsx", "csv"]);
-const IMAGE_EXT = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp"]);
+/** Full utilities only — Tailwind cannot detect prefix + suffix concatenation. */
+export const ROW_HOVER_FINE_STATUS_HIDE =
+  "[@media(hover:hover)_and_(pointer:fine)]:group-hover/attachment:opacity-0";
+
+export const ROW_HOVER_FINE_TRASH_SHOW =
+  "[@media(hover:hover)_and_(pointer:fine)]:group-hover/attachment:opacity-100";
+
+const ROW_HOVER_BG =
+  "[@media(hover:hover)_and_(pointer:fine)]:hover:bg-muted/30";
 
 export type StatusTone = "blocked" | "muted";
 
-export function isImageAttachment(name: string) {
-  return IMAGE_EXT.has(fileExtension(name));
+export function AttachmentListCard({ children }: { children: ReactNode }) {
+  return (
+    <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-edge">
+      {children}
+    </div>
+  );
 }
 
-export function isSpreadsheetAttachment(name: string) {
-  return SPREADSHEET_EXT.has(fileExtension(name));
+function FileTypeIcon({ name }: { name: string }) {
+  const { Icon, tint, bg, border } = iconFor(name);
+
+  return (
+    <span
+      className={cn(
+        "flex size-10 shrink-0 items-center justify-center rounded-xl border",
+        bg,
+        border,
+      )}
+      aria-hidden="true"
+    >
+      <Icon className={cn("size-5", tint)} strokeWidth={1.75} />
+    </span>
+  );
 }
 
-export function FileGlyph({ name }: { name: string }) {
-  const Icon = isSpreadsheetAttachment(name) ? FileSpreadsheet : isImageAttachment(name) ? ImageIcon : FileText;
-  return <Icon className="text-muted-foreground size-4 shrink-0" aria-hidden="true" />;
+function ExtBadge({ name }: { name: string }) {
+  const ext = extOf(name);
+  if (!ext) return null;
+
+  return (
+    <Badge
+      variant="outline"
+      className="h-5 shrink-0 rounded-md border-border px-1.5 text-[10px] font-medium tracking-wide text-muted-foreground uppercase"
+    >
+      {ext}
+    </Badge>
+  );
 }
 
-export function StatusBadge({ tone, children }: { tone: StatusTone; children: ReactNode }) {
+function RowTrashAction({
+  label,
+  onRemove,
+}: {
+  label: string;
+  onRemove: () => void;
+}) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      className={cn(
+        "text-destructive hover:text-destructive size-8 shrink-0 rounded-md hover:bg-muted",
+        ROW_PRESS,
+        "motion-reduce:active:scale-100",
+      )}
+      aria-label={label}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onRemove();
+      }}
+    >
+      <TrashIcon className="size-4" />
+    </Button>
+  );
+}
+
+export function StatusBadge({
+  tone,
+  children,
+}: {
+  tone: StatusTone;
+  children?: ReactNode;
+}) {
   if (tone === "blocked") {
     return (
       <span className="bg-destructive/10 text-destructive inline-flex h-6 shrink-0 items-center rounded-full px-2 text-[10px] font-semibold tracking-wide uppercase">
@@ -42,69 +111,122 @@ export function StatusBadge({ tone, children }: { tone: StatusTone; children: Re
   }
 
   return (
-    <Badge
-      variant="outline"
-      className={cn("h-6 border-transparent px-2 tabular-nums", tone === "muted" && "opacity-70")}
+    <span
+      className={cn(
+        "border-border/60 inline-flex h-6 shrink-0 items-center rounded-full border px-2 text-[10px] font-semibold tabular-nums",
+        tone === "muted" && "text-muted-foreground opacity-70",
+      )}
     >
       {children}
-    </Badge>
+    </span>
+  );
+}
+
+function AttachmentIdentity({
+  name,
+  displayName,
+  subtitle,
+}: {
+  name: string;
+  displayName?: string;
+  subtitle?: ReactNode;
+}) {
+  return (
+    <div className="min-w-0 flex-1">
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="truncate text-sm font-medium text-foreground">
+          {displayName ?? name}
+        </span>
+        <ExtBadge name={name} />
+      </div>
+      {subtitle ? (
+        <div className="text-muted-foreground mt-0.5 flex min-w-0 items-center gap-2 text-[11px] leading-4 tabular-nums">
+          {subtitle}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function AttachmentTrailing({
+  status,
+  onRemove,
+  removeLabel,
+}: {
+  status?: ReactNode;
+  onRemove?: () => void;
+  removeLabel?: string;
+}) {
+  const hideStatusOnHover = onRemove !== undefined;
+  return (
+    <div className="relative flex min-h-10 shrink-0 items-center justify-end gap-0.5">
+      {status ? (
+        <div
+          className={cn(
+            "flex items-center transition-opacity duration-150 ease-[var(--ease-out-strong)]",
+            hideStatusOnHover && ROW_HOVER_FINE_STATUS_HIDE,
+          )}
+        >
+          {status}
+        </div>
+      ) : null}
+      {onRemove && removeLabel ? (
+        <div
+          className={cn(
+            "flex items-center gap-0.5 opacity-0 transition-opacity duration-150 ease-[var(--ease-out-strong)]",
+            ROW_HOVER_FINE_TRASH_SHOW,
+            "focus-within:opacity-100",
+          )}
+        >
+          <RowTrashAction label={removeLabel} onRemove={onRemove} />
+        </div>
+      ) : null}
+    </div>
   );
 }
 
 interface AttachmentRowProps {
   lead?: ReactNode;
-  icon: ReactNode;
-  title: ReactNode;
+  name: string;
+  displayName?: string;
   subtitle?: ReactNode;
   status?: ReactNode;
+  selected?: boolean;
+  fileIcon?: ReactNode;
+  onRemove?: () => void;
+  removeLabel?: string;
 }
 
 export function AttachmentRow({
   lead,
-  icon,
-  title,
+  name,
+  displayName,
   subtitle,
   status,
+  selected = false,
+  fileIcon,
+  onRemove,
+  removeLabel,
 }: AttachmentRowProps) {
   return (
-    <div className="rounded-xl transition-[background-color,box-shadow] duration-150 ease-[var(--ease-out-strong)]">
-      <div className={ROW_GRID}>
-        <div className="flex size-10 shrink-0 items-center justify-center">{lead}</div>
-        <div className="flex size-5 shrink-0 items-center justify-center [&_svg]:translate-y-px">{icon}</div>
-        <div className="min-w-0">
-          <div className="truncate text-xs leading-5 font-semibold">{title}</div>
-          {subtitle ? (
-            <div className="text-muted-foreground mt-0.5 truncate text-[11px] leading-4">{subtitle}</div>
-          ) : null}
-        </div>
-        <div className="justify-self-end">{status}</div>
-      </div>
-    </div>
-  );
-}
-
-function GroupHeading({ title, count }: { title: string; count?: number | string }) {
-  return (
-    <div className={GROUP_TITLE_CLASS}>
-      <span>{title}</span>
-      {count === undefined ? null : <span className="tabular-nums">{count}</span>}
-    </div>
-  );
-}
-
-export function AttachmentGroup({
-  title,
-  count,
-  children,
-}: {
-  title: string;
-  count?: number | string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="space-y-1">
-      <GroupHeading title={title} count={count} />
-      <div className="space-y-1">{children}</div>
+    <div
+      className={cn(
+        "group/attachment relative flex items-center gap-3 px-4 py-3 transition-colors duration-150 ease-[var(--ease-out-strong)]",
+        selected ? "bg-primary/5" : ROW_HOVER_BG,
+      )}
+    >
+      <div className="flex shrink-0 items-center justify-center">{lead}</div>
+      {fileIcon ?? <FileTypeIcon name={name} />}
+      <AttachmentIdentity
+        name={name}
+        displayName={displayName}
+        subtitle={subtitle}
+      />
+      <AttachmentTrailing
+        status={status}
+        onRemove={onRemove}
+        removeLabel={removeLabel}
+      />
     </div>
   );
 }

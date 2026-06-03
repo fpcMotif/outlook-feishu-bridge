@@ -11,18 +11,17 @@ import { useSelfForward, type SelfForwardResult } from "../../hooks/useSelfForwa
 import { CoworkerPicker } from "./CoworkerPicker";
 import { CustomerPicker } from "./CustomerPicker";
 import { ReceivedScreen } from "./ReceivedScreen";
-import {
-  buildCreateCustomerTaskUrl,
-  ExistingSyncCheckingScreen,
-  IntakeHeader,
-  NewRequestSection,
-} from "./RequestIntakeScaffold";
+import { buildCreateCustomerTaskUrl } from "./buildCreateCustomerTaskUrl";
+import { ExistingSyncCheckingScreen } from "./ExistingSyncCheckingScreen";
+import { IntakeHeader } from "./RequestIntakeScaffold";
+import { NewRequestSection } from "./NewRequestSection";
 import { resolveIntakeScreen } from "./RequestIntakeRouter";
 import { SubmitDock } from "./SubmitDock";
 import { buildFilledRequests, canSubmitSync, submitSyncHint } from "./submitSyncGate";
 import { AttachmentSection } from "./AttachmentSection";
 import { buildSyncPayload } from "./buildSyncPayload";
 import { useIntakeAttachments } from "./useIntakeAttachments";
+import { clearIntakeUploadCache } from "./uploadIntakeFile";
 
 export function RequestIntakeScreen({
   isLoggedIn,
@@ -83,7 +82,8 @@ export function RequestIntakeScreen({
     dispatch,
   });
 
-  const { mailAttachments, addFiles, stageSelected } = useIntakeAttachments(mailItem, state, dispatch);
+  const { mailAttachments, addFiles, retryUpload, stageSelected } =
+    useIntakeAttachments(mailItem, state, dispatch);
 
   const filledRequests = useMemo(() => buildFilledRequests(state.notes), [state.notes]);
   const requestSelections = useMemo(() => filledRequests.map((r) => ({ requestType: r.title, note: r.note })), [filledRequests]);
@@ -269,8 +269,19 @@ export function RequestIntakeScreen({
             selectedIds={state.selectedAttachmentIds}
             uploadedFiles={state.uploadedFiles}
             onToggleMail={(id) => dispatch({ type: "attachmentToggled", id })}
+            onRemoveMail={(id) =>
+              dispatch({ type: "mailAttachmentRemoved", id })
+            }
+            onToggleUpload={(id) => dispatch({ type: "uploadedFileToggled", id })}
+            onSetUploadedSelection={(ids) =>
+              dispatch({ type: "uploadedFilesSelectionChanged", ids })
+            }
             onAddFiles={addFiles}
-            onRemoveUpload={(id) => dispatch({ type: "uploadedFileRemoved", id })}
+            onRetryUpload={retryUpload}
+            onRemoveUpload={(id) => {
+              clearIntakeUploadCache(id);
+              dispatch({ type: "uploadedFileRemoved", id });
+            }}
           />
         </div>
       </div>

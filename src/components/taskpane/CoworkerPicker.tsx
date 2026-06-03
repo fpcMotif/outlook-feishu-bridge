@@ -15,7 +15,7 @@ import { TaskpaneSelectionRow } from "./TaskpaneSelectionRow";
 import { TaskpaneCardBoundaryContext } from "./taskpaneCardBoundary";
 import {
   TASKPANE_SEARCH_PANEL_HEADER,
-  TASKPANE_SEARCH_PANEL_SHELL,
+  TASKPANE_SEARCH_PANEL_SHELL_FOOTER,
   TASKPANE_SEARCH_PANEL_TITLE,
 } from "./taskpaneSearchPanelLayout";
 
@@ -91,9 +91,8 @@ function CoworkerOption({
       type="button"
       aria-pressed={selected}
       data-search-option=""
-      aria-selected={false}
       onClick={() => onSelect(coworker)}
-      className="bg-card flex w-full cursor-pointer items-center gap-3 rounded-[14px] px-4 py-3 text-left shadow-edge transition-[background-color,box-shadow,scale] duration-150 ease-[var(--ease-out-strong)] outline-none active:scale-[0.97] data-[selected=true]:bg-accent data-[selected=true]:shadow-[0_0_0_1.5px_var(--primary)] aria-selected:bg-secondary focus-visible:ring-[3px] focus-visible:ring-ring/20"
+      className="bg-card flex w-full cursor-pointer items-center gap-3 rounded-[14px] px-4 py-3 text-left shadow-edge transition-[background-color,box-shadow,scale] duration-150 ease-[var(--ease-out-strong)] outline-none active:scale-[0.97] data-[selected=true]:bg-accent data-[selected=true]:shadow-[0_0_0_1.5px_var(--primary)] data-[keyboard-active=true]:bg-secondary focus-visible:ring-[3px] focus-visible:ring-ring/20"
       data-selected={selected}
     >
       <Avatar className="size-10 bg-secondary">
@@ -141,7 +140,11 @@ function CoworkerSearchPanel({
   }, [dismissable, onDismiss]);
 
   return (
-    <div ref={panelRef} className={TASKPANE_SEARCH_PANEL_SHELL} aria-labelledby="coworker-search-title">
+    <div
+      ref={panelRef}
+      className={TASKPANE_SEARCH_PANEL_SHELL_FOOTER}
+      aria-labelledby="coworker-search-title"
+    >
       <div className={TASKPANE_SEARCH_PANEL_HEADER}>
         <span id="coworker-search-title" className={TASKPANE_SEARCH_PANEL_TITLE}>
           Pick a coworker
@@ -244,15 +247,19 @@ export function CoworkerPicker({
     onSelect(coworker);
   };
 
+  const selectedLeading = useMemo(
+    () =>
+      selectedCoworker?.avatarUrl ? (
+        <CoworkerSelectedLeading avatarUrl={selectedCoworker.avatarUrl} />
+      ) : undefined,
+    [selectedCoworker?.avatarUrl],
+  );
+
   const coworkerContent =
     selectedCoworker && !showCoworkerSearch ? (
       <TaskpaneSelectionRow
         dataRow="coworker"
-        leading={
-          selectedCoworker.avatarUrl ? (
-            <CoworkerSelectedLeading avatarUrl={selectedCoworker.avatarUrl} />
-          ) : undefined
-        }
+        leading={selectedLeading}
         icon={selectedCoworker.avatarUrl ? undefined : COWORKER_FALLBACK_ICON}
         label={selectedCoworker.name}
         onChange={() => {

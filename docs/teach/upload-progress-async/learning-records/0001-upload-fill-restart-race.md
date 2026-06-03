@@ -1,0 +1,5 @@
+# Upload fill restart (~30%) — async race, not “wrong route”
+
+The visible ~30% **restart** was not Convex “routing” the file to the wrong handler; it was **duplicate async entry** and **non-monotonic progress** through the normal path (`queueIntakeFileUploads` → `uploadIntakeFileToStorage` → reducer → row). A second start could fire `uploadStatusChanged` with `progress: 0` while XHR had already reported ~30%, and the reducer/UI used to accept that reset. Separately, treating **uploading** as **indeterminate** hid real XHR percent and made jumps feel like a full restart. The fix bundles **sync in-flight registration** (return the same promise), **`Math.max` in `intakeReducer`**, **pending-only indeterminate**, and **`uploadDisplayProgressTarget`** so display ignores spurious zero while active.
+
+**Implications:** Future upload features must register dedupe **before** any `await` in the starter; any new dispatch that sets `progress` during `uploading` must go through monotonic merge; UI fill must not reset `displayRef` on benign re-renders without the target guard.

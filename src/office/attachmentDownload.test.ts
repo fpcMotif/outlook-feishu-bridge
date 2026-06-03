@@ -33,8 +33,9 @@ describe("downloadMailAttachment", () => {
     });
 
     expect(source.name).toBe("rfq.pdf");
-    expect(source.blob.type).toBe("application/pdf");
-    expect(await source.blob.text()).toBe("PDFDATA");
+    expect(source.blob).toBeDefined();
+    expect(source.blob!.type).toBe("application/pdf");
+    expect(await source.blob!.text()).toBe("PDFDATA");
   });
 
   it("rejects with the Office error message when the result is not Succeeded", async () => {

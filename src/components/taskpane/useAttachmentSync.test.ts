@@ -27,7 +27,9 @@ describe("useAttachmentSync", () => {
     stageAndUploadAttachments.mockResolvedValue([{ fileToken: "tok" }]);
 
     const { result } = renderHook(() => useAttachmentSync());
-    const uploads: UploadedFile[] = [{ id: "u1", file: new File(["x"], "a.pdf"), rejection: null }];
+    const uploads: UploadedFile[] = [
+      { id: "u1", file: new File(["x"], "a.pdf"), rejection: null, selected: true },
+    ];
 
     const out = await result.current([], uploads);
 

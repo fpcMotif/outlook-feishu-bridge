@@ -36,10 +36,12 @@ export function base64ToBlob(base64: string, mimeType: string): Blob {
   return new Blob([bytes], { type: mimeType });
 }
 
-// One file ready to stage: its display name plus the raw bytes.
+// One file ready to stage: display name plus bytes and/or an existing storage id
+// from an eager intake upload (skips the Convex byte POST at sync time).
 export interface AttachmentSource {
   name: string;
-  blob: Blob;
+  blob?: Blob;
+  storageId?: string;
 }
 
 // Injected so the orchestration stays pure and testable: the Convex storage
@@ -60,12 +62,19 @@ export async function stageAndUploadAttachments(
   sources: AttachmentSource[],
 ): Promise<{ fileToken: string }[]> {
   if (sources.length === 0) return [];
-  const staged: { storageId: string; fileName: string }[] = [];
-  for (const source of sources) {
-    const url = await deps.generateUploadUrl();
-    const { storageId } = await deps.uploadBytes(url, source.blob);
-    staged.push({ storageId, fileName: source.name });
-  }
+  const staged = await Promise.all(
+    sources.map(async (source) => {
+      if (source.storageId) {
+        return { storageId: source.storageId, fileName: source.name };
+      }
+      if (!source.blob) {
+        throw new Error(`Attachment source "${source.name}" has no blob or storageId`);
+      }
+      const url = await deps.generateUploadUrl();
+      const { storageId } = await deps.uploadBytes(url, source.blob);
+      return { storageId, fileName: source.name };
+    }),
+  );
   const { attachments } = await deps.uploadToDrive(staged);
   return attachments;
 }
@@ -84,4 +93,42 @@ export async function postBytesToConvex(
   });
   if (!res.ok) throw new Error(`Convex storage upload failed (${res.status})`);
   return (await res.json()) as { storageId: string };
+}
+
+export type UploadProgressListener = (loadedRatio: number) => void;
+
+// XMLHttpRequest exposes upload progress; fetch does not. Used for eager intake
+// uploads so large files show real byte progress in the attachment row.
+export function postBytesToConvexWithProgress(
+  url: string,
+  blob: Blob,
+  onProgress?: UploadProgressListener,
+): Promise<{ storageId: string }> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", url);
+    xhr.setRequestHeader(
+      "Content-Type",
+      blob.type || "application/octet-stream",
+    );
+    xhr.upload.addEventListener("progress", (event) => {
+      if (!onProgress || !event.lengthComputable || event.total <= 0) return;
+      onProgress(Math.min(100, Math.round((event.loaded / event.total) * 100)));
+    });
+    xhr.addEventListener("load", () => {
+      if (xhr.status < 200 || xhr.status >= 300) {
+        reject(new Error(`Convex storage upload failed (${xhr.status})`));
+        return;
+      }
+      try {
+        resolve(JSON.parse(xhr.responseText) as { storageId: string });
+      } catch {
+        reject(new Error("Convex storage upload returned invalid JSON"));
+      }
+    });
+    xhr.addEventListener("error", () =>
+      reject(new Error("Convex storage upload failed (network)")),
+    );
+    xhr.send(blob);
+  });
 }

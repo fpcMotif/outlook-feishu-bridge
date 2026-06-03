@@ -5,6 +5,7 @@ import {
   MAX_ATTACHMENT_BYTES,
   MAX_ATTACHMENT_COUNT,
   fileExtension,
+  formatAttachmentMeta,
   formatBytes,
   isAllowedUploadName,
   selectableMailAttachments,
@@ -73,5 +74,10 @@ describe("upload validation (ADR-0022 decision #4)", () => {
     expect(formatBytes(900)).toBe("900 B");
     expect(formatBytes(1536)).toBe("1.5 KB");
     expect(formatBytes(5 * 1024 * 1024)).toBe("5.0 MB");
+  });
+
+  it("formatAttachmentMeta shows size only", () => {
+    expect(formatAttachmentMeta(1536)).toBe("1.5 KB");
+    expect(formatAttachmentMeta(1536)).not.toMatch(/\d{4}|jan|feb|may/i);
   });
 });

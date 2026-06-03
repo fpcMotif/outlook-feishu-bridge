@@ -39,7 +39,8 @@ tokens over ad-hoc values.
   (floating/popover), defined under `@layer utilities` in `index.css`. They alias
   the tokens so rendered output is identical to the old inline values.
 - Named distinctly on purpose: in Tailwind v4 a bare `shadow-border` would map to
-  the `--color-border` token. Never reintroduce inline `shadow-[var(--shadow-*)]`.
+  the `--color-border` token. Never reintroduce inline
+  `shadow-[var(--shadow-border)]` / `shadow-[var(--shadow-floating)]` utilities.
 - Genuine one-offs (selection ring `shadow-[0_0_0_1.5px_...]`, the dock's top
   fade, the received-screen step ring) stay inline.
 

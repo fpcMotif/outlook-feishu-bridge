@@ -25,6 +25,14 @@ vi.mock("../hooks/useSelfForward", () => ({
   useSelfForward: () => ({ sendNote: vi.fn(() => Promise.resolve({ ok: true })) }),
 }));
 
+vi.mock("../hooks/useAttachmentStaging", () => ({
+  useAttachmentStaging: () => ({
+    generateUploadUrl: vi.fn().mockResolvedValue("https://up/test"),
+    uploadBytes: vi.fn().mockResolvedValue({ storageId: "st_test" }),
+    uploadToDrive: vi.fn().mockResolvedValue({ attachments: [] }),
+  }),
+}));
+
 vi.mock("../hooks/useCoworkerSearch", () => {
   const coworkers = [
     { openId: "ou_jenny", name: "Jenny Xu", avatarUrl: "https://example.test/jenny.png" },

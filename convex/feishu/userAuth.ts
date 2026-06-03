@@ -216,38 +216,55 @@ const sleep = (ms: number) =>
     setTimeout(resolve, ms);
   });
 
-async function refreshAccessToken(
+async function refreshAccessTokenAttempt(
+  ctx: ActionCtx,
+  sessionId: string,
+  tenantToken: string,
+  refreshToken: string,
+  startedAt: number,
+  attempt: number,
+): Promise<FeishuUserTokenResponse> {
+  const hasRefreshToken = Boolean(refreshToken);
+  try {
+    return await feishuFetch<FeishuUserTokenResponse>({
+      url: `${FEISHU_BASE}/authen/v1/oidc/refresh_access_token`,
+      token: tenantToken,
+      label: "Feishu token refresh",
+      json: { grant_type: "refresh_token", refresh_token: refreshToken },
+    });
+  } catch (err) {
+    const code = err instanceof FeishuError ? err.code : 0;
+    if (classifyRefreshError(err) === "terminal") {
+      console.error(
+        `[userAuth] token refresh TERMINAL code=${code} hasRefreshToken=${hasRefreshToken} elapsed=${Date.now() - startedAt}ms`,
+      );
+      await ctx.runMutation(internal.feishu.userAuth.deleteSession, { sessionId });
+      throw new Error(TERMINAL_MSG, { cause: err });
+    }
+    console.warn(
+      `[userAuth] token refresh transient attempt=${attempt} code=${code} hasRefreshToken=${hasRefreshToken} elapsed=${Date.now() - startedAt}ms`,
+    );
+    if (attempt >= REFRESH_MAX_RETRIES) throw new Error(TRANSIENT_MSG, { cause: err });
+    await sleep(300 * (attempt + 1));
+    return refreshAccessTokenAttempt(
+      ctx,
+      sessionId,
+      tenantToken,
+      refreshToken,
+      startedAt,
+      attempt + 1,
+    );
+  }
+}
+
+function refreshAccessToken(
   ctx: ActionCtx,
   sessionId: string,
   tenantToken: string,
   refreshToken: string,
   startedAt: number,
 ): Promise<FeishuUserTokenResponse> {
-  const hasRefreshToken = Boolean(refreshToken);
-  for (let attempt = 0; ; attempt++) {
-    try {
-      return await feishuFetch<FeishuUserTokenResponse>({
-        url: `${FEISHU_BASE}/authen/v1/oidc/refresh_access_token`,
-        token: tenantToken,
-        label: "Feishu token refresh",
-        json: { grant_type: "refresh_token", refresh_token: refreshToken },
-      });
-    } catch (err) {
-      const code = err instanceof FeishuError ? err.code : 0;
-      if (classifyRefreshError(err) === "terminal") {
-        console.error(
-          `[userAuth] token refresh TERMINAL code=${code} hasRefreshToken=${hasRefreshToken} elapsed=${Date.now() - startedAt}ms`,
-        );
-        await ctx.runMutation(internal.feishu.userAuth.deleteSession, { sessionId });
-        throw new Error(TERMINAL_MSG, { cause: err });
-      }
-      console.warn(
-        `[userAuth] token refresh transient attempt=${attempt} code=${code} hasRefreshToken=${hasRefreshToken} elapsed=${Date.now() - startedAt}ms`,
-      );
-      if (attempt >= REFRESH_MAX_RETRIES) throw new Error(TRANSIENT_MSG, { cause: err });
-      await sleep(300 * (attempt + 1));
-    }
-  }
+  return refreshAccessTokenAttempt(ctx, sessionId, tenantToken, refreshToken, startedAt, 0);
 }
 
 /**

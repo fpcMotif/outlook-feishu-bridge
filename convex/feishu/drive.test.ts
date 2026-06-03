@@ -12,11 +12,17 @@ vi.mock("../storage", () => ({
 }));
 
 import {
+  FEISHU_RATE_LIMIT_CODE,
   MAX_MEDIA_UPLOAD_BYTES,
   uploadAttachmentsToDrive,
   uploadMediaToDrive,
+  withDriveRateLimitRetry,
 } from "./drive";
+import { FeishuError } from "./client";
 import type { ActionCtx } from "../_generated/server";
+
+const rateLimit = (): FeishuError =>
+  new FeishuError(FEISHU_RATE_LIMIT_CODE, "request trigger frequency limit", "Drive");
 
 const APP_TOKEN = "appToken123";
 
@@ -135,5 +141,77 @@ describe("uploadAttachmentsToDrive action", () => {
 
     expect(callFeishu).not.toHaveBeenCalled();
     expect(getStorageBytes).not.toHaveBeenCalled();
+  });
+});
+
+describe("withDriveRateLimitRetry", () => {
+  const noSleep = (): Promise<void> => Promise.resolve();
+
+  it("returns immediately on success without retrying", async () => {
+    const upload = vi.fn().mockResolvedValue("tok_1");
+    await expect(
+      withDriveRateLimitRetry(upload, { sleep: noSleep }),
+    ).resolves.toBe("tok_1");
+    expect(upload).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries the 99991400 frequency-limit then succeeds", async () => {
+    const upload = vi
+      .fn()
+      .mockRejectedValueOnce(rateLimit())
+      .mockRejectedValueOnce(rateLimit())
+      .mockResolvedValue("tok_ok");
+    await expect(
+      withDriveRateLimitRetry(upload, { sleep: noSleep }),
+    ).resolves.toBe("tok_ok");
+    expect(upload).toHaveBeenCalledTimes(3);
+  });
+
+  it("gives up after maxAttempts and rethrows the rate-limit error", async () => {
+    const err = rateLimit();
+    const upload = vi.fn().mockRejectedValue(err);
+    await expect(
+      withDriveRateLimitRetry(upload, { maxAttempts: 3, sleep: noSleep }),
+    ).rejects.toBe(err);
+    expect(upload).toHaveBeenCalledTimes(3);
+  });
+
+  it("does NOT retry a non-rate-limit Feishu error (FieldNameNotFound)", async () => {
+    const err = new FeishuError(1254045, "FieldNameNotFound", "Drive");
+    const upload = vi.fn().mockRejectedValue(err);
+    await expect(
+      withDriveRateLimitRetry(upload, { sleep: noSleep }),
+    ).rejects.toBe(err);
+    expect(upload).toHaveBeenCalledTimes(1);
+  });
+
+  it("does NOT retry a generic (non-Feishu) Error", async () => {
+    const err = new Error("network down");
+    const upload = vi.fn().mockRejectedValue(err);
+    await expect(
+      withDriveRateLimitRetry(upload, { sleep: noSleep }),
+    ).rejects.toBe(err);
+    expect(upload).toHaveBeenCalledTimes(1);
+  });
+
+  it("feeds the attempt index to backoffMs", async () => {
+    const backoffMs = vi.fn((attempt: number) => attempt);
+    const upload = vi
+      .fn()
+      .mockRejectedValueOnce(rateLimit())
+      .mockResolvedValue("ok");
+    await withDriveRateLimitRetry(upload, { sleep: noSleep, backoffMs });
+    expect(backoffMs).toHaveBeenCalledWith(0);
+  });
+
+  it("uses the real backoff sleep between retries (smoke)", async () => {
+    const upload = vi
+      .fn()
+      .mockRejectedValueOnce(rateLimit())
+      .mockResolvedValue("ok");
+    await expect(
+      withDriveRateLimitRetry(upload, { backoffMs: () => 1 }),
+    ).resolves.toBe("ok");
+    expect(upload).toHaveBeenCalledTimes(2);
   });
 });

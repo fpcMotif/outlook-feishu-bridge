@@ -40,13 +40,16 @@ import {
   dedupeRowsByOpenId,
   mapUserToRow,
   mirrorDocToContact,
+  type ContactPickerRow,
   type ContactRecord,
   type ContactUpsertRow,
   type FeishuContactUser,
 } from "./contactsMirrorRows";
+import { foldName } from "./pinyinTokens";
 import {
   addDepartmentsToNameMap,
   addPrunePage,
+  ASSUMED_MAX_CONTACTS,
   dedupeUsersByOpenId,
   emptyPruneTotals,
   exceedsAssumedMax,
@@ -86,12 +89,16 @@ const upsertRowValidator = v.object({
   departmentIds: v.optional(v.array(v.string())),
   avatarUrl: v.optional(v.string()),
   searchBlob: v.string(),
+  // ADR-0024: precomputed Pinyin match keys for the picker preload.
+  pinyinFull: v.optional(v.string()),
+  pinyinInitials: v.optional(v.string()),
+  pinyinAlts: v.optional(v.string()),
+  nameFold: v.optional(v.string()),
 });
 
 function sameStringArray(a: string[] | undefined, b: string[] | undefined): boolean {
   if (a === undefined || b === undefined) return a === b;
-  if (a.length !== b.length) return false;
-  return a.every((value, index) => value === b[index]);
+  return a.length === b.length && a.every((value, index) => value === b[index]);
 }
 
 function contactRowChanged(existing: ContactUpsertRow, next: ContactUpsertRow): boolean {
@@ -101,6 +108,10 @@ function contactRowChanged(existing: ContactUpsertRow, next: ContactUpsertRow): 
     existing.department !== next.department ||
     existing.avatarUrl !== next.avatarUrl ||
     existing.searchBlob !== next.searchBlob ||
+    existing.pinyinFull !== next.pinyinFull ||
+    existing.pinyinInitials !== next.pinyinInitials ||
+    existing.pinyinAlts !== next.pinyinAlts ||
+    existing.nameFold !== next.nameFold ||
     !sameStringArray(existing.departmentIds, next.departmentIds)
   );
 }
@@ -238,6 +249,40 @@ export const search = query({
   },
 });
 
+// ADR-0024: bounded preload for the colleague picker. Ships the whole directory
+// (<=800) once per login; the client ranks it in memory per keystroke (no search
+// index, no per-keystroke server call). Slim projection with NO avatarUrl — the
+// URLs are volatile (ADR-0003) and <=800 of them would bloat the login payload,
+// so avatars are lazy-loaded on selection. The read-path guard mirrors the
+// sync-time exceedsAssumedMax alarm so a directory that outgrows the bound is
+// loud, not silently truncated.
+export const listForPicker = query({
+  args: {},
+  handler: async (
+    ctx,
+  ): Promise<{ contacts: ContactPickerRow[]; mirroredAt: number | null }> => {
+    const rows = await ctx.db.query("feishuContacts").take(ASSUMED_MAX_CONTACTS + 1);
+    if (exceedsAssumedMax(rows.length)) {
+      console.error(
+        `[contacts-mirror] listForPicker hit the ${ASSUMED_MAX_CONTACTS}-row preload bound (got ${rows.length}); ` +
+          `the directory outgrew the assumption — raise the bound or scope the query before colleagues go missing`,
+      );
+    }
+    const state = await ctx.db.query("feishuContactsMirrorState").first();
+    const contacts: ContactPickerRow[] = rows.slice(0, ASSUMED_MAX_CONTACTS).map((row) => ({
+      openId: row.openId,
+      name: row.name,
+      email: row.email,
+      department: row.department,
+      pinyinFull: row.pinyinFull ?? "",
+      pinyinInitials: row.pinyinInitials ?? "",
+      pinyinAlts: row.pinyinAlts ?? "",
+      nameFold: row.nameFold ?? foldName(row.name),
+    }));
+    return { contacts, mirroredAt: state?.lastFullSyncAt ?? null };
+  },
+});
+
 // --- Action-runtime crawl (pure helpers in contactsMirrorSync.ts) -----------
 
 interface DepartmentChildrenResponse {
@@ -363,8 +408,10 @@ async function crawlDirectory(ctx: ActionCtx): Promise<CrawlResult> {
   const stopReasons: ContactStopReason[] = [departments.stopReason];
   const rawUsers: FeishuContactUser[] = [];
   let skippedResigned = 0;
-  for (const departmentId of departmentIds) {
-    const walk = await walkDepartmentMembers(ctx, departmentId);
+  const departmentWalks = await Promise.all(
+    departmentIds.map((departmentId) => walkDepartmentMembers(ctx, departmentId)),
+  );
+  for (const walk of departmentWalks) {
     rawUsers.push(...walk.active);
     skippedResigned += walk.skippedResigned;
     stopReasons.push(walk.stopReason);
@@ -392,12 +439,19 @@ async function writeRows(
   mirroredAt: number,
 ): Promise<WriteTotals> {
   const totals: WriteTotals = { inserted: 0, updated: 0, unchanged: 0 };
+  const batches: ContactUpsertRow[][] = [];
   for (let i = 0; i < rows.length; i += APPLY_BATCH_SIZE) {
-    const batch = rows.slice(i, i + APPLY_BATCH_SIZE);
-    const stats: WriteTotals = await ctx.runMutation(internal.feishu.contactsMirror.applyPage, {
-      rows: batch,
-      mirroredAt,
-    });
+    batches.push(rows.slice(i, i + APPLY_BATCH_SIZE));
+  }
+  const batchStats = await Promise.all(
+    batches.map((batch) =>
+      ctx.runMutation(internal.feishu.contactsMirror.applyPage, {
+        rows: batch,
+        mirroredAt,
+      }),
+    ),
+  );
+  for (const stats of batchStats) {
     totals.inserted += stats.inserted;
     totals.updated += stats.updated;
     totals.unchanged += stats.unchanged;
@@ -449,6 +503,12 @@ async function runFullSync(ctx: ActionCtx, startedAt: number): Promise<FullSyncR
       `[contacts-mirror] ASSUMPTION BREACH users=${crawl.rows.length} exceeds assumed max 800 — revisit paging/cost`,
     );
   }
+  if (crawl.stopReason !== "complete") {
+    throw new Error(
+      `Contacts mirror stopped before completion: reason=${crawl.stopReason} ` +
+        `departments=${crawl.departmentCount} users=${crawl.rows.length}`,
+    );
+  }
   const writes = await writeRows(ctx, crawl.rows, startedAt);
   const prune = shouldPruneStaleContacts(crawl.stopReason)
     ? await pruneStaleContacts(ctx, crawl.seenOpenIds)
@@ -468,12 +528,6 @@ async function runFullSync(ctx: ActionCtx, startedAt: number): Promise<FullSyncR
     lastPruneScannedCount: prune.scanned,
     lastDeletedStaleCount: prune.deleted,
   });
-  if (crawl.stopReason !== "complete") {
-    throw new Error(
-      `Contacts mirror stopped before completion: reason=${crawl.stopReason} ` +
-        `departments=${crawl.departmentCount} users=${crawl.rows.length}`,
-    );
-  }
   return {
     ...writes,
     userCount: crawl.rows.length,

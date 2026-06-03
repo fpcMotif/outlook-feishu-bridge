@@ -105,11 +105,11 @@ describe("CoworkerPicker selected row", () => {
     fireEvent.change(screen.getByLabelText("Search Feishu coworkers"), {
       target: { value: "Jenny" },
     });
-    expect(await screen.findByRole("listbox")).toBeInTheDocument();
+    expect(await screen.findByLabelText("Search results")).toBeInTheDocument();
 
     fireEvent.mouseDown(screen.getByRole("button", { name: "Outside section" }));
 
-    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Search results")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Search Feishu coworkers")).toHaveValue("");
   });
 
@@ -148,7 +148,7 @@ describe("CoworkerPicker selected row", () => {
       />,
     );
 
-    const divider = document.querySelector('[role="separator"]');
+    const divider = document.querySelector("hr");
     expect(divider).not.toBeNull();
     expect(divider).toHaveClass(...TASKPANE_INSET_DIVIDER.split(" "));
   });

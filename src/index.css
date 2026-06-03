@@ -23,6 +23,10 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-sage: var(--sage);
   --color-sage-soft: var(--sage-soft);
+  --color-file-rose: var(--file-rose);
+  --color-file-rose-soft: var(--file-rose-soft);
+  --color-file-amber: var(--file-amber);
+  --color-file-amber-soft: var(--file-amber-soft);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-border: var(--border);
@@ -61,6 +65,10 @@
   /* Fresh green: Sample dot, "Ready" / connected */
   --sage: oklch(0.51 0.165 142.668);
   --sage-soft: oklch(0.949 0.024 147.288);
+  --file-rose: oklch(0.5 0.15 18);
+  --file-rose-soft: oklch(0.965 0.028 18);
+  --file-amber: oklch(0.58 0.13 72);
+  --file-amber-soft: oklch(0.965 0.038 85);
   --destructive: oklch(0.523 0.206 25.85);
   --destructive-foreground: oklch(1 0 0);
   --border: oklch(0.918 0.006 255.477);
@@ -94,6 +102,10 @@
   --accent-foreground: oklch(0.92 0.041 246.021);
   --sage: oklch(0.781 0.141 144.077);
   --sage-soft: oklch(0.337 0.053 153.099);
+  --file-rose: oklch(0.78 0.12 18);
+  --file-rose-soft: oklch(0.32 0.045 18);
+  --file-amber: oklch(0.8 0.11 78);
+  --file-amber-soft: oklch(0.34 0.05 78);
   --destructive: oklch(0.702 0.159 16.869);
   --destructive-foreground: oklch(0.176 0.033 256.392);
   --border: oklch(0.385 0.042 254.044);
@@ -372,6 +384,16 @@
 
   .submit-dock-btn[data-live]:hover .submit-dock-arrow {
     transform: translateX(2px);
+  }
+}
+
+@keyframes upload-fill-indeterminate {
+  0%,
+  100% {
+    transform: scaleY(0.25);
+  }
+  50% {
+    transform: scaleY(0.65);
   }
 }
 

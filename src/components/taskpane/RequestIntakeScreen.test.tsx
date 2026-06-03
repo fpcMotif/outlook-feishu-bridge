@@ -16,6 +16,14 @@ vi.mock("../../hooks/useSelfForward", () => ({
   useSelfForward: () => ({ sendNote: vi.fn(() => Promise.resolve({ ok: true })) }),
 }));
 
+vi.mock("../../hooks/useAttachmentStaging", () => ({
+  useAttachmentStaging: () => ({
+    generateUploadUrl: vi.fn().mockResolvedValue("https://up/test"),
+    uploadBytes: vi.fn().mockResolvedValue({ storageId: "st_test" }),
+    uploadToDrive: vi.fn().mockResolvedValue({ attachments: [] }),
+  }),
+}));
+
 vi.mock("../../hooks/useCoworkerSearch", () => {
   const coworkers = [
     { openId: "ou_jenny", name: "Jenny Xu", avatarUrl: "https://example.test/jenny.png" },
@@ -149,7 +157,10 @@ describe("RequestIntakeScreen login gate", () => {
     expect(screen.queryByText("Quotation")).not.toBeInTheDocument();
     expect(screen.queryByText("Sample")).not.toBeInTheDocument();
     expect(screen.queryByText("R&D Support")).not.toBeInTheDocument();
-    expect(document.querySelector('[data-request-note-card="true"]')).toHaveClass("rounded-[20px]", "p-2");
+    expect(document.querySelector('[data-request-note-card="true"]')).toHaveClass(
+      "rounded-2xl",
+      "bg-card-soft",
+    );
     expect(screen.getByPlaceholderText(/Describe your requirements/i)).toBeInTheDocument();
     const coworkerSection = screen.getByText("Customer & coworker");
     expect(coworkerSection.compareDocumentPosition(screen.getByText("New request"))).toBe(

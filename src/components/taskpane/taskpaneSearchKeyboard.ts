@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useLayoutEffect, useState } from "react"
 import type { KeyboardEvent, RefObject } from "react"
 
 // Pure keyboard-navigation resolver for the taskpane search dropdowns
@@ -35,6 +35,23 @@ export function resolveTaskpaneSearchKey(
   return { kind: "none" }
 }
 
+function syncSearchOptionButtons(
+  buttons: HTMLButtonElement[],
+  optionIdPrefix: string,
+  activeIndex: number,
+) {
+  buttons.forEach((button, index) => {
+    button.id = `${optionIdPrefix}-${index}`
+    if (activeIndex === index) {
+      button.dataset.keyboardActive = "true"
+    } else {
+      delete button.dataset.keyboardActive
+    }
+  })
+  // scrollIntoView is unimplemented in jsdom; guard so tests + SSR stay safe.
+  if (activeIndex >= 0) buttons[activeIndex]?.scrollIntoView?.({ block: "nearest" })
+}
+
 // Roving active-descendant over the option buttons rendered as children inside
 // `listRef` (marked with [data-search-option]). Returns the input keydown
 // handler and the id of the active option for aria-activedescendant.
@@ -46,33 +63,33 @@ export function useTaskpaneSearchKeyboard(
   onClose: () => void,
 ) {
   const [activeIndex, setActiveIndex] = useState(-1)
+  const [navEpoch, setNavEpoch] = useState({ query, open })
 
-  const options = () =>
-    listRef.current
+  if (query !== navEpoch.query || open !== navEpoch.open) {
+    setNavEpoch({ query, open })
+    setActiveIndex(-1)
+  }
+
+  useLayoutEffect(() => {
+    if (!open) return
+    const buttons = listRef.current
       ? Array.from(listRef.current.querySelectorAll<HTMLButtonElement>("[data-search-option]"))
       : []
-
-  useEffect(() => {
-    setActiveIndex(-1)
-  }, [query, open])
-
-  useEffect(() => {
-    const buttons = options()
-    buttons.forEach((button, index) => {
-      button.id = `${optionIdPrefix}-${index}`
-      button.setAttribute("aria-selected", index === activeIndex ? "true" : "false")
-    })
-    // scrollIntoView is unimplemented in jsdom; guard so tests + SSR stay safe.
-    if (activeIndex >= 0) buttons[activeIndex]?.scrollIntoView?.({ block: "nearest" })
-  })
+    syncSearchOptionButtons(buttons, optionIdPrefix, activeIndex)
+  }, [listRef, optionIdPrefix, open, activeIndex])
 
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (!open) return
-    const buttons = options()
+    const buttons = listRef.current
+      ? Array.from(listRef.current.querySelectorAll<HTMLButtonElement>("[data-search-option]"))
+      : []
     const action = resolveTaskpaneSearchKey(event.key, buttons.length, activeIndex)
     if (action.kind === "none") return
     event.preventDefault()
-    if (action.kind === "move") setActiveIndex(action.index)
+    if (action.kind === "move") {
+      setActiveIndex(action.index)
+      syncSearchOptionButtons(buttons, optionIdPrefix, action.index)
+    }
     if (action.kind === "select") buttons[action.index]?.click()
     if (action.kind === "close") {
       onClose()

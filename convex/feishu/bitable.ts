@@ -217,38 +217,6 @@ export const diagGetRecord = internalAction({
   },
 });
 
-export const diagSearchCustomerByName = internalAction({
-  args: { name: v.string() },
-  handler: async (ctx, args): Promise<{ ok: boolean; matches?: { record_id: string; name?: string }[]; error?: string }> => {
-    const appToken = process.env.FEISHU_BITABLE_APP_TOKEN;
-    if (!appToken) return { ok: false, error: "env not set" };
-    try {
-      const data = await callFeishu<{ items?: { record_id: string; fields?: Record<string, unknown> }[] }>(ctx, {
-        path: `/bitable/v1/apps/${appToken}/tables/${CLIENT_TABLE_ID}/records/search`,
-        method: "POST",
-        auth: "tenant",
-        json: {
-          filter: {
-            conjunction: "and",
-            conditions: [{ field_name: "Account Name", operator: "contains", value: [args.name] }],
-          },
-        },
-        query: { page_size: "5" },
-        label: "Bitable diag search customer by name",
-      });
-      return {
-        ok: true,
-        matches: (data.items ?? []).map((i) => ({
-          record_id: i.record_id,
-          name: i.fields?.["Name"] as string | undefined,
-        })),
-      };
-    } catch (e: unknown) {
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
-    }
-  },
-});
-
 export const diagSearchAnyClientRow = internalAction({
   args: {},
   handler: async (ctx): Promise<{ ok: boolean; sample?: unknown; error?: string }> => {

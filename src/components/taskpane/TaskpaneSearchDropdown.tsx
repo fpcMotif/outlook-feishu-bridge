@@ -54,7 +54,6 @@ export function TaskpaneSearchDropdown({
         <div
           ref={listRef}
           id={listId}
-          role="listbox"
           aria-label={listLabel}
           className="bg-popover text-popover-foreground absolute inset-x-0 top-[calc(100%+0.45rem)] z-40 max-h-64 overflow-y-auto rounded-2xl p-1.5 shadow-float"
         >

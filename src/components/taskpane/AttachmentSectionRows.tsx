@@ -1,98 +1,26 @@
-import { AlertCircle, CheckCircle2, Plus, X } from "lucide-react";
+import { AlertCircle } from "lucide-react";
+import { useMemo, type ReactNode } from "react";
 
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 
-import { ALLOWED_UPLOAD_EXTENSIONS, formatBytes } from "../../office/attachments";
-import type { AttachmentInfo } from "../../office/mailItem";
-import type { UploadedFile } from "./intakeReducer";
+import { formatAttachmentMeta } from "../../office/attachments";
 import {
   AttachmentRow,
-  FileGlyph,
-  ROW_PRESS,
+  FileTypeIconWithUploadProgress,
   StatusBadge,
   type StatusTone,
 } from "./AttachmentSectionPrimitives";
+import type { UploadStatus } from "./intakeReducer";
+import { Button } from "@/components/ui/button";
+import { nameWithoutExt } from "./attachmentFileDisplay";
 
-const ACCEPT = ALLOWED_UPLOAD_EXTENSIONS.map((e) => `.${e}`).join(",");
-
-function mailStatus(checked: boolean, disabled: boolean): { label: string; tone: StatusTone } | null {
+function mailStatus(
+  checked: boolean,
+  disabled: boolean,
+): { label: string; tone: StatusTone } | null {
   if (checked) return null;
   return disabled ? { label: "Limit", tone: "muted" } : null;
-}
-
-function UploadLead({
-  blocked,
-  name,
-  onRemove,
-}: {
-  blocked: boolean;
-  name: string;
-  onRemove: () => void;
-}) {
-  const DefaultIcon = blocked ? AlertCircle : CheckCircle2;
-
-  return (
-    <button
-      type="button"
-      aria-label={`Remove ${name}`}
-      title={`Remove ${name}`}
-      className={cn(
-        "group flex size-10 items-center justify-center rounded-full outline-none transition-[scale] duration-150 ease-[var(--ease-out-strong)] active:scale-[0.96]",
-        "focus-visible:ring-[3px] focus-visible:ring-destructive/20",
-      )}
-      onClick={onRemove}
-    >
-      <span
-        className={cn(
-          "relative flex size-5 items-center justify-center rounded-full transition-[background-color,color] duration-200 ease-[var(--ease-out-strong)]",
-          blocked ? "bg-destructive/10 text-destructive" : "bg-sage-soft text-sage",
-          "group-hover:bg-destructive/10 group-hover:text-destructive group-focus-visible:bg-destructive/10 group-focus-visible:text-destructive",
-        )}
-        aria-hidden="true"
-      >
-        <DefaultIcon className="absolute size-3.5 transition-[opacity,scale,filter] duration-200 ease-[var(--ease-out-strong)] group-hover:scale-[0.25] group-hover:opacity-0 group-hover:blur-[4px] group-focus-visible:scale-[0.25] group-focus-visible:opacity-0 group-focus-visible:blur-[4px]" />
-        <X
-          className="absolute size-3 scale-[0.25] opacity-0 blur-[4px] transition-[opacity,scale,filter] duration-200 ease-[var(--ease-out-strong)] group-hover:scale-100 group-hover:opacity-100 group-hover:blur-0 group-focus-visible:scale-100 group-focus-visible:opacity-100 group-focus-visible:blur-0"
-          strokeWidth={3}
-        />
-      </span>
-    </button>
-  );
-}
-
-interface MailAttachmentRowProps {
-  attachment: AttachmentInfo;
-  checked: boolean;
-  disabled: boolean;
-  onToggle: () => void;
-}
-
-export function MailAttachmentRow({
-  attachment,
-  checked,
-  disabled,
-  onToggle,
-}: MailAttachmentRowProps) {
-  const size = formatBytes(attachment.size);
-  const status = mailStatus(checked, disabled);
-
-  return (
-    <AttachmentRow
-      lead={
-        <CheckboxLead
-          name={attachment.name}
-          checked={checked}
-          disabled={disabled}
-          onToggle={onToggle}
-        />
-      }
-      icon={<FileGlyph name={attachment.name} />}
-      title={attachment.name}
-      subtitle={size}
-      status={status ? <StatusBadge tone={status.tone}>{status.label}</StatusBadge> : null}
-    />
-  );
 }
 
 function CheckboxLead({
@@ -107,74 +35,262 @@ function CheckboxLead({
   onToggle: () => void;
 }) {
   return (
-    <Checkbox
-      aria-label={name}
-      checked={checked}
-      disabled={disabled}
-      className="!shadow-none rounded-full border border-border/65 data-[state=checked]:border-transparent"
-      onCheckedChange={onToggle}
+    <span className="flex size-6 items-center justify-center">
+      <Checkbox
+        aria-label={name}
+        checked={checked}
+        disabled={disabled}
+        className={cn(
+          "!shadow-none rounded-md border border-border/65 transition-[border-color,border-width] duration-150 ease-[var(--ease-out-strong)]",
+          "data-[state=checked]:border-transparent",
+          "[@media(hover:hover)_and_(pointer:fine)]:group-hover/attachment:border-2 [@media(hover:hover)_and_(pointer:fine)]:group-hover/attachment:border-foreground",
+        )}
+        onCheckedChange={onToggle}
+      />
+    </span>
+  );
+}
+
+function itemStatus({
+  blocked,
+  checked,
+  disabled,
+}: {
+  blocked: boolean;
+  checked: boolean;
+  disabled: boolean;
+}): { label: string; tone: StatusTone } | null {
+  if (blocked) return { label: "Blocked", tone: "blocked" };
+  return mailStatus(checked, disabled);
+}
+
+function AttachmentStatusBadge({
+  status,
+}: {
+  status: { label: string; tone: StatusTone } | null;
+}) {
+  if (!status) return null;
+  if (status.tone !== "blocked") {
+    return <StatusBadge tone={status.tone}>{status.label}</StatusBadge>;
+  }
+
+  return (
+    <StatusBadge tone="blocked">
+      <span className="inline-flex items-center gap-1">
+        <AlertCircle className="size-3" aria-hidden="true" />
+        {status.label}
+      </span>
+    </StatusBadge>
+  );
+}
+
+function AttachmentSubtitle({
+  blocked,
+  subtitle,
+}: {
+  blocked: boolean;
+  subtitle: string;
+}) {
+  if (blocked)
+    return <span className="text-destructive normal-case">{subtitle}</span>;
+  return <span>{subtitle}</span>;
+}
+
+function uploadStatusBadge(status: UploadStatus | undefined): ReactNode {
+  if (status === "error") {
+    return <StatusBadge tone="blocked">Failed</StatusBadge>;
+  }
+  return null;
+}
+
+function uploadRowStatus({
+  blocked,
+  checked,
+  disabled,
+  uploadStatus,
+}: {
+  blocked: boolean;
+  checked: boolean;
+  disabled: boolean;
+  uploadStatus?: UploadStatus;
+}): { label: string; tone: StatusTone } | null {
+  if (blocked) return { label: "Blocked", tone: "blocked" };
+  if (uploadStatus === "error") return { label: "Failed", tone: "blocked" };
+  if (
+    uploadStatus === "pending" ||
+    uploadStatus === "uploading" ||
+    uploadStatus === "processing"
+  ) {
+    return null;
+  }
+  return mailStatus(checked, disabled);
+}
+
+type AttachmentRowSlotsArgs = {
+  blocked: boolean;
+  checked: boolean;
+  disabled: boolean;
+  name: string;
+  onToggle: () => void;
+  status: { label: string; tone: StatusTone } | null;
+  subtitle: string;
+  uploadStatus?: UploadStatus;
+  onRetry?: () => void;
+};
+
+function RowRetryButton({ onRetry }: { onRetry: () => void }) {
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      className="h-7 shrink-0 rounded-md px-2 text-[11px] font-medium"
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onRetry();
+      }}
+    >
+      Retry
+    </Button>
+  );
+}
+
+function useAttachmentRowSlots({
+  blocked,
+  checked,
+  disabled,
+  name,
+  onToggle,
+  status,
+  subtitle,
+  uploadStatus,
+  onRetry,
+}: AttachmentRowSlotsArgs) {
+  const leadNode = useMemo(
+    () => (
+      <CheckboxLead
+        name={name}
+        checked={checked}
+        disabled={disabled}
+        onToggle={onToggle}
+      />
+    ),
+    [checked, disabled, name, onToggle],
+  );
+  const statusNode = useMemo(() => {
+    const uploadIndicator = uploadStatusBadge(uploadStatus);
+    if (uploadIndicator) return uploadIndicator;
+    return <AttachmentStatusBadge status={status} />;
+  }, [status, uploadStatus]);
+  const subtitleNode = useMemo(
+    () => <AttachmentSubtitle blocked={blocked} subtitle={subtitle} />,
+    [blocked, subtitle],
+  );
+  const retryNode =
+    uploadStatus === "error" && onRetry ? (
+      <RowRetryButton onRetry={onRetry} />
+    ) : null;
+
+  return { leadNode, statusNode, subtitleNode, retryNode };
+}
+
+export type AttachmentItemRowProps = {
+  name: string;
+  size: number;
+  selected: boolean;
+  disabled: boolean;
+  rejection?: string | null;
+  uploadStatus?: UploadStatus;
+  progress?: number;
+  uploadError?: string | null;
+  onToggle: () => void;
+  onRemove: () => void;
+  onRetry?: () => void;
+};
+
+function deriveAttachmentRowModel({
+  rejection = null,
+  selected,
+  disabled,
+  size,
+  uploadStatus,
+  uploadError = null,
+}: AttachmentItemRowProps) {
+  const blocked = rejection !== null;
+  const checked = selected && !blocked;
+  const subtitle = blocked
+    ? (rejection ?? "")
+    : uploadStatus === "error"
+      ? (uploadError ?? "Upload failed")
+      : formatAttachmentMeta(size);
+  const status =
+    uploadStatus === undefined
+      ? itemStatus({ blocked, checked, disabled })
+      : uploadRowStatus({ blocked, checked, disabled, uploadStatus });
+  return { blocked, checked, subtitle, status };
+}
+
+function buildAttachmentFileIcon(
+  name: string,
+  progress: number | undefined,
+  uploadStatus: UploadStatus | undefined,
+): ReactNode {
+  if (uploadStatus === undefined) return undefined;
+  const uploadActive =
+    uploadStatus === "pending" ||
+    uploadStatus === "uploading" ||
+    uploadStatus === "processing";
+  // Indeterminate only before upload starts; once uploading, fill uses xhr + simulated ramp.
+  return (
+    <FileTypeIconWithUploadProgress
+      name={name}
+      progress={progress ?? 0}
+      active={uploadActive}
+      indeterminate={uploadStatus === "pending"}
     />
   );
 }
 
-interface UploadedAttachmentRowProps {
-  upload: UploadedFile;
-  onRemove: () => void;
-}
-
-export function UploadedAttachmentRow({
-  upload,
-  onRemove,
-}: UploadedAttachmentRowProps) {
-  const name = upload.file.name;
-  const size = formatBytes(upload.file.size);
-  const blocked = upload.rejection !== null;
-  const tone: StatusTone = "blocked";
-  const status = blocked ? "Blocked" : null;
+export function AttachmentItemRow(props: AttachmentItemRowProps) {
+  const { name, disabled, onToggle, onRemove, onRetry, uploadStatus, progress } =
+    props;
+  const { blocked, checked, subtitle, status } = deriveAttachmentRowModel(props);
+  const { leadNode, statusNode, subtitleNode, retryNode } = useAttachmentRowSlots({
+    blocked,
+    checked,
+    disabled,
+    name,
+    onToggle,
+    status,
+    subtitle,
+    uploadStatus,
+    onRetry,
+  });
+  const fileIcon = buildAttachmentFileIcon(name, progress, uploadStatus);
+  const statusSlot = useMemo(
+    () => (
+      <>
+        {retryNode}
+        {statusNode}
+      </>
+    ),
+    [retryNode, statusNode],
+  );
 
   return (
     <AttachmentRow
-      lead={<UploadLead blocked={blocked} name={name} onRemove={onRemove} />}
-      icon={<FileGlyph name={name} />}
-      title={name}
-      subtitle={blocked ? upload.rejection : size}
-      status={status ? <StatusBadge tone={tone}>{status}</StatusBadge> : null}
+      selected={checked}
+      lead={leadNode}
+      fileIcon={fileIcon}
+      name={name}
+      displayName={nameWithoutExt(name)}
+      subtitle={subtitleNode}
+      status={statusSlot}
+      removeLabel={`Remove ${name}`}
+      onRemove={onRemove}
     />
   );
 }
 
-export function AddFileRow({
-  disabled,
-  onPick,
-}: {
-  disabled: boolean;
-  onPick: (files: File[]) => void;
-}) {
-  return (
-    <label
-      className={cn(
-        "text-muted-foreground hover:bg-secondary/45 hover:text-foreground inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-md px-2 text-xs font-semibold outline-none transition-[background-color,color,scale] duration-150 ease-[var(--ease-out-strong)] focus-within:ring-[3px] focus-within:ring-ring/20",
-        ROW_PRESS,
-        disabled && "cursor-not-allowed opacity-50 active:scale-100",
-      )}
-      aria-label={disabled ? "Attachment limit reached" : "Add file"}
-    >
-      <Plus className="size-4 shrink-0" aria-hidden="true" />
-      <span>Add file</span>
-      {disabled ? <StatusBadge tone="muted">Full</StatusBadge> : null}
-      <input
-        data-testid="attachment-upload-input"
-        type="file"
-        multiple
-        accept={ACCEPT}
-        disabled={disabled}
-        className="sr-only"
-        onChange={(e) => {
-          const files = Array.from(e.target.files ?? []);
-          if (files.length > 0) onPick(files);
-          e.target.value = "";
-        }}
-      />
-    </label>
-  );
-}
+export { AddFileRow, UploadDropZone } from "./AttachmentUploadDropZone";

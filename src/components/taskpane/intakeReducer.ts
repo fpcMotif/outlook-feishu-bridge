@@ -2,58 +2,30 @@
 // RequestIntakeScreen owns effects and rendering; this module owns state
 // transitions that must not regress during retry/start-over flows.
 
-import type { Coworker } from "./coworkers";
-import type { CustomerRecord } from "./customers";
+import { MAX_ATTACHMENT_COUNT } from "../../office/attachments";
+import type { IntakeAction, IntakeState, UploadedFile } from "./intakeTypes";
 
-export type IntakeScreenName = "build" | "sync" | "received" | "error";
+export type {
+  IntakeScreenName,
+  SelfForwardStatus,
+  UploadStatus,
+  UploadedFile,
+  IntakeState,
+  IntakeAction,
+} from "./intakeTypes";
 
-export type SelfForwardStatus = "pending" | "ok" | "failed" | null;
-
-// A user-uploaded file staged for the Base Attachment cell (ADR-0022). `id` is a
-// local uuid (minted in the picker handler), `rejection` is the inline reason
-// from uploadRejectionReason (null = acceptable). The DOM File carries the bytes.
-export interface UploadedFile {
-  id: string;
-  file: File;
-  rejection: string | null;
+function selectedUploadCount(uploadedFiles: UploadedFile[]): number {
+  return uploadedFiles.filter(
+    (file) => file.rejection === null && file.selected,
+  ).length;
 }
 
-export interface IntakeState {
-  notes: Record<string, string>;
-  clientEmail: string;
-  mailFrom: string;
-  screen: IntakeScreenName;
-  selectedCoworker: Coworker | null;
-  selectedCustomer: CustomerRecord | null;
-  customerTouched: boolean;
-  bitableRecordId: string | null;
-  bitableDetailUrl: string | null;
-  syncError: string | null;
-  selfForwardStatus: SelfForwardStatus;
-  selfForwardError: { code: string; message: string } | null;
-  // ADR-0022 attachments: checked mail-attachment ids (opt-in, default []) and
-  // the user's uploaded files. Sources are gathered + staged at submit time.
-  selectedAttachmentIds: string[];
-  uploadedFiles: UploadedFile[];
+function selectedAttachmentCount(state: IntakeState): number {
+  return (
+    state.selectedAttachmentIds.length +
+    selectedUploadCount(state.uploadedFiles)
+  );
 }
-
-export type IntakeAction =
-  | { type: "mailFromChanged"; mailFrom: string }
-  | { type: "noteChanged"; id: string; value: string }
-  | { type: "screenChanged"; screen: IntakeScreenName }
-  | { type: "coworkerSelected"; coworker: Coworker }
-  | { type: "customerAutoMatched"; customer: CustomerRecord | null }
-  | { type: "customerOverridden"; customer: CustomerRecord | null }
-  | { type: "syncStarted" }
-  | { type: "syncSucceeded"; recordId: string; detailUrl?: string | null }
-  | { type: "syncFailed"; message: string }
-  | { type: "selfForwardStarted" }
-  | { type: "selfForwardSucceeded" }
-  | { type: "selfForwardFailed"; code: string; message: string }
-  | { type: "attachmentToggled"; id: string }
-  | { type: "filesAdded"; files: UploadedFile[] }
-  | { type: "uploadedFileRemoved"; id: string }
-  | { type: "startedOver" };
 
 export function initialIntakeState(mailFrom: string): IntakeState {
   return {
@@ -70,13 +42,17 @@ export function initialIntakeState(mailFrom: string): IntakeState {
     selfForwardStatus: null,
     selfForwardError: null,
     selectedAttachmentIds: [],
+    dismissedMailAttachmentIds: [],
     uploadedFiles: [],
   };
 }
 
 // One exhaustive switch keeps the state machine easy to audit.
 // eslint-disable-next-line max-lines-per-function
-export function intakeReducer(state: IntakeState, action: IntakeAction): IntakeState {
+export function intakeReducer(
+  state: IntakeState,
+  action: IntakeAction,
+): IntakeState {
   switch (action.type) {
     case "mailFromChanged":
       return {
@@ -96,7 +72,11 @@ export function intakeReducer(state: IntakeState, action: IntakeAction): IntakeS
       if (state.customerTouched) return state;
       return { ...state, selectedCustomer: action.customer };
     case "customerOverridden":
-      return { ...state, selectedCustomer: action.customer, customerTouched: true };
+      return {
+        ...state,
+        selectedCustomer: action.customer,
+        customerTouched: true,
+      };
     case "syncStarted":
       return {
         ...state,
@@ -126,16 +106,132 @@ export function intakeReducer(state: IntakeState, action: IntakeAction): IntakeS
         selfForwardError: { code: action.code, message: action.message },
       };
     case "attachmentToggled":
+      if (
+        !state.selectedAttachmentIds.includes(action.id) &&
+        selectedAttachmentCount(state) >= MAX_ATTACHMENT_COUNT
+      ) {
+        return state;
+      }
       return {
         ...state,
         selectedAttachmentIds: state.selectedAttachmentIds.includes(action.id)
           ? state.selectedAttachmentIds.filter((id) => id !== action.id)
           : [...state.selectedAttachmentIds, action.id],
       };
+    case "mailAttachmentRemoved": {
+      const dismissed = state.dismissedMailAttachmentIds.includes(action.id)
+        ? state.dismissedMailAttachmentIds
+        : [...state.dismissedMailAttachmentIds, action.id];
+      return {
+        ...state,
+        selectedAttachmentIds: state.selectedAttachmentIds.filter(
+          (id) => id !== action.id,
+        ),
+        dismissedMailAttachmentIds: dismissed,
+      };
+    }
     case "filesAdded":
-      return { ...state, uploadedFiles: [...state.uploadedFiles, ...action.files] };
+      return {
+        ...state,
+        uploadedFiles: [...state.uploadedFiles, ...action.files],
+      };
+    case "uploadedFileToggled": {
+      const target = state.uploadedFiles.find((file) => file.id === action.id);
+      if (!target || target.rejection !== null) return state;
+      if (
+        !target.selected &&
+        selectedAttachmentCount(state) >= MAX_ATTACHMENT_COUNT
+      )
+        return state;
+      return {
+        ...state,
+        uploadedFiles: state.uploadedFiles.map((file) =>
+          file.id === action.id ? { ...file, selected: !file.selected } : file,
+        ),
+      };
+    }
+    case "uploadedFilesSelectionChanged": {
+      const requested = new Set(action.ids);
+      let slots = MAX_ATTACHMENT_COUNT - state.selectedAttachmentIds.length;
+      return {
+        ...state,
+        uploadedFiles: state.uploadedFiles.map((file) => {
+          if (
+            file.rejection !== null ||
+            !requested.has(file.id) ||
+            slots <= 0
+          ) {
+            return { ...file, selected: false };
+          }
+          slots -= 1;
+          return { ...file, selected: true };
+        }),
+      };
+    }
     case "uploadedFileRemoved":
-      return { ...state, uploadedFiles: state.uploadedFiles.filter((f) => f.id !== action.id) };
+      return {
+        ...state,
+        uploadedFiles: state.uploadedFiles.filter((f) => f.id !== action.id),
+      };
+    case "uploadProgressUpdated":
+      return {
+        ...state,
+        uploadedFiles: state.uploadedFiles.map((file) =>
+          file.id === action.id &&
+          file.rejection === null &&
+          (file.status === "uploading" || file.status === "pending")
+            ? {
+                ...file,
+                progress: Math.max(file.progress ?? 0, action.progress),
+              }
+            : file,
+        ),
+      };
+    case "uploadStatusChanged":
+      return {
+        ...state,
+        uploadedFiles: state.uploadedFiles.map((file) =>
+          file.id === action.id
+            ? {
+                ...file,
+                status: action.status,
+                progress:
+                  action.progress === undefined
+                    ? file.progress
+                    : action.status === "uploading" &&
+                        (file.status === "uploading" || file.status === "pending")
+                      ? Math.max(file.progress ?? 0, action.progress)
+                      : action.progress,
+                storageId:
+                  action.storageId === undefined
+                    ? file.storageId
+                    : action.storageId,
+                uploadError:
+                  action.uploadError === undefined
+                    ? file.uploadError
+                    : action.uploadError,
+              }
+            : file,
+        ),
+      };
+    case "uploadRetryRequested": {
+      const target = state.uploadedFiles.find((file) => file.id === action.id);
+      if (!target || target.rejection !== null) return state;
+      return {
+        ...state,
+        uploadedFiles: state.uploadedFiles.map((file) =>
+          file.id === action.id
+            ? {
+                ...file,
+                status: "pending",
+                progress: 0,
+                storageId: undefined,
+                uploadError: null,
+              }
+            : file,
+        ),
+      };
+    }
     case "startedOver":
       return {
         ...state,
@@ -150,6 +246,7 @@ export function intakeReducer(state: IntakeState, action: IntakeAction): IntakeS
         selfForwardStatus: null,
         selfForwardError: null,
         selectedAttachmentIds: [],
+        dismissedMailAttachmentIds: [],
         uploadedFiles: [],
       };
   }

@@ -27,6 +27,7 @@ import { TaskpaneSelectionRow } from "./TaskpaneSelectionRow";
 import {
   TASKPANE_SEARCH_PANEL_HEADER,
   TASKPANE_SEARCH_PANEL_SHELL,
+  TASKPANE_SEARCH_PANEL_SHELL_HEADER,
   TASKPANE_SEARCH_PANEL_TITLE,
 } from "./taskpaneSearchPanelLayout";
 import { useCustomerSearchSession } from "./useCustomerSearchSession";
@@ -60,7 +61,8 @@ export function CustomerPicker({
   triggerRefresh,
 }: CustomerPickerProps) {
   const session = useCustomerSearchSession();
-  const defaultOpenedAt = useRef(performance.now());
+  const defaultOpenedAt = useRef<number | null>(null);
+  if (defaultOpenedAt.current === null) defaultOpenedAt.current = performance.now();
 
   const openSearch = () => {
     dlog(
@@ -188,14 +190,16 @@ function SearchPanel({
     }, 0);
   };
 
+  const shell = embedded ? TASKPANE_SEARCH_PANEL_SHELL_HEADER : TASKPANE_SEARCH_PANEL_SHELL;
+
   return (
     <section
       ref={boundaryRef}
       onBlur={handlePanelBlur}
       className={
         embedded
-          ? `${TASKPANE_SEARCH_PANEL_SHELL}${exiting ? " panel-exit" : ""}`
-          : `bg-card-soft rounded-xl ${TASKPANE_SEARCH_PANEL_SHELL} shadow-edge${exiting ? " panel-exit" : ""}`
+          ? `${shell}${exiting ? " panel-exit" : ""}`
+          : `bg-card-soft rounded-xl ${shell} shadow-edge${exiting ? " panel-exit" : ""}`
       }
     >
       <div className={TASKPANE_SEARCH_PANEL_HEADER}>
@@ -230,12 +234,11 @@ function SearchPanel({
               key={customer.recordId}
               type="button"
               data-search-option=""
-              aria-selected={false}
               onClick={() => {
                 dtime(`customer picker: picked "${customer.name}"`, openedAt);
                 onSelect(customer);
               }}
-              className="bg-card hover:bg-accent aria-selected:bg-accent sync-enter flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-xs shadow-edge transition-transform active:scale-[0.96]"
+              className="bg-card hover:bg-accent data-[keyboard-active=true]:bg-accent sync-enter flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-xs shadow-edge transition-transform active:scale-[0.96]"
             >
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-semibold">{customer.name}</span>
@@ -262,12 +265,11 @@ function SearchPanel({
           <button
             type="button"
             data-search-option=""
-            aria-selected={false}
             onClick={() => {
               dtime(`customer picker: create requested "${q}"`, openedAt);
               onCreateCustomer?.(query.trim());
             }}
-            className="bg-card hover:bg-accent aria-selected:bg-accent flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-xs font-semibold shadow-edge transition-transform active:scale-[0.96]"
+            className="bg-card hover:bg-accent data-[keyboard-active=true]:bg-accent flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-xs font-semibold shadow-edge transition-transform active:scale-[0.96]"
           >
             <Plus className="text-primary size-4 shrink-0" />
             <span className="min-w-0 flex-1 truncate">Create customer task "{query.trim()}"</span>

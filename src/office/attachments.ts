@@ -67,3 +67,17 @@ export function uploadRejectionReason(file: {
   }
   return null;
 }
+
+// Mail attachments are offered as-is (already real inbox files), but the single-
+// shot Feishu Drive upload still caps a file at 20 MB. Returns a short reason when
+// a mail attachment is too large to upload (so the picker can disable it and the
+// stage step can skip it), else null. Shares MAX_ATTACHMENT_BYTES with
+// uploadRejectionReason — the one cap the server enforces too (ADR-0022 / #34).
+export function mailAttachmentRejectionReason(attachment: {
+  size: number;
+}): string | null {
+  if (attachment.size > MAX_ATTACHMENT_BYTES) {
+    return `${formatBytes(attachment.size)} exceeds 20 MB`;
+  }
+  return null;
+}

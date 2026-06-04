@@ -100,6 +100,7 @@ function buildEmailRecordBackup(args: RequestSyncArgs, sentToBitable: boolean) {
       selectedCoworkers: args.selectedCoworkers,
       selectedCustomer: args.selectedCustomer,
       initiator: args.selectedSales ?? args.initiator,
+      attachments: args.attachments,
     },
     { sentToBitable },
   );
@@ -241,6 +242,7 @@ export const reconcilePendingBitableSync = internalAction({
             // ADR-0022: only the stored ≤500-char preview is available on retry —
             // the full body is never persisted on the backup.
             body: record.bodyPreview,
+            attachments: record.attachmentFileTokens,
             selectedCoworkers,
             selectedSales: record.initiator,
             initiator: record.initiator,

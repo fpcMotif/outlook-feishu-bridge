@@ -104,6 +104,11 @@ export const emailRecordFields = {
   bitableRecordId: v.optional(v.string()),
   pdfFileKey: v.optional(v.string()),
   attachmentFileKeys: v.optional(v.array(attachmentKeyValidator)),
+  // ADR-0022 / #35: Feishu Drive file_tokens minted by uploadAttachmentsToDrive
+  // before the Base write. Persisted so the reconcile retry re-attaches them
+  // instead of re-creating the row file-less (the legacy attachmentFileKeys above
+  // is a different {fileKey,fileName,type} shape and is unused on new rows).
+  attachmentFileTokens: v.optional(v.array(v.object({ fileToken: v.string() }))),
   feishuDocUrl: v.optional(v.string()),
   feishuDocToken: v.optional(v.string()),
   bitableClientToken: v.optional(v.string()),
@@ -139,6 +144,9 @@ export interface EmailRecordInput {
   selectedCoworkers?: SelectedCoworker[];
   selectedCustomer?: SelectedCustomer;
   initiator?: Initiator;
+  // ADR-0022: Drive file_tokens minted before the Base write, persisted so the
+  // reconcile retry path can re-attach them.
+  attachments?: { fileToken: string }[];
 }
 
 // The Feishu handle produced during sync.
@@ -183,6 +191,7 @@ export function toEmailRecord(
     bitableRecordId: ids.bitableRecordId,
     pdfFileKey: undefined,
     attachmentFileKeys: undefined,
+    attachmentFileTokens: input.attachments,
     feishuDocUrl: undefined,
     feishuDocToken: undefined,
     bitableClientToken: undefined,

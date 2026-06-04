@@ -8,6 +8,7 @@ import {
   formatAttachmentMeta,
   formatBytes,
   isAllowedUploadName,
+  mailAttachmentRejectionReason,
   selectableMailAttachments,
   uploadRejectionReason,
 } from "./attachments";
@@ -68,6 +69,14 @@ describe("upload validation (ADR-0022 decision #4)", () => {
   it("rejects an unsupported type, then an oversize file, each with a short reason", () => {
     expect(uploadRejectionReason({ name: "evil.exe", size: 10 })).toMatch(/unsupported/i);
     expect(uploadRejectionReason({ name: "big.pdf", size: MAX_ATTACHMENT_BYTES + 1 })).toMatch(/20 MB/);
+  });
+
+  it("size-caps mail attachments too (#34): only oversize ones are rejected, type is not checked", () => {
+    // Mail attachments are real inbox files offered as-is, so only the 20 MB Drive
+    // cap applies — a within-cap file passes regardless of extension.
+    expect(mailAttachmentRejectionReason({ size: 1000 })).toBeNull();
+    expect(mailAttachmentRejectionReason({ size: MAX_ATTACHMENT_BYTES })).toBeNull();
+    expect(mailAttachmentRejectionReason({ size: MAX_ATTACHMENT_BYTES + 1 })).toMatch(/20 MB/);
   });
 
   it("formats bytes for the row label", () => {

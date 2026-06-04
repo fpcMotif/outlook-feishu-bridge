@@ -47,4 +47,20 @@ describe("useAttachmentSync", () => {
     expect(out.failed.map((f) => f.name)).toEqual(["rfq.pdf"]);
     expect(stageAndUploadAttachments).not.toHaveBeenCalled();
   });
+
+  it("never throws on a Drive/storage failure: degrades to no tokens + reported failures (#33)", async () => {
+    useAttachmentStaging.mockReturnValue({});
+    stageAndUploadAttachments.mockRejectedValue(new Error("Drive 500"));
+
+    const { result } = renderHook(() => useAttachmentSync());
+    const uploads: UploadedFile[] = [
+      { id: "u1", file: new File(["x"], "a.pdf"), rejection: null, selected: true },
+    ];
+
+    // The seam must resolve (not reject) so runSync still reaches sync().
+    const out = await result.current([], uploads);
+
+    expect(out.attachments).toEqual([]);
+    expect(out.failed).toEqual([{ name: "a.pdf", reason: "Drive 500" }]);
+  });
 });

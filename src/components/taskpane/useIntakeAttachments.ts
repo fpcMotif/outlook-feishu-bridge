@@ -8,6 +8,7 @@ import { useCallback, useMemo, useRef, type Dispatch } from "react";
 
 import {
   MAX_ATTACHMENT_COUNT,
+  mailAttachmentRejectionReason,
   selectableMailAttachments,
 } from "../../office/attachments";
 import type { AttachmentInfo } from "../../office/mailItem";
@@ -17,6 +18,7 @@ import {
   buildUploadedFiles,
   filterDuplicateUploadFiles,
 } from "./attachmentSelection";
+import type { AttachmentFailure } from "./gatherAttachmentSources";
 import type { IntakeAction, IntakeState } from "./intakeReducer";
 import { useAttachmentStaging } from "../../hooks/useAttachmentStaging";
 import {
@@ -84,15 +86,19 @@ function collectPendingUploadIds(
 function collectSelectedMail(
   mailAttachments: AttachmentInfo[],
   selectedIds: IntakeState["selectedAttachmentIds"],
-): { id: string; name: string }[] {
+): { selected: { id: string; name: string }[]; oversized: AttachmentFailure[] } {
   const selected = new Set(selectedIds);
-  const selectedMail: { id: string; name: string }[] = [];
+  const out: { id: string; name: string }[] = [];
+  const oversized: AttachmentFailure[] = [];
   for (const a of mailAttachments) {
-    if (selected.has(a.id)) {
-      selectedMail.push({ id: a.id, name: a.name });
-    }
+    if (!selected.has(a.id)) continue;
+    // Skip any oversized selection before staging and report it as a failure,
+    // rather than letting the 20 MB Drive cap throw and abort the sync (#34).
+    const rejection = mailAttachmentRejectionReason(a);
+    if (rejection === null) out.push({ id: a.id, name: a.name });
+    else oversized.push({ name: a.name, reason: rejection });
   }
-  return selectedMail;
+  return { selected: out, oversized };
 }
 
 function addNovelUploads(
@@ -151,11 +157,14 @@ export function useIntakeAttachments(
     if (pendingIds.length > 0) {
       await awaitIntakeUploads(pendingIds);
     }
-    const selectedMail = collectSelectedMail(
+    const { selected, oversized } = collectSelectedMail(
       mailAttachments,
       state.selectedAttachmentIds,
     );
-    return stage(selectedMail, mergeStagedUploads(uploadsRef.current));
+    const result = await stage(selected, mergeStagedUploads(uploadsRef.current));
+    return oversized.length > 0
+      ? { ...result, failed: [...oversized, ...result.failed] }
+      : result;
   }, [stage, mailAttachments, state]);
 
   return { mailAttachments, addFiles, retryUpload, stageSelected };

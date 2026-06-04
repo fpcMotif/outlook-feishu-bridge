@@ -90,6 +90,15 @@ function renderPreview() {
   render(<TaskPane host="browser" />);
 }
 
+function mockMailLoading() {
+  mockUseMailItem.mockReturnValue({
+    mailItem: null,
+    loading: true,
+    error: null,
+    readCurrentItem: vi.fn(),
+  });
+}
+
 function unlockRequestBuilder() {
   fireEvent.click(screen.getByRole("button", { name: /Continue with Feishu/i }));
 }
@@ -108,6 +117,36 @@ beforeEach(() => {
 });
 
 describe("TaskPane browser preview auth flow", () => {
+  it("shows login instead of the read-email loading screen while Outlook auto-read is pending", () => {
+    mockMailLoading();
+
+    render(<TaskPane host="Outlook" />);
+
+    expect(screen.getByRole("button", { name: /Continue with Feishu/i })).toBeInTheDocument();
+    expect(screen.queryByText(/Reading your email/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/No message open/i)).not.toBeInTheDocument();
+  });
+
+  it("does not render a read-email page while logged-in Outlook auto-read is pending", () => {
+    mockMailLoading();
+    mockUseFeishuAuth.mockReturnValue({
+      sessionId: "test-session",
+      isLoading: false,
+      isLoggedIn: true,
+      user: { openId: "ou_dev", userName: "Jenny Xu" },
+      userAccessToken: undefined,
+      login: vi.fn(),
+      loginFallback: vi.fn(),
+      logout: vi.fn(),
+    });
+
+    render(<TaskPane host="Outlook" />);
+
+    expect(screen.queryByText(/Reading your email/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/No message open/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Continue with Feishu/i })).not.toBeInTheDocument();
+  });
+
   it("starts on a standalone login page and unlocks the request builder after dev login", () => {
     renderPreview();
 
@@ -184,6 +223,18 @@ describe("TaskPane browser preview request flow", () => {
       screen.getByRole("heading", { name: /Syncing to Feishu Base/i }),
     ).toBeInTheDocument();
     expect(screen.getByText(/Base row preview/i)).toBeInTheDocument();
+  });
+
+  it("opens the direct dev preview for the login checking screen", () => {
+    window.history.replaceState({}, "", "/?devSceen=login");
+
+    renderPreview();
+
+    expect(screen.queryByText(/Restoring session/i)).not.toBeInTheDocument();
+    expect(screen.queryByText("Jenny Xu")).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(/Checking Feishu/i);
+    expect(screen.getByRole("button", { name: /Checking Feishu/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Use backup login/i })).toBeDisabled();
   });
 
   it("opens the direct dev preview for the success screen", () => {

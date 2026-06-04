@@ -41,6 +41,7 @@
  */
 
 import { REQUESTS } from "./requests";
+import { isPreviewCoworkerOpenId } from "../../testing/preview-coworkers";
 
 export function buildFilledRequests(notes: Record<string, string>) {
   return REQUESTS.flatMap((r) => {
@@ -54,18 +55,29 @@ export type SubmitSyncGateInput = {
   hasCoworker: boolean;
   /** Number of request types with a non-empty trimmed note. */
   fulfilledRequestCount: number;
+  /** Browser dev host (TaskPane devPreview) — blocks preview fixture coworkers. */
+  devPreview?: boolean;
+  selectedCoworkerOpenId?: string | null;
 };
 
 export function canSubmitSync({
   hasCustomer,
   hasCoworker,
   fulfilledRequestCount,
+  devPreview = false,
+  selectedCoworkerOpenId,
 }: SubmitSyncGateInput): boolean {
+  if (devPreview && isPreviewCoworkerOpenId(selectedCoworkerOpenId)) {
+    return false;
+  }
   return hasCustomer && hasCoworker && fulfilledRequestCount > 0;
 }
 
 /** Hint for the disabled dock button; first missing requirement wins (top-to-bottom on screen). */
 export function submitSyncHint(input: SubmitSyncGateInput): string {
+  if (input.devPreview && isPreviewCoworkerOpenId(input.selectedCoworkerOpenId)) {
+    return "Pick a real Feishu colleague (preview fixtures cannot sync to Base)";
+  }
   if (!input.hasCustomer) {
     return "Select a customer";
   }

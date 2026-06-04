@@ -1,26 +1,11 @@
-// Public actions the taskpane calls to sync a sales request into the Bitable
-// Service table. These wrap the internal Bitable writes (bitable.ts) and persist
-// the email detail to the Convex Email Record. Chat/bot/PDF/Doc are retired
-// (ADR-0010); the Bitable row is the only delivery. See ADR-0012.
-
 import { action, internalAction, type ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
-import {
-  initiatorValidator,
-  selectedCoworkerValidator,
-  selectedCustomerValidator,
-  toEmailRecord,
-  type SelectedCoworker,
-} from "../emailRecord";
+import { initiatorValidator, selectedCoworkerValidator, selectedCustomerValidator, toEmailRecord, type SelectedCoworker } from "../emailRecord";
+import { assertRealCoworkerOpenIds, poisonedOutboxReason } from "./previewFixtures";
 import { buildConfiguredBitableRecordDetailUrl } from "./bitableUrl";
 
-// Shared intake the UI submits. `clientEmail` is the user-confirmed client email
-// used for the legacy backend domain-match against the Customer Table;
-// `selectedCustomer` is the SPA-side Customer Picker override (ADR-0013) — when
-// present it wins, otherwise the domain match runs as before. `from` is the
-// actual sender stored on the Email Record. Email subject/body live only on
-// the Convex Email Record.
+// Shared intake submitted by the taskpane.
 const intakeArgs = {
   subject: v.string(),
   from: v.string(),
@@ -36,16 +21,16 @@ const intakeArgs = {
   selectedCustomer: v.optional(selectedCustomerValidator),
   selectedSales: v.optional(initiatorValidator),
   initiator: v.optional(initiatorValidator),
-  // ADR-0022: the SPA now submits one consolidated note instead of the per-
-  // category requestSelections. `body` (already above) rides to the Base too.
   requestNote: v.optional(v.string()),
-  // ADR-0022: Feishu Drive file_tokens minted by uploadAttachmentsToDrive before
-  // the sync; written to the Base Attachment cell on create.
   attachments: v.optional(v.array(v.object({ fileToken: v.string() }))),
   selectedCoworkers: v.optional(v.array(selectedCoworkerValidator)),
 };
 
 const RECONCILE_LIMIT = 20;
+
+type SyncRequestResult =
+  | { status: "pending"; recordId: null; detailUrl: null }
+  | { status: "synced"; recordId: string; detailUrl: string | null };
 
 function newBitableClientToken(): string {
   return globalThis.crypto.randomUUID();
@@ -59,6 +44,7 @@ export function requireExactlyOneCoworker(coworkers: SelectedCoworker[] | undefi
   if (!coworkers || coworkers.length !== 1) {
     throw new Error("Bitable Sync requires exactly one Feishu coworker");
   }
+  assertRealCoworkerOpenIds(coworkers);
   return coworkers;
 }
 
@@ -114,10 +100,6 @@ async function markFailure(
   lookup: { internetMessageId: string; requestSyncKey?: string },
   e: unknown,
 ) {
-  // Forward ONLY the two lookup keys. Callers pass whole objects — the reconcile
-  // path passes a full `emailRecords` doc (with `_creationTime`/`_id`/`bodyPreview`/…)
-  // and syncRequest passes the `backup` (subject/from/…). Spreading those tripped
-  // markBitableSyncFailed's validator with `extra field _creationTime`.
   await ctx.runMutation(internal.emails.markBitableSyncFailed, {
     internetMessageId: lookup.internetMessageId,
     requestSyncKey: lookup.requestSyncKey,
@@ -150,6 +132,18 @@ async function createServiceRow(
   return recordId;
 }
 
+async function syncBitableRequest(
+  ctx: ActionCtx,
+  args: RequestSyncArgs,
+  selectedCoworkers: SelectedCoworker[],
+  clientToken: string,
+): Promise<Extract<SyncRequestResult, { status: "synced" }>> {
+  const backup = buildEmailRecordBackup({ ...args, selectedCoworkers }, false);
+  const createdRecordId = await createServiceRow(ctx, args, selectedCoworkers, clientToken);
+  const detailUrl = await markSuccess(ctx, backup, createdRecordId, clientToken);
+  return { status: "synced", recordId: createdRecordId, detailUrl };
+}
+
 async function markSuccess(
   ctx: ActionCtx,
   backup: ReturnType<typeof buildEmailRecordBackup>,
@@ -174,86 +168,117 @@ async function markSuccess(
   return detailUrl;
 }
 
-// First write: create the Bitable Service row, then store the recoverable Email
-// Record (carrying the new bitableRecordId). Returns the record id and Feishu
-// detail link so later edits happen in Base, not in the add-in.
+export const processPendingBitableSync = internalAction({
+  args: { ...intakeArgs, clientToken: v.string() },
+  handler: async (ctx, args): Promise<Extract<SyncRequestResult, { status: "synced" }>> => {
+    const selectedCoworkers = requireExactlyOneCoworker(args.selectedCoworkers);
+    try {
+      return await syncBitableRequest(ctx, args, selectedCoworkers, args.clientToken);
+    } catch (e: unknown) {
+      const backup = buildEmailRecordBackup({ ...args, selectedCoworkers }, false);
+      await markFailure(ctx, backup, e);
+      throw e;
+    }
+  },
+});
+
 export const syncRequest = action({
   args: intakeArgs,
-  handler: async (ctx, args): Promise<{ recordId: string; detailUrl: string | null }> => {
+  handler: async (ctx, args): Promise<SyncRequestResult> => {
     const selectedCoworkers = requireExactlyOneCoworker(args.selectedCoworkers);
     const backup = buildEmailRecordBackup({ ...args, selectedCoworkers }, false);
-    const beginResult: {
-      bitableClientToken: string;
-      bitableRecordId: string | null;
-      detailUrl: string | null;
-    } =
+    const poisonReason = poisonedOutboxReason({
+      internetMessageId: args.internetMessageId,
+      conversationId: args.conversationId,
+      selectedCoworkers,
+    });
+    if (poisonReason) {
+      await ctx.runMutation(internal.emails.abandonBitableSync, {
+        internetMessageId: backup.internetMessageId,
+        requestSyncKey: backup.requestSyncKey,
+        error: poisonReason,
+        attemptedAt: Date.now(),
+      });
+      throw new Error(poisonReason);
+    }
+    const beginResult: { bitableClientToken: string; bitableRecordId: string | null; detailUrl: string | null; shouldSchedule: boolean } =
       await ctx.runMutation(internal.emails.beginBitableSync, {
         ...backup,
         bitableClientToken: newBitableClientToken(),
       });
     if (beginResult.bitableRecordId) {
-      return { recordId: beginResult.bitableRecordId, detailUrl: beginResult.detailUrl };
+      return {
+        status: "synced",
+        recordId: beginResult.bitableRecordId,
+        detailUrl: beginResult.detailUrl,
+      };
     }
 
-    let createdRecordId: string;
-    try {
-      createdRecordId = await createServiceRow(
-        ctx,
-        args,
-        selectedCoworkers,
-        beginResult.bitableClientToken,
-      );
-    } catch (e: unknown) {
-      await markFailure(ctx, backup, e);
-      throw e;
+    if (beginResult.shouldSchedule) {
+      try {
+        await ctx.scheduler.runAfter(0, internal.feishu.requestSync.processPendingBitableSync, {
+          ...args,
+          selectedCoworkers,
+          clientToken: beginResult.bitableClientToken,
+        });
+      } catch (e: unknown) {
+        await markFailure(ctx, backup, e);
+        throw e;
+      }
     }
-
-    const detailUrl = await markSuccess(
-      ctx,
-      backup,
-      createdRecordId,
-      beginResult.bitableClientToken,
-    );
-    return { recordId: createdRecordId, detailUrl };
+    return { status: "pending", recordId: null, detailUrl: null };
   },
 });
 
 export const reconcilePendingBitableSync = internalAction({
   args: {},
   handler: async (ctx): Promise<{ checked: number; synced: number; failed: number }> => {
-    const due = await ctx.runQuery(internal.emails.listDueBitableSyncRecords, {
-      now: Date.now(),
-      limit: RECONCILE_LIMIT,
-    });
+    const due = await ctx.runQuery(internal.emails.listDueBitableSyncRecords, { now: Date.now(), limit: RECONCILE_LIMIT });
     const outcomes = await Promise.all(
       due.map(async (record) => {
+        const poisonReason = poisonedOutboxReason({
+          internetMessageId: record.internetMessageId,
+          conversationId: record.conversationId,
+          selectedCoworkers: record.selectedCoworkers,
+        });
+        if (poisonReason) {
+          await ctx.runMutation(internal.emails.abandonBitableSync, {
+            internetMessageId: record.internetMessageId,
+            requestSyncKey: record.requestSyncKey,
+            error: poisonReason,
+            attemptedAt: Date.now(),
+          });
+          return "failed" as const;
+        }
         try {
           const selectedCoworkers = requireExactlyOneCoworker(record.selectedCoworkers);
           if (!record.bitableClientToken) {
             throw new Error(`Missing bitableClientToken for ${record.internetMessageId}`);
           }
-          const { recordId } = await ctx.runAction(internal.feishu.bitable.createServiceRecord, {
-            subject: record.subject,
-            clientEmail: record.clientEmail ?? record.from,
-            clientRecordId: record.selectedCustomer?.recordId,
-            dateOfOffer: record.dateTimeCreated,
-            requestNote: record.requestNote,
-            // ADR-0022: only the stored ≤500-char preview is available on retry —
-            // the full body is never persisted on the backup.
-            body: record.bodyPreview,
+          const result = await syncBitableRequest(
+            ctx,
+            {
+              subject: record.subject,
+              from: record.from,
+              to: record.to,
+              cc: record.cc,
+              body: record.bodyPreview,
+              internetMessageId: record.internetMessageId,
+              itemId: record.itemId,
+              conversationId: record.conversationId,
+              userEmail: record.userEmail,
+              dateTimeCreated: record.dateTimeCreated,
+              clientEmail: record.clientEmail,
+              selectedCustomer: record.selectedCustomer,
+              selectedSales: record.initiator,
+              initiator: record.initiator,
+              requestNote: record.requestNote,
+              selectedCoworkers,
+            },
             selectedCoworkers,
-            selectedSales: record.initiator,
-            initiator: record.initiator,
-            emailConversationId: record.conversationId,
-            clientToken: record.bitableClientToken,
-          });
-          await ctx.runMutation(internal.emails.markBitableSyncSucceeded, {
-            internetMessageId: record.internetMessageId,
-            requestSyncKey: record.requestSyncKey,
-            bitableRecordId: recordId,
-            attemptedAt: Date.now(),
-          });
-          return "synced" as const;
+            record.bitableClientToken,
+          );
+          return result.status;
         } catch (e: unknown) {
           await markFailure(ctx, record, e);
           return "failed" as const;
@@ -271,9 +296,6 @@ export const reconcilePendingBitableSync = internalAction({
   },
 });
 
-// Bounded in-sync CORRECTION: re-write the row THIS flow just created. The caller
-// must pass the recordId returned by syncRequest in the same session — never a
-// pre-existing row (ADR-0012 / the no-touch rule).
 export const correctRequest = action({
   args: { recordId: v.string(), ...intakeArgs },
   handler: async (ctx, args): Promise<{ recordId: string; detailUrl: string | null }> => {

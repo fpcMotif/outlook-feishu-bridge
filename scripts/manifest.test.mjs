@@ -7,7 +7,8 @@ import {
 } from "./manifest.mjs";
 
 const template = [
-  '<IconUrl DefaultValue="https://__ADDIN_DOMAIN__/__ADDIN_BASE__assets/icon-32.png"/>',
+  '<IconUrl DefaultValue="https://__ADDIN_DOMAIN__/__ADDIN_BASE__assets/icon-64.png"/>',
+  '<HighResolutionIconUrl DefaultValue="https://__ADDIN_DOMAIN__/__ADDIN_BASE__assets/icon-128.png"/>',
   '<SourceLocation DefaultValue="https://__ADDIN_DOMAIN__/__ADDIN_BASE__"/>',
   '<bt:Url id="Taskpane.Url" DefaultValue="https://__ADDIN_DOMAIN__/__ADDIN_BASE__"/>',
 ].join("\n");
@@ -18,7 +19,10 @@ describe("manifest generator", () => {
 
     expect(target).toEqual({ domain: GLOBAL_HOST, base: "" });
     expect(renderManifest(template, target)).toContain(
-      `https://${GLOBAL_HOST}/assets/icon-32.png`,
+      `https://${GLOBAL_HOST}/assets/icon-64.png`,
+    );
+    expect(renderManifest(template, target)).toContain(
+      `https://${GLOBAL_HOST}/assets/icon-128.png`,
     );
     expect(renderManifest(template, target)).toContain(
       `https://${GLOBAL_HOST}/`,

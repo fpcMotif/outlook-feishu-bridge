@@ -9,8 +9,8 @@
   <DefaultLocale>en-US</DefaultLocale>
   <DisplayName DefaultValue="feishu-sync"/>
   <Description DefaultValue="Forward Outlook emails to Feishu via bot webhook, group chat, or Bitable."/>
-  <IconUrl DefaultValue="https://__ADDIN_DOMAIN__/__ADDIN_BASE__assets/icon-32.png"/>
-  <HighResolutionIconUrl DefaultValue="https://__ADDIN_DOMAIN__/__ADDIN_BASE__assets/icon-64.png"/>
+  <IconUrl DefaultValue="https://__ADDIN_DOMAIN__/__ADDIN_BASE__assets/icon-64.png"/>
+  <HighResolutionIconUrl DefaultValue="https://__ADDIN_DOMAIN__/__ADDIN_BASE__assets/icon-128.png"/>
   <SupportUrl DefaultValue="https://github.com/fpcMotif/outlook-feishu-addin"/>
   <AppDomains>
     <AppDomain>https://__ADDIN_DOMAIN__</AppDomain>

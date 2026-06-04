@@ -46,7 +46,6 @@
   --ease-in-out-strong: cubic-bezier(0.77, 0, 0.175, 1);
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
   --background: oklch(0.983 0.002 67.803);
-  --login-background: oklch(0.956 0.041 247.915);
   --foreground: oklch(0.224 0.003 196.939);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.224 0.003 196.939);
@@ -319,6 +318,32 @@
   animation: profile-pop 0.16s var(--ease-out-strong);
 }
 
+/* Sales selection row: fade + slide (no scale-from-zero). */
+@keyframes taskpane-selection-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+    filter: blur(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+.taskpane-selection-enter-group > * {
+  animation: taskpane-selection-enter 0.22s var(--ease-out-strong) both;
+}
+.taskpane-selection-enter-group > *:nth-child(1) {
+  animation-delay: 0ms;
+}
+.taskpane-selection-enter-group > *:nth-child(2) {
+  animation-delay: 45ms;
+}
+.taskpane-selection-enter-group > *:nth-child(3) {
+  animation-delay: 90ms;
+}
+
 @media (hover: hover) and (pointer: fine) {
   [data-slot="accordion-trigger"]:hover {
     opacity: 0.92;
@@ -333,7 +358,8 @@
   .animate-pulse-dot,
   .animate-pulse-ring,
   .animate-pop-in,
-  .profile-pop {
+  .profile-pop,
+  .taskpane-selection-enter-group > * {
     animation: none;
     transition-duration: 1ms;
   }

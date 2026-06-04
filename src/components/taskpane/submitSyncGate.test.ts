@@ -51,6 +51,18 @@ const cases: { name: string; input: SubmitSyncGateInput; can: boolean; hint: str
     can: true,
     hint: "Ready to sync",
   },
+  {
+    name: "dev preview fixture coworker",
+    input: {
+      hasCustomer: true,
+      hasCoworker: true,
+      fulfilledRequestCount: 1,
+      devPreview: true,
+      selectedCoworkerOpenId: "ou_maria",
+    },
+    can: false,
+    hint: "Pick a real Feishu colleague (preview fixtures cannot sync to Base)",
+  },
 ];
 
 describe("submitSyncGate", () => {

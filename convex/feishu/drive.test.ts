@@ -2,8 +2,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const callFeishu = vi.fn();
+const resolveFeishuToken = vi.fn();
 vi.mock("./call", () => ({
   callFeishu: (...args: unknown[]) => callFeishu(...args),
+  resolveFeishuToken: (...args: unknown[]) => resolveFeishuToken(...args),
 }));
 
 const getStorageBytes = vi.fn();
@@ -42,6 +44,8 @@ const originalAppToken = process.env.FEISHU_BITABLE_APP_TOKEN;
 
 beforeEach(() => {
   callFeishu.mockReset();
+  resolveFeishuToken.mockReset();
+  resolveFeishuToken.mockResolvedValue("tenant-token");
   getStorageBytes.mockReset();
   storageDelete.mockReset();
   storageDelete.mockResolvedValue(undefined);
@@ -111,9 +115,43 @@ describe("uploadAttachmentsToDrive action", () => {
 
     expect(getStorageBytes).toHaveBeenNthCalledWith(1, ctx, "kg_a");
     expect(getStorageBytes).toHaveBeenNthCalledWith(2, ctx, "kg_b");
+    expect(resolveFeishuToken).toHaveBeenCalledTimes(1);
+    expect(resolveFeishuToken).toHaveBeenCalledWith(ctx, "tenant");
     expect(callFeishu).toHaveBeenCalledTimes(2);
+    expect(callFeishu.mock.calls[0][1].token).toBe("tenant-token");
+    expect(callFeishu.mock.calls[1][1].token).toBe("tenant-token");
     expect(storageDelete).toHaveBeenNthCalledWith(1, "kg_a");
     expect(storageDelete).toHaveBeenNthCalledWith(2, "kg_b");
+  });
+
+  it("prefetches only one staged blob ahead of the serial Drive upload", async () => {
+    let resolveFirstUpload: (value: { file_token: string }) => void = () => {};
+    const firstUpload = new Promise<{ file_token: string }>((resolve) => {
+      resolveFirstUpload = resolve;
+    });
+    getStorageBytes.mockResolvedValue(new Uint8Array([1]).buffer);
+    callFeishu
+      .mockReturnValueOnce(firstUpload)
+      .mockResolvedValueOnce({ file_token: "tokenB" })
+      .mockResolvedValueOnce({ file_token: "tokenC" });
+
+    const pending = uploadAttachmentsHandler(ctx, {
+      sources: [
+        { storageId: "kg_a", fileName: "a.pdf" },
+        { storageId: "kg_b", fileName: "b.xlsx" },
+        { storageId: "kg_c", fileName: "c.png" },
+      ],
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(getStorageBytes).toHaveBeenCalledTimes(2);
+    expect(callFeishu).toHaveBeenCalledTimes(1);
+
+    resolveFirstUpload({ file_token: "tokenA" });
+    await expect(pending).resolves.toEqual({
+      attachments: [{ fileToken: "tokenA" }, { fileToken: "tokenB" }, { fileToken: "tokenC" }],
+    });
+    expect(getStorageBytes).toHaveBeenCalledTimes(3);
   });
 
   it("rejects an oversized staged file BEFORE uploading or deleting", async () => {

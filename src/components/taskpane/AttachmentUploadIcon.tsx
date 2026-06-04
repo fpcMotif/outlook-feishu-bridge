@@ -28,17 +28,11 @@ function useSmoothedUploadProgress(progress: number, active: boolean): number {
   const xhrRef = useRef(0);
   const startedAtRef = useRef<number | null>(null);
 
-  // Reset the eased fill during render — React's "adjusting state on a prop
-  // change" pattern — so the icon never paints a stale frame between commits.
-  // The prev-prop guard fires ONLY on a real active/progress transition (never
-  // on benign re-renders); the ref resets stay in the effect below, so the
-  // monotonic fill survives the restart race (teach upload-progress-async/0001).
+  // Adjust during render so the icon never paints stale progress between commits.
   const [prev, setPrev] = useState({ active, progress });
   if (prev.active !== active || prev.progress !== progress) {
     setPrev({ active, progress });
-    if ((!active || progress <= 0) && display !== 0) {
-      setDisplay(0);
-    }
+    if ((!active || progress <= 0) && display !== 0) setDisplay(0);
   }
 
   useEffect(() => {
@@ -49,9 +43,7 @@ function useSmoothedUploadProgress(progress: number, active: boolean): number {
       return;
     }
 
-    if (startedAtRef.current === null) {
-      startedAtRef.current = performance.now();
-    }
+    if (startedAtRef.current === null) startedAtRef.current = performance.now();
 
     if (progress <= 0) {
       xhrRef.current = 0;

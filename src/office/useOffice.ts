@@ -16,10 +16,11 @@ export function useOffice(): OfficeState {
 
   useEffect(() => {
     // Office.onReady can take ~3s+ to fire on the new Outlook web (OfficeOnline).
-    // In production we wait for it for as long as it takes (the loading spinner
-    // shows meanwhile) so we never flash a wrong "browser / no mailbox" state and
-    // then correct ourselves. The timed fallback is ONLY for local browser dev,
-    // where there is no Office host to hand-shake with and onReady never fires.
+    // In production we wait for it for as long as it takes; Outlook already owns
+    // the official add-in loading step, so App deliberately renders no duplicate
+    // Office-loading screen while this handshake is pending. The timed fallback
+    // is ONLY for local browser dev, where there is no Office host to handshake
+    // with and onReady never fires.
     let fallback: ReturnType<typeof setTimeout> | undefined;
     if (import.meta.env.DEV) {
       fallback = setTimeout(() => {

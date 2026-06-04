@@ -25,7 +25,7 @@ describe("relativeSubmittedTime", () => {
 });
 
 describe("ReceivedScreen layout", () => {
-  it("uses login chrome background and centers content without a timeline card", () => {
+  it("uses semantic background and centers content without a timeline card", () => {
     const { container } = render(
       <ReceivedScreen
         coworkerCount={1}
@@ -35,7 +35,7 @@ describe("ReceivedScreen layout", () => {
     );
 
     const root = container.firstElementChild;
-    expect(root).toHaveStyle({ backgroundColor: "var(--login-background)" });
+    expect(root).toHaveClass("bg-background", "text-foreground");
     const layout = root?.querySelector(".intake-stagger");
     expect(layout).toHaveClass("grid", "grid-rows-[minmax(0,1fr)_auto_minmax(0,1fr)]");
 

@@ -1,7 +1,14 @@
-import { useState, useCallback } from "react";
-import { useQuery, useMutation } from "convex/react";
+import { useCallback, useState } from "react";
+import { useAction, useQuery, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import type { FeishuUser } from "../components/taskpane/feishuUser";
+import { clearAuthSnapshot } from "./feishuAuthSnapshot";
+import {
+  useAuthState,
+  useProactiveTouch,
+  type FallbackToken,
+  type UserSession,
+} from "./useFeishuAuthState";
 
 const SESSION_KEY = "feishu_session_id";
 // Browser-held token from the box fallback login (ADR-0008). Only set when the
@@ -19,15 +26,6 @@ const FALLBACK_KEY = "feishu_fallback_token";
 //                          name/avatar/open_id - user_id would need employee_id:readonly)
 //   offline_access      → required for the OIDC token endpoint to return a refresh_token
 const FEISHU_USER_SCOPES = "contact:user:search offline_access";
-
-interface FallbackToken {
-  accessToken: string;
-  refreshToken: string | null;
-  expiresAt: number;
-  openId: string;
-  userName: string | null;
-  avatarUrl: string | null;
-}
 
 export function getOrCreateSessionId(): string {
   let sessionId = localStorage.getItem(SESSION_KEY);
@@ -169,42 +167,48 @@ export interface FeishuAuthState {
   logout: () => Promise<void>;
 }
 
-export function useFeishuAuth(): FeishuAuthState {
-  const [sessionId] = useState(getOrCreateSessionId);
-  const session = useQuery(api.feishu.userAuth.getUserSession, { sessionId });
-  const logoutMutation = useMutation(api.feishu.userAuth.logoutUser);
-  const [fallback, setFallback] = useState<FallbackToken | null>(readFallbackToken);
-
-  const convexLoggedIn =
-    session !== null && session !== undefined && !session.isExpired;
-  const fallbackLoggedIn = fallback !== null && fallback.expiresAt > Date.now();
-  // Don't block on Convex if a valid fallback token already proves we're in.
-  const isLoading = session === undefined && fallback === null;
-  const isLoggedIn = convexLoggedIn || fallbackLoggedIn;
-
+function useAuthActions({
+  logoutMutation,
+  sessionId,
+  setFallback,
+}: {
+  logoutMutation: (args: { sessionId: string }) => Promise<unknown>;
+  sessionId: string;
+  setFallback: (token: FallbackToken | null) => void;
+}): Pick<FeishuAuthState, "login" | "loginFallback" | "logout"> {
   const login = useCallback(() => openFeishuOAuth(sessionId), [sessionId]);
   const loginFallback = useCallback(
     () => startFallbackLogin(sessionId, setFallback),
-    [sessionId],
+    [sessionId, setFallback],
   );
   const logout = useCallback(async () => {
     localStorage.removeItem(FALLBACK_KEY);
+    clearAuthSnapshot();
     setFallback(null);
     await logoutMutation({ sessionId });
-  }, [logoutMutation, sessionId]);
+  }, [logoutMutation, sessionId, setFallback]);
 
-  // Convex (server-stored token) takes precedence; the fallback fills in only
-  // when there's no live Convex session.
-  const user: FeishuUser | null = convexLoggedIn
-    ? { openId: session.openId, userName: session.userName, avatarUrl: session.avatarUrl }
-    : fallbackLoggedIn
-      ? { openId: fallback.openId, userName: fallback.userName ?? undefined, avatarUrl: fallback.avatarUrl ?? undefined }
-      : null;
+  return { login, loginFallback, logout };
+}
 
-  // Token to hand Coworker search: set ONLY on the box-fallback path. When
-  // undefined, the Convex action reads the token from its DB (the primary path).
-  const userAccessToken =
-    !convexLoggedIn && fallbackLoggedIn ? fallback.accessToken : undefined;
+export function useFeishuAuth(): FeishuAuthState {
+  const [sessionId] = useState(getOrCreateSessionId);
+  const session = useQuery(api.feishu.userAuth.getUserSession, { sessionId }) as UserSession;
+  const logoutMutation = useMutation(api.feishu.userAuth.logoutUser);
+  const touchSession = useAction(api.feishu.userAuth.touchSession);
+  const [fallback, setFallback] = useState<FallbackToken | null>(readFallbackToken);
+  // Proactive boot self-heal (one-shot, off the paint path); see useProactiveTouch.
+  const touchResult = useProactiveTouch(touchSession, sessionId);
+
+  // Snapshot reconcile + pure login-gate derivation (presence-horizon optimistic
+  // paint until getUserSession contradicts it). See useAuthState/deriveAuthFlags.
+  const { isLoading, isLoggedIn, user, userAccessToken } = useAuthState({
+    session,
+    sessionId,
+    fallback,
+    touchResult,
+  });
+  const { login, loginFallback, logout } = useAuthActions({ logoutMutation, sessionId, setFallback });
 
   return {
     sessionId,

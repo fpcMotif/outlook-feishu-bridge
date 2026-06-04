@@ -2,14 +2,25 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mockSync = vi.fn((_payload: unknown) =>
+type SyncResult =
+  | { status: "pending"; recordId: null; detailUrl: null }
+  | { status: "synced"; recordId: string; detailUrl: string | null };
+
+const mockSync = vi.fn((_payload: unknown): Promise<SyncResult> =>
   Promise.resolve({
+    status: "synced",
     recordId: "recTEST",
     detailUrl: "https://feishu.cn/base/app?table=tbl&record=recTEST",
   }),
 );
 const mockCorrect = vi.fn((_payload: unknown) => Promise.resolve({ recordId: "recTEST" }));
-let mockExistingSync: { recordId: string; detailUrl: string | null; syncedAt?: number } | null = null;
+let mockExistingSync: {
+  status?: "pending" | "synced" | "failed";
+  recordId: string | null;
+  detailUrl: string | null;
+  syncedAt?: number;
+  error?: string | null;
+} | null = null;
 vi.mock("../../hooks/useRequestSync", () => ({
   useRequestSync: () => ({ sync: mockSync, correct: mockCorrect, existingSync: mockExistingSync }),
 }));
@@ -144,6 +155,7 @@ describe("RequestIntakeScreen sync wiring", () => {
   it("links to the existing Feishu Base record instead of syncing the same conversation again", () => {
     const detailUrl = "https://feishu.cn/base/app?table=tbl&record=rec_existing";
     mockExistingSync = {
+      status: "synced",
       recordId: "rec_existing",
       detailUrl,
       syncedAt: Date.now() - 6 * 24 * 60 * 60 * 1000,
@@ -178,6 +190,7 @@ describe("RequestIntakeScreen sync wiring", () => {
     await screen.findByRole("heading", { name: /^Synced$/i });
 
     mockExistingSync = {
+      status: "synced",
       recordId: "rec_existing",
       detailUrl: "https://feishu.cn/base/app?table=tbl&record=rec_existing",
     };
@@ -193,6 +206,50 @@ describe("RequestIntakeScreen sync wiring", () => {
 
     expect(screen.getByRole("heading", { name: /^Synced$/i })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: /^Already synced$/i })).not.toBeInTheDocument();
+  });
+
+  it("stays on the sync screen after a queued sync until Convex reports the Base record", async () => {
+    mockSync.mockResolvedValueOnce({ status: "pending", recordId: null, detailUrl: null });
+    const { rerender } = render(
+      <RequestIntakeScreen
+        isLoggedIn={true}
+        mailItem={SAMPLE}
+        sessionId="test-session"
+        onLogin={vi.fn()}
+        onLoginFallback={vi.fn()}
+      />,
+    );
+    fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
+      target: { value: "Need a quarterly L-Carnitine quote." },
+    });
+    fireEvent.click(await searchCoworker("Jenny Xu"));
+    fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
+
+    expect(
+      await screen.findByRole("heading", { name: /Syncing to Feishu Base/i }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /^Synced$/i })).not.toBeInTheDocument();
+
+    mockExistingSync = {
+      status: "synced",
+      recordId: "rec_async",
+      detailUrl: "https://feishu.cn/base/app?table=tbl&record=rec_async",
+    };
+    rerender(
+      <RequestIntakeScreen
+        isLoggedIn={true}
+        mailItem={SAMPLE}
+        sessionId="test-session"
+        onLogin={vi.fn()}
+        onLoginFallback={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByRole("heading", { name: /^Synced$/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Open in Feishu/i })).toHaveAttribute(
+      "href",
+      "https://feishu.cn/base/app?table=tbl&record=rec_async",
+    );
   });
 
   // Customer-matching wiring (ADR-0013): when the directory contains a row

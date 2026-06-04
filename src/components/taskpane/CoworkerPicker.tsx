@@ -291,17 +291,14 @@ export function CoworkerPicker({
       </CoworkerSearchPanel>
     ) : null;
 
-  const stackDivider = (above: React.ReactNode, below: React.ReactNode) =>
-    above && below ? <TaskpaneInsetDivider /> : null;
-
   return (
     <TaskpaneSection id="client-coworker-title" title="Customer, sales & coworker">
       <TaskpaneCardBoundaryContext.Provider value={cardRef}>
         <section ref={cardRef} className="bg-card-soft overflow-visible rounded-xl shadow-edge">
         {customerSlot ? <div>{customerSlot}</div> : null}
-        {stackDivider(customerSlot, salesSlot)}
+        {customerSlot && salesSlot ? <TaskpaneInsetDivider /> : null}
         {salesSlot ? <div>{salesSlot}</div> : null}
-        {stackDivider(salesSlot ?? customerSlot, coworkerContent)}
+        {(salesSlot ?? customerSlot) && coworkerContent ? <TaskpaneInsetDivider /> : null}
         {coworkerContent ? <div>{coworkerContent}</div> : null}
         </section>
       </TaskpaneCardBoundaryContext.Provider>

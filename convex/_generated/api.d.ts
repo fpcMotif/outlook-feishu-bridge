@@ -13,6 +13,7 @@ import type * as emailRecord from "../emailRecord.js";
 import type * as emails from "../emails.js";
 import type * as feishu_auth from "../feishu/auth.js";
 import type * as feishu_bitable from "../feishu/bitable.js";
+import type * as feishu_bitableSyncRetry from "../feishu/bitableSyncRetry.js";
 import type * as feishu_bitableUrl from "../feishu/bitableUrl.js";
 import type * as feishu_call from "../feishu/call.js";
 import type * as feishu_cjkSearch from "../feishu/cjkSearch.js";
@@ -32,6 +33,7 @@ import type * as feishu_devEmailRecordSeed from "../feishu/devEmailRecordSeed.js
 import type * as feishu_drive from "../feishu/drive.js";
 import type * as feishu_emailDomain from "../feishu/emailDomain.js";
 import type * as feishu_pinyinTokens from "../feishu/pinyinTokens.js";
+import type * as feishu_previewFixtures from "../feishu/previewFixtures.js";
 import type * as feishu_requestSync from "../feishu/requestSync.js";
 import type * as feishu_searchResultMerge from "../feishu/searchResultMerge.js";
 import type * as feishu_serviceRow from "../feishu/serviceRow.js";
@@ -55,6 +57,7 @@ declare const fullApi: ApiFromModules<{
   emails: typeof emails;
   "feishu/auth": typeof feishu_auth;
   "feishu/bitable": typeof feishu_bitable;
+  "feishu/bitableSyncRetry": typeof feishu_bitableSyncRetry;
   "feishu/bitableUrl": typeof feishu_bitableUrl;
   "feishu/call": typeof feishu_call;
   "feishu/cjkSearch": typeof feishu_cjkSearch;
@@ -74,6 +77,7 @@ declare const fullApi: ApiFromModules<{
   "feishu/drive": typeof feishu_drive;
   "feishu/emailDomain": typeof feishu_emailDomain;
   "feishu/pinyinTokens": typeof feishu_pinyinTokens;
+  "feishu/previewFixtures": typeof feishu_previewFixtures;
   "feishu/requestSync": typeof feishu_requestSync;
   "feishu/searchResultMerge": typeof feishu_searchResultMerge;
   "feishu/serviceRow": typeof feishu_serviceRow;

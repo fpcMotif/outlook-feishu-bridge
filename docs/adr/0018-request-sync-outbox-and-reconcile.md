@@ -13,10 +13,13 @@ Request intake writes a durable Convex Email Record before the Feishu create cal
 
 1. `requestSync.syncRequest` validates exactly one coworker.
 2. It creates or updates an `emailRecords` backup with `sentToBitable=false`, `bitableSyncStatus="pending"`, and a stored Feishu `bitableClientToken`.
-3. It calls `bitable.createServiceRecord` with that token as Feishu `client_token`, making retries idempotent.
-4. On success it patches the Email Record with `bitableRecordId`, `sentToBitable=true`, and `bitableSyncStatus="synced"`.
-5. On create failure it marks the backup `failed` and schedules retry with bounded backoff.
-6. A Convex cron runs every 15 minutes and replays due `pending` / `failed` backups in batches of 20 using the same stored `client_token`.
+3. It schedules `processPendingBitableSync` (delay 0) and returns `{ status: "pending" }` unless the outbox already has a `bitableRecordId` (idempotent hit).
+4. `processPendingBitableSync` calls `bitable.createServiceRecord` with that token as Feishu `client_token`, making retries idempotent.
+5. On success it patches the Email Record with `bitableRecordId`, `sentToBitable=true`, and `bitableSyncStatus="synced"`.
+6. On create failure it marks the backup `failed` and schedules retry with bounded backoff.
+7. A Convex cron runs every 15 minutes and replays due `pending` / `failed` backups in batches of 20 using the same stored `client_token`.
+
+The taskpane subscribes to `getBitableSyncByConversation` and leaves the sync screen when the outbox becomes `synced` — it does not require `recordId` on the immediate `syncRequest` response.
 
 Backoff is 5 minutes after the first failure, 15 minutes after the second, then 60 minutes for later failures. The 15-minute cron cadence is short enough to catch missed requests without turning Feishu Base into a constant polling dependency.
 
@@ -24,7 +27,7 @@ Backoff is 5 minutes after the first failure, 15 minutes after the second, then 
 
 - If Convex cannot write the pending backup, no Feishu row is created. The UI shows a sync failure and the user can retry.
 - If Feishu create fails, the pending backup remains in Convex and the cron retries.
-- If Feishu creates the row but Convex cannot mark it synced, the UI still receives the Base record id. The pending backup is retried later with the same `client_token`, so Feishu should return the same create result instead of duplicating the row.
+- If Feishu creates the row but Convex cannot mark it synced, the pending backup is retried later with the same `client_token`, so Feishu should return the same create result instead of duplicating the row; the UI learns `bitableRecordId` when the outbox subscription flips to `synced`.
 - Existing no-touch rules remain: the add-in creates a new Service row and may only correction-update the row just created in the current session.
 
 ## Consequences

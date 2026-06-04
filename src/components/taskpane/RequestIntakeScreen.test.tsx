@@ -1,6 +1,8 @@
 /* eslint-disable require-unicode-regexp */
-import { fireEvent, render, screen, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { SALES_DEFAULT_DELAY_MS } from "./scheduleSalesDefault";
 
 let mockExistingSync: { recordId: string; detailUrl?: string | null; coworkerCount?: number; syncedAt?: number } | null | undefined =
   null;
@@ -96,10 +98,12 @@ const SAMPLE: MailItemData = {
 function renderRequestIntakeScreen(
   isLoggedIn: boolean,
   clientEmail = "m.hoffmann@bayerpharma.de",
+  isAuthLoading = false,
 ) {
   render(
     <RequestIntakeScreen
       isLoggedIn={isLoggedIn}
+      isAuthLoading={isAuthLoading}
       mailItem={{ ...SAMPLE, from: clientEmail }}
       sessionId="test-session"
       onLogin={vi.fn()}
@@ -137,6 +141,19 @@ describe("RequestIntakeScreen login gate", () => {
     expect(screen.queryByText(/Checking Feishu record/i)).not.toBeInTheDocument();
   });
 
+  it("keeps the login visual shell while the Feishu session is resolving", () => {
+    mockExistingSync = undefined;
+    renderRequestIntakeScreen(false, "m.hoffmann@bayerpharma.de", true);
+
+    expect(screen.getByRole("status")).toHaveTextContent(/Checking Feishu/i);
+    expect(screen.getByRole("button", { name: /Checking Feishu/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Use backup login/i })).toBeDisabled();
+    expect(screen.queryByText(/Checking Feishu record/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Start a request above/i }),
+    ).not.toBeInTheDocument();
+  });
+
   it("keeps the Feishu login surface separate from the request builder", () => {
     renderRequestIntakeScreen(false);
 
@@ -147,6 +164,14 @@ describe("RequestIntakeScreen login gate", () => {
     expect(
       screen.queryByRole("button", { name: /Start a request above/i }),
     ).not.toBeInTheDocument();
+  });
+
+  it("shows the request builder while the existing-sync query is still loading", () => {
+    mockExistingSync = undefined;
+    renderRequestIntakeScreen(true);
+
+    expect(screen.queryByText(/Checking Feishu record/i)).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/Describe your requirements/i)).toBeInTheDocument();
   });
 
   it("shows request details and client/coworker controls together after sign-in", () => {
@@ -162,7 +187,7 @@ describe("RequestIntakeScreen login gate", () => {
       "bg-card-soft",
     );
     expect(screen.getByPlaceholderText(/Describe your requirements/i)).toBeInTheDocument();
-    const coworkerSection = screen.getByText("Customer & coworker");
+    const coworkerSection = screen.getByText("Customer, sales & coworker");
     expect(coworkerSection.compareDocumentPosition(screen.getByText("New request"))).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
@@ -172,6 +197,90 @@ describe("RequestIntakeScreen login gate", () => {
     expect(
       screen.getByRole("button", { name: /Select a customer/i }),
     ).toBeDisabled();
+  });
+});
+
+describe("RequestIntakeScreen sales default", () => {
+  const rafCallbacks: FrameRequestCallback[] = [];
+
+  beforeEach(() => {
+    rafCallbacks.length = 0;
+    vi.useFakeTimers();
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length;
+    });
+    vi.stubGlobal("cancelAnimationFrame", () => {});
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("shows Pick a sales before deferring to the signed-in user", () => {
+    render(
+      <RequestIntakeScreen
+        isLoggedIn
+        mailItem={SAMPLE}
+        sessionId="test-session"
+        user={{
+          openId: "ou_jenny",
+          userName: "Jenny Xu",
+          avatarUrl: "https://example.test/jenny.png",
+        }}
+        onLogin={vi.fn()}
+        onLoginFallback={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Pick a sales")).toBeInTheDocument();
+    expect(document.querySelector('[data-sales-row="true"]')).toBeNull();
+
+    act(() => {
+      for (const cb of rafCallbacks) cb(0);
+      vi.advanceTimersByTime(SALES_DEFAULT_DELAY_MS - 1);
+    });
+
+    expect(screen.getByText("Pick a sales")).toBeInTheDocument();
+    expect(document.querySelector('[data-sales-row="true"]')).toBeNull();
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+
+    expect(screen.getByText("Jenny Xu")).toBeInTheDocument();
+    expect(document.querySelector('[data-sales-row="true"]')).not.toBeNull();
+  });
+
+  it("keeps customer owner out of the default sales pick", () => {
+    customerDirectoryRecords = [
+      {
+        ...FANPC,
+        owner: { openId: "ou_owner", name: "Ruhollah Hosseini (Ali)" },
+      },
+    ];
+    render(
+      <RequestIntakeScreen
+        isLoggedIn
+        mailItem={{ ...SAMPLE, from: "sender@fenchem.com" }}
+        sessionId="test-session"
+        user={{ openId: "ou_nj", userName: "NJ Sales" }}
+        onLogin={vi.fn()}
+        onLoginFallback={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Pick a sales")).toBeInTheDocument();
+    expect(screen.queryByText("Ruhollah Hosseini (Ali)")).toBeNull();
+
+    act(() => {
+      for (const cb of rafCallbacks) cb(0);
+      vi.advanceTimersByTime(SALES_DEFAULT_DELAY_MS);
+    });
+
+    expect(screen.getByText("NJ Sales")).toBeInTheDocument();
+    expect(screen.queryByText("Ruhollah Hosseini (Ali)")).toBeNull();
   });
 });
 
@@ -190,7 +299,7 @@ describe("RequestIntakeScreen request details", () => {
     renderRequestIntakeScreen(true);
     fillRequestNote();
 
-    expect(screen.getByText("Customer & coworker")).toBeInTheDocument();
+    expect(screen.getByText("Customer, sales & coworker")).toBeInTheDocument();
     expect(screen.getByDisplayValue("Need a quarterly L-Carnitine quote.")).toBeInTheDocument();
     expect(screen.queryByText(/Recent & suggested/i)).not.toBeInTheDocument();
     // bayerpharma.de has no customer match, so the dock asks for a customer first (ADR-0020).

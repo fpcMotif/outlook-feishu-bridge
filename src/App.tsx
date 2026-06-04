@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
 
 import { DebugPanel } from "./components/DebugPanel";
 import { TaskPane } from "./components/TaskPane";
@@ -39,12 +38,7 @@ export default function App() {
   } else if (isReady) {
     content = <TaskPane host={host} />;
   } else {
-    content = (
-      <div className="flex h-screen flex-col items-center justify-center gap-3 px-6 text-center">
-        <Loader2 className="text-muted-foreground size-6 animate-spin" aria-hidden="true" />
-        <p className="text-muted-foreground text-sm text-pretty">Loading Office Add-in&hellip;</p>
-      </div>
-    );
+    content = null;
   }
 
   return (

@@ -12,6 +12,7 @@ import { SyncScreen } from "./SyncScreen";
 import { AuthResolvingScreen } from "./AuthResolvingScreen";
 import { LoginScreen } from "./LoginScreen";
 import { SyncErrorScreen } from "./SyncErrorScreen";
+import type { SyncPreviewPayload } from "./syncPreviewModel";
 
 export interface IntakeRouterProps {
   screen: IntakeScreenName;
@@ -22,7 +23,7 @@ export interface IntakeRouterProps {
   syncError: string | null;
   bitableRecordId: string | null;
   bitableDetailUrl: string | null;
-  filledRequests: { id: string; title: string; note: string }[];
+  syncPreview: SyncPreviewPayload;
   onRetrySelfForward: () => void;
   onRetrySync: () => void;
   onBackToBuild: () => void;
@@ -49,7 +50,7 @@ export function resolveIntakeScreen(props: IntakeRouterProps): ReactNode | null 
   }
   if (screen === "sync") {
     return (
-      <SyncScreen requests={props.filledRequests} />
+      <SyncScreen preview={props.syncPreview} />
     );
   }
   if (screen === "error") {
@@ -62,7 +63,14 @@ export function resolveIntakeScreen(props: IntakeRouterProps): ReactNode | null 
     );
   }
   if (!isLoggedIn) {
-    if (isAuthLoading) return <AuthResolvingScreen />;
+    if (isAuthLoading) {
+      return (
+        <AuthResolvingScreen
+          onLogin={props.onLogin}
+          onLoginFallback={props.onLoginFallback}
+        />
+      );
+    }
     return <LoginScreen onLogin={props.onLogin} onLoginFallback={props.onLoginFallback} />;
   }
   return null;

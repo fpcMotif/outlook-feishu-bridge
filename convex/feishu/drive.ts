@@ -12,16 +12,17 @@
 
 import { action, type ActionCtx } from "../_generated/server";
 import { v } from "convex/values";
-import { callFeishu } from "./call";
+import { callFeishu, resolveFeishuToken } from "./call";
 import { FeishuError } from "./client";
 import { getStorageBytes } from "../storage";
+import type { Id } from "../_generated/dataModel";
 
 // ADR-0022 decision #4: single-shot only. Reject any file larger than 20 MiB
 // before uploading — the chunked upload_prepare path is not implemented in v1.
 export const MAX_MEDIA_UPLOAD_BYTES = 20 * 1024 * 1024;
 
-// Feishu frequency control. The official medias/upload_all doc caps this endpoint
-// at 5 QPS / 10 000-per-day per app — quote: "该接口调用频率上限为 5 QPS，10000 次/天":
+// Feishu frequency control. The official medias/upload_all doc says this endpoint
+// does not support concurrent calls and caps it at 5 QPS / 10 000-per-day per app:
 //   https://open.feishu.cn/document/server-docs/docs/drive-v1/media/upload_all
 // Exceeding it returns HTTP 429 with the GATEWAY code 99991400 "request trigger
 // frequency limit" (this code is NOT in the endpoint's own 1061xxx/1062xxx list).
@@ -80,6 +81,7 @@ export async function uploadMediaToDrive(
   blob: Blob,
   fileName: string,
   appToken: string,
+  tenantToken?: string,
 ): Promise<string> {
   const form = new FormData();
   form.set("file_name", fileName);
@@ -92,6 +94,7 @@ export async function uploadMediaToDrive(
     path: "/drive/v1/medias/upload_all",
     method: "POST",
     auth: "tenant",
+    token: tenantToken,
     form,
     label: "Feishu Drive media upload_all",
   });
@@ -99,6 +102,26 @@ export async function uploadMediaToDrive(
     throw new Error("Feishu Drive upload_all returned no file_token");
   }
   return data.file_token;
+}
+
+interface DriveSource {
+  storageId: Id<"_storage">;
+  fileName: string;
+}
+
+interface PreparedDriveSource extends DriveSource {
+  bytes: ArrayBuffer;
+}
+
+async function prepareDriveSource(
+  ctx: ActionCtx,
+  source: DriveSource,
+): Promise<PreparedDriveSource> {
+  const bytes = await getStorageBytes(ctx, source.storageId);
+  if (bytes.byteLength > MAX_MEDIA_UPLOAD_BYTES) {
+    throw new Error(`Attachment ${source.fileName} exceeds the 20 MB single-shot upload limit`);
+  }
+  return { ...source, bytes };
 }
 
 // PUBLIC action the taskpane calls: relay each staged file to Drive and return
@@ -111,19 +134,27 @@ export const uploadAttachmentsToDrive = action({
   handler: async (ctx, args): Promise<{ attachments: { fileToken: string }[] }> => {
     const appToken = process.env.FEISHU_BITABLE_APP_TOKEN;
     if (!appToken) throw new Error("FEISHU_BITABLE_APP_TOKEN must be set");
+    if (args.sources.length === 0) return { attachments: [] };
 
-    // SERIAL, not Promise.all: `medias/upload_all` is per-app QPS-limited, so
-    // parallel uploads trip 99991400 (ADR-0022). Each upload also retries that
-    // code with backoff. Tokens are returned in input order.
+    const [tenantToken, firstPrepared] = await Promise.all([
+      resolveFeishuToken(ctx, "tenant"),
+      prepareDriveSource(ctx, args.sources[0]),
+    ]);
+    let nextPrepared: Promise<PreparedDriveSource> | null = null;
+
+    // SERIAL, not Promise.all: `medias/upload_all` does not support concurrent
+    // calls and is QPS-limited (ADR-0022). We only prefetch one storage blob
+    // ahead so the current Drive upload overlaps the next Convex storage read
+    // without holding every selected attachment in action memory at once.
     const attachments: { fileToken: string }[] = [];
-    for (const source of args.sources) {
+    for (let index = 0; index < args.sources.length; index++) {
+      // eslint-disable-next-line react-doctor/async-await-in-loop -- bounded pipeline: each Drive upload depends on this prepared source
+      const source = index === 0 ? firstPrepared : await nextPrepared!;
+      const afterNext = args.sources[index + 1];
+      nextPrepared = afterNext ? prepareDriveSource(ctx, afterNext) : null;
       // eslint-disable-next-line react-doctor/async-await-in-loop -- serial by design: medias/upload_all is 5 QPS-limited (ADR-0022); parallel trips 99991400
-      const bytes = await getStorageBytes(ctx, source.storageId);
-      if (bytes.byteLength > MAX_MEDIA_UPLOAD_BYTES) {
-        throw new Error(`Attachment ${source.fileName} exceeds the 20 MB single-shot upload limit`);
-      }
       const fileToken = await withDriveRateLimitRetry(() =>
-        uploadMediaToDrive(ctx, new Blob([bytes]), source.fileName, appToken),
+        uploadMediaToDrive(ctx, new Blob([source.bytes]), source.fileName, appToken, tenantToken),
       );
       await ctx.storage.delete(source.storageId);
       attachments.push({ fileToken });

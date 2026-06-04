@@ -1,10 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { reconcilePendingBitableSync, requireExactlyOneCoworker, syncRequest } from "./requestSync";
+import {
+  processPendingBitableSync,
+  reconcilePendingBitableSync,
+  requireExactlyOneCoworker,
+  syncRequest,
+} from "./requestSync";
 import type { SelectedCoworker } from "../emailRecord";
 
-const jenny: SelectedCoworker = { openId: "ou_jenny", name: "Jenny Xu" };
-const dave: SelectedCoworker = { openId: "ou_dave", name: "Dave Lin" };
+const jenny: SelectedCoworker = { openId: "ou_1fa1e520f980675ed46ff40aa177a488", name: "Jenny Xu" };
+const dave: SelectedCoworker = { openId: "ou_a61fa1232a614a04639cd33695d0a7da", name: "Dave Lin" };
 const ERR = "Bitable Sync requires exactly one Feishu coworker";
 
 describe("requireExactlyOneCoworker", () => {
@@ -26,6 +31,12 @@ describe("requireExactlyOneCoworker", () => {
   it("throws when given two or more coworkers", () => {
     expect(() => requireExactlyOneCoworker([jenny, dave])).toThrow(ERR);
     expect(() => requireExactlyOneCoworker([jenny, dave, jenny])).toThrow(ERR);
+  });
+
+  it("rejects dev preview coworker open ids", () => {
+    expect(() => requireExactlyOneCoworker([{ openId: "ou_maria", name: "Maria Hoffmann" }])).toThrow(
+      /dev preview id/i,
+    );
   });
 });
 
@@ -52,46 +63,55 @@ type SyncRequestHandler = (
   ctx: {
     runMutation: (fn: unknown, args: Record<string, unknown>) => Promise<unknown>;
     runAction: (fn: unknown, args: Record<string, unknown>) => Promise<{ recordId: string }>;
+    scheduler: {
+      runAfter: (delayMs: number, fn: unknown, args: Record<string, unknown>) => Promise<string>;
+    };
   },
   args: typeof baseArgs,
-) => Promise<{ recordId: string; detailUrl: string | null }>;
+) => Promise<
+  | { status: "pending"; recordId: null; detailUrl: null }
+  | { status: "synced"; recordId: string; detailUrl: string | null }
+>;
 
 const syncRequestHandler = (syncRequest as unknown as { _handler: SyncRequestHandler })._handler;
 
 describe("syncRequest durable dual sync", () => {
-  it("writes a pending Convex backup before creating the Feishu Base row", async () => {
+  it("writes a pending Convex backup before enqueueing the Feishu Base row create", async () => {
     const runMutation = vi
       .fn()
-      .mockResolvedValueOnce({ bitableClientToken: "client-token-1", bitableRecordId: null, detailUrl: null })
-      .mockResolvedValueOnce({ detailUrl: "https://feishu.cn/base/app?table=tbl&record=rec_service_1" });
-    const runAction = vi.fn().mockResolvedValueOnce({ recordId: "rec_service_1" });
+      .mockResolvedValueOnce({
+        bitableClientToken: "client-token-1",
+        bitableRecordId: null,
+        detailUrl: null,
+        shouldSchedule: true,
+      });
+    const runAction = vi.fn();
+    const scheduler = { runAfter: vi.fn().mockResolvedValueOnce("scheduled-1") };
 
-    const result = await syncRequestHandler({ runMutation, runAction }, baseArgs);
+    const result = await syncRequestHandler({ runMutation, runAction, scheduler }, baseArgs);
 
     expect(result).toEqual({
-      recordId: "rec_service_1",
-      detailUrl: "https://feishu.cn/base/app?table=tbl&record=rec_service_1",
+      status: "pending",
+      recordId: null,
+      detailUrl: null,
     });
     expect(runMutation.mock.invocationCallOrder[0]).toBeLessThan(
-      runAction.mock.invocationCallOrder[0],
+      scheduler.runAfter.mock.invocationCallOrder[0],
     );
+    expect(runAction).not.toHaveBeenCalled();
     expect(runMutation.mock.calls[0][1]).toMatchObject({
       internetMessageId: "<msg-1@example.com>",
       clientEmail: "buyer@example.com",
       sentToBitable: false,
       bitableRecordId: undefined,
     });
-    expect(runAction.mock.calls[0][1]).toMatchObject({
+    expect(scheduler.runAfter).toHaveBeenCalledTimes(1);
+    expect(scheduler.runAfter.mock.calls[0][0]).toBe(0);
+    expect(scheduler.runAfter.mock.calls[0][2]).toMatchObject({
+      ...baseArgs,
       clientToken: "client-token-1",
-      clientRecordId: "rec_customer",
-      emailConversationId: "conv-1",
-      requestNote: "10kg",
       body: "Please quote 10kg.",
       attachments: [{ fileToken: "boxcnAAA" }],
-    });
-    expect(runMutation.mock.calls[1][1]).toMatchObject({
-      internetMessageId: "<msg-1@example.com>",
-      bitableRecordId: "rec_service_1",
     });
   });
 
@@ -100,32 +120,125 @@ describe("syncRequest durable dual sync", () => {
       bitableClientToken: "client-token-1",
       bitableRecordId: "rec_existing",
       detailUrl: "https://feishu.cn/base/app?table=tbl&record=rec_existing",
+      shouldSchedule: false,
     });
     const runAction = vi.fn();
+    const scheduler = { runAfter: vi.fn() };
 
-    await expect(syncRequestHandler({ runMutation, runAction }, baseArgs)).resolves.toEqual({
+    await expect(syncRequestHandler({ runMutation, runAction, scheduler }, baseArgs)).resolves.toEqual({
+      status: "synced",
       recordId: "rec_existing",
       detailUrl: "https://feishu.cn/base/app?table=tbl&record=rec_existing",
     });
 
     expect(runAction).not.toHaveBeenCalled();
+    expect(scheduler.runAfter).not.toHaveBeenCalled();
+  });
+
+  it("does not enqueue another worker when the same request is already pending", async () => {
+    const runMutation = vi.fn().mockResolvedValueOnce({
+      bitableClientToken: "client-token-1",
+      bitableRecordId: null,
+      detailUrl: null,
+      shouldSchedule: false,
+    });
+    const runAction = vi.fn();
+    const scheduler = { runAfter: vi.fn() };
+
+    await expect(syncRequestHandler({ runMutation, runAction, scheduler }, baseArgs)).resolves.toEqual({
+      status: "pending",
+      recordId: null,
+      detailUrl: null,
+    });
+
+    expect(runAction).not.toHaveBeenCalled();
+    expect(scheduler.runAfter).not.toHaveBeenCalled();
+  });
+});
+
+type ProcessPendingHandler = (
+  ctx: {
+    runMutation: (fn: unknown, args: Record<string, unknown>) => Promise<unknown>;
+    runAction: (fn: unknown, args: Record<string, unknown>) => Promise<{ recordId: string }>;
+  },
+  args: typeof baseArgs & { clientToken: string },
+) => Promise<{ status: "synced"; recordId: string; detailUrl: string | null }>;
+
+const processPendingHandler = (
+  processPendingBitableSync as unknown as { _handler: ProcessPendingHandler }
+)._handler;
+
+describe("processPendingBitableSync", () => {
+  it("creates the Feishu Base row and marks the Convex backup succeeded", async () => {
+    const runAction = vi.fn().mockResolvedValueOnce({ recordId: "rec_service_1" });
+    const runMutation = vi
+      .fn()
+      .mockResolvedValueOnce({ detailUrl: "https://feishu.cn/base/app?table=tbl&record=rec_service_1" });
+
+    await expect(
+      processPendingHandler({ runMutation, runAction }, { ...baseArgs, clientToken: "client-token-1" }),
+    ).resolves.toEqual({
+      status: "synced",
+      recordId: "rec_service_1",
+      detailUrl: "https://feishu.cn/base/app?table=tbl&record=rec_service_1",
+    });
+
+    expect(runAction.mock.calls[0][1]).toMatchObject({
+      clientToken: "client-token-1",
+      clientRecordId: "rec_customer",
+      emailConversationId: "conv-1",
+      requestNote: "10kg",
+      body: "Please quote 10kg.",
+      attachments: [{ fileToken: "boxcnAAA" }],
+    });
+    expect(runMutation.mock.calls[0][1]).toMatchObject({
+      internetMessageId: "<msg-1@example.com>",
+      bitableRecordId: "rec_service_1",
+    });
   });
 
   it("records a retryable failure when the Feishu Base create fails", async () => {
-    const runMutation = vi
-      .fn()
-      .mockResolvedValueOnce({ bitableClientToken: "client-token-1", bitableRecordId: null, detailUrl: null })
-      .mockResolvedValueOnce(null);
+    const runMutation = vi.fn().mockResolvedValueOnce({ detailUrl: null });
     const runAction = vi.fn().mockRejectedValueOnce(new Error("Feishu unavailable"));
 
-    await expect(syncRequestHandler({ runMutation, runAction }, baseArgs)).rejects.toThrow(
-      "Feishu unavailable",
-    );
+    await expect(
+      processPendingHandler({ runMutation, runAction }, { ...baseArgs, clientToken: "client-token-1" }),
+    ).rejects.toThrow("Feishu unavailable");
 
-    expect(runMutation.mock.calls[1][1]).toMatchObject({
+    expect(runMutation).toHaveBeenCalledTimes(1);
+    expect(runMutation.mock.calls[0][1]).toMatchObject({
       internetMessageId: "<msg-1@example.com>",
       error: "Feishu unavailable",
     });
+  });
+});
+
+describe("syncRequest scheduling failure", () => {
+  it("keeps the pending backup retryable when immediate scheduling fails", async () => {
+    const runMutation = vi.fn().mockResolvedValueOnce({
+      bitableClientToken: "client-token-1",
+      bitableRecordId: null,
+      detailUrl: null,
+      shouldSchedule: true,
+    });
+    const runAction = vi.fn();
+    const scheduler = { runAfter: vi.fn().mockRejectedValueOnce(new Error("scheduler unavailable")) };
+
+    await expect(syncRequestHandler({ runMutation, runAction, scheduler }, baseArgs)).rejects.toThrow(
+      "scheduler unavailable",
+    );
+
+    expect(runMutation).toHaveBeenCalledTimes(2);
+    expect(runMutation.mock.calls[0][1]).toMatchObject({
+      internetMessageId: "<msg-1@example.com>",
+      sentToBitable: false,
+    });
+    expect(runMutation.mock.calls[1][1]).toMatchObject({
+      internetMessageId: "<msg-1@example.com>",
+      requestSyncKey: "rep@example.com\nconv-1",
+      error: "scheduler unavailable",
+    });
+    expect(runAction).not.toHaveBeenCalled();
   });
 });
 
@@ -153,7 +266,7 @@ describe("reconcilePendingBitableSync", () => {
       },
     ]);
     const runAction = vi.fn().mockResolvedValueOnce({ recordId: "rec_service_1" });
-    const runMutation = vi.fn().mockResolvedValueOnce(null);
+    const runMutation = vi.fn().mockResolvedValueOnce({ detailUrl: null });
 
     await expect(reconcileHandler({ runQuery, runAction, runMutation }, {})).resolves.toEqual({
       checked: 1,
@@ -176,6 +289,35 @@ describe("reconcilePendingBitableSync", () => {
     expect(runMutation.mock.calls[0][1]).toMatchObject({
       internetMessageId: "<msg-1@example.com>",
       bitableRecordId: "rec_service_1",
+    });
+  });
+
+  it("abandons poisoned outbox rows without calling Feishu", async () => {
+    const runQuery = vi.fn().mockResolvedValueOnce([
+      {
+        ...baseArgs,
+        internetMessageId: "<dev-sample@fenchem.com>",
+        conversationId: "dev-sample",
+        bodyPreview: "Please quote 10kg.",
+        sentToBitable: false,
+        bitableClientToken: "client-token-1",
+        selectedCoworkers: [jenny],
+      },
+    ]);
+    const runAction = vi.fn();
+    const runMutation = vi.fn().mockResolvedValue(undefined);
+
+    await expect(reconcileHandler({ runQuery, runAction, runMutation }, {})).resolves.toEqual({
+      checked: 1,
+      synced: 0,
+      failed: 1,
+    });
+
+    expect(runAction).not.toHaveBeenCalled();
+    expect(runMutation).toHaveBeenCalledTimes(1);
+    expect(runMutation.mock.calls[0][1]).toMatchObject({
+      internetMessageId: "<dev-sample@fenchem.com>",
+      error: expect.stringMatching(/dev-sample mail/i),
     });
   });
 });

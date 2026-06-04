@@ -43,8 +43,12 @@ function StepRow({ step, last }: { step: Step; last: boolean }) {
         </span>
       </div>
       <div className="-mt-px min-w-0">
-        <div className="text-foreground text-sm font-semibold">{step.title}</div>
-        <div className="text-muted-foreground mt-0.5 text-xs text-pretty">{step.sub}</div>
+        <div className="text-foreground text-sm font-semibold">
+          {step.title}
+        </div>
+        <div className="text-muted-foreground mt-0.5 text-xs text-pretty">
+          {step.sub}
+        </div>
       </div>
     </li>
   );
@@ -63,7 +67,11 @@ function SuccessHalo() {
 
 function buildSteps(coworkerCount: number, submittedAt?: number): Step[] {
   return [
-    { title: "Submitted", sub: relativeSubmittedTime(submittedAt), state: "done" },
+    {
+      title: "Submitted",
+      sub: relativeSubmittedTime(submittedAt),
+      state: "done",
+    },
     {
       title: "Base row created",
       sub:
@@ -72,7 +80,11 @@ function buildSteps(coworkerCount: number, submittedAt?: number): Step[] {
           : "Request details attached",
       state: "done",
     },
-    { title: "Convex backup saved", sub: "Recovery record available", state: "done" },
+    {
+      title: "Convex backup saved",
+      sub: "Recovery record available",
+      state: "done",
+    },
   ];
 }
 
@@ -176,10 +188,7 @@ export function ReceivedScreen({
   const steps = buildSteps(coworkerCount, submittedAt);
 
   return (
-    <div
-      className="no-scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto px-5 py-8"
-      style={{ backgroundColor: "var(--login-background)" }}
-    >
+    <div className="bg-background text-foreground no-scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto px-5 py-8">
       <div className="intake-stagger grid min-h-0 flex-1 -translate-y-3 grid-rows-[minmax(0,1fr)_auto_minmax(0,1fr)] justify-items-center py-7">
         <header className="sync-enter row-start-2 w-full max-w-[420px] shrink-0 px-1 text-center">
           <SuccessHalo />
@@ -188,11 +197,14 @@ export function ReceivedScreen({
               {devFixtureLabel}
             </div>
           ) : null}
-          <h1 className="text-[clamp(1.5rem,5vw,1.875rem)] leading-[1.05] text-balance">
+          <h1 className="text-foreground text-[clamp(1.5rem,5vw,1.875rem)] leading-[1.05] font-semibold tracking-tight text-balance">
             {alreadySynced ? "Already synced" : "Synced"}
           </h1>
           <BitableRecordAction recordId={recordId} detailUrl={detailUrl} />
-          <SelfForwardChip status={selfForwardStatus} onRetry={onRetrySelfForward} />
+          <SelfForwardChip
+            status={selfForwardStatus}
+            onRetry={onRetrySelfForward}
+          />
         </header>
         <ReceivedTimeline steps={steps} />
       </div>

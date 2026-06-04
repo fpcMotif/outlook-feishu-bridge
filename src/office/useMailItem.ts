@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 import { readMailBodyText } from "./mailBody";
 import {
   extractMailData,
@@ -10,13 +17,35 @@ import { dlog, dload, dtime } from "../debug";
 
 export type { AttachmentInfo, MailItemData } from "./mailItem";
 
+function readBodyInBackground(
+  generation: number,
+  readGeneration: { current: number },
+  setMailItem: Dispatch<SetStateAction<MailItemData | null>>,
+): void {
+  const tBody = performance.now();
+  void readMailBodyText()
+    .then((body) => {
+      if (readGeneration.current !== generation) return;
+      setMailItem((current) => (current ? { ...current, body } : current));
+      dtime("read mail body (background)", tBody);
+    })
+    .catch((err: unknown) => {
+      if (readGeneration.current !== generation) return;
+      const msg = err instanceof Error ? err.message : "Unknown body read error";
+      dlog(`readCurrentItem: body read skipped/failed in background: ${msg}`);
+    });
+}
+
 export function useMailItem(autoRead = false) {
   const [mailItem, setMailItem] = useState<MailItemData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const didAutoRead = useRef(false);
+  const readGeneration = useRef(0);
 
-  const readCurrentItem = useCallback(async () => {
+  const readCurrentItem = useCallback(() => {
+    const generation = readGeneration.current + 1;
+    readGeneration.current = generation;
     setLoading(true);
     setError(null);
     dlog("readCurrentItem: start");
@@ -32,19 +61,19 @@ export function useMailItem(autoRead = false) {
           "feishu-sync works with received emails - open a received message in the reading pane (not a compose/reply window), then try again.",
         );
       }
-      const body = await readMailBodyText();
-      const data = extractMailData(Office, item, body);
+      const data = extractMailData(Office, item, "");
       dlog(
         `readCurrentItem: OK subject="${data.subject.slice(0, 40)}" attachments=${data.attachments.length}`,
       );
-      dtime("read mail (body + metadata)", tRead);
-      dload("mail readable - load cycle done");
+      dtime("read mail metadata", tRead);
+      dload("mail metadata readable - load cycle done");
       setMailItem(data);
+      setLoading(false);
+      readBodyInBackground(generation, readGeneration, setMailItem);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unknown error";
       dlog(`readCurrentItem: ERROR ${msg}`);
       setError(msg);
-    } finally {
       setLoading(false);
     }
   }, []);

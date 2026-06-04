@@ -34,7 +34,7 @@ vi.mock("../../hooks/useCoworkerSearch", () => {
   return {
     useCoworkerSearch: () =>
       vi.fn((query: string) =>
-        Promise.resolve(coworkers.filter((c) => c.name.toLowerCase().includes(query.toLowerCase()))),
+        coworkers.filter((c) => c.name.toLowerCase().includes(query.toLowerCase())),
       ),
   };
 });
@@ -162,7 +162,7 @@ describe("RequestIntakeScreen login gate", () => {
       "bg-card-soft",
     );
     expect(screen.getByPlaceholderText(/Describe your requirements/i)).toBeInTheDocument();
-    const coworkerSection = screen.getByText("Customer & coworker");
+    const coworkerSection = screen.getByText("Customer, sales & coworker");
     expect(coworkerSection.compareDocumentPosition(screen.getByText("New request"))).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
@@ -190,7 +190,7 @@ describe("RequestIntakeScreen request details", () => {
     renderRequestIntakeScreen(true);
     fillRequestNote();
 
-    expect(screen.getByText("Customer & coworker")).toBeInTheDocument();
+    expect(screen.getByText("Customer, sales & coworker")).toBeInTheDocument();
     expect(screen.getByDisplayValue("Need a quarterly L-Carnitine quote.")).toBeInTheDocument();
     expect(screen.queryByText(/Recent & suggested/i)).not.toBeInTheDocument();
     // bayerpharma.de has no customer match, so the dock asks for a customer first (ADR-0020).

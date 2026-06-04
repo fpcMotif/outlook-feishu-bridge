@@ -1,6 +1,6 @@
 /* eslint-disable max-lines-per-function, max-lines */
 import * as React from "react";
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check } from "lucide-react";
 
 import { CoworkerIcon } from "./icons/CoworkerIcon";
@@ -35,7 +35,10 @@ const PREVIEW_COWORKERS: Coworker[] = [
 ];
 
 const RECENTS_KEY = "feishu_recent_coworkers";
-const SEARCH_DEBOUNCE_MS = 250;
+
+// Stable empty array so a blank query keeps a constant `results` identity (avoids
+// a needless recompute of the memoized directory map).
+const EMPTY_RESULTS: Coworker[] = [];
 
 function loadRecents(): Coworker[] {
   try {
@@ -46,25 +49,15 @@ function loadRecents(): Coworker[] {
   }
 }
 
-function sameCoworkers(a: Coworker[], b: Coworker[]) {
-  return (
-    a.length === b.length &&
-    a.every(
-      (coworker, index) =>
-        coworker.openId === b[index]?.openId &&
-        coworker.name === b[index]?.name &&
-        coworker.avatarUrl === b[index]?.avatarUrl,
-    )
-  );
-}
-
-function searchResultsReducer(state: Coworker[], results: Coworker[]) {
-  return sameCoworkers(state, results) ? state : results;
-}
-
 const COWORKER_FALLBACK_ICON = (
   <CoworkerIcon className="size-4 translate-y-px" strokeWidth={2} />
 );
+
+// Pure layout helper — kept at module scope so it isn't rebuilt every render
+// (react-doctor prefer-module-scope-pure-function / consistent-function-scoping).
+function stackDivider(above: React.ReactNode, below: React.ReactNode) {
+  return above && below ? <TaskpaneInsetDivider /> : null;
+}
 
 function CoworkerSelectedLeading({ avatarUrl }: { avatarUrl: string }) {
   return (
@@ -188,39 +181,22 @@ export function CoworkerPicker({
   const [query, setQuery] = useState("");
   const [changingCoworker, setChangingCoworker] = useState(false);
   const [recents, setRecents] = useState<Coworker[]>(loadRecents);
-  const [results, dispatchResults] = useReducer(searchResultsReducer, []);
   const cardRef = useRef<HTMLElement>(null);
 
   const q = query.trim();
 
-  // Live search (debounced). User-visible results are either Feishu Search Users
-  // results, or explicit test fixtures when an e2e/dev-test harness opts in.
-  useEffect(() => {
-    if (!q) {
-      dispatchResults([]);
-      return;
-    }
-    const previewMatches = PREVIEW_COWORKERS.filter((c) =>
-      c.name.toLowerCase().includes(q.toLowerCase()),
-    );
+  // Synchronous in-memory ranking (ADR-0024): the directory is preloaded once, so
+  // each keystroke ranks it in sub-millisecond time — no debounce, no Promise.
+  // Results are either the ranked Feishu directory or explicit test fixtures when
+  // an e2e/dev-test harness opts in.
+  const results = useMemo<Coworker[]>(() => {
+    if (!q) return EMPTY_RESULTS;
     if (usePreviewCoworkers) {
-      dispatchResults(previewMatches);
-      return;
+      return PREVIEW_COWORKERS.filter((c) =>
+        c.name.toLowerCase().includes(q.toLowerCase()),
+      );
     }
-    let cancelled = false;
-    const timer = window.setTimeout(() => {
-      search(q)
-        .then((found) => {
-          if (!cancelled) dispatchResults(found);
-        })
-        .catch(() => {
-          if (!cancelled) dispatchResults([]);
-        });
-    }, SEARCH_DEBOUNCE_MS);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
+    return search(q);
   }, [q, search, usePreviewCoworkers]);
 
   const directoryById = useMemo(() => {
@@ -290,9 +266,6 @@ export function CoworkerPicker({
           : null}
       </CoworkerSearchPanel>
     ) : null;
-
-  const stackDivider = (above: React.ReactNode, below: React.ReactNode) =>
-    above && below ? <TaskpaneInsetDivider /> : null;
 
   return (
     <TaskpaneSection id="client-coworker-title" title="Customer, sales & coworker">

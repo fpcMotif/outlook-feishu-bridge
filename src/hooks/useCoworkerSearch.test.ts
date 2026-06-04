@@ -1,4 +1,4 @@
-import { act, renderHook } from "@testing-library/react";
+import { renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useCoworkerSearch } from "./useCoworkerSearch";
@@ -42,35 +42,33 @@ describe("useCoworkerSearch (preload-backed)", () => {
     });
   });
 
-  it("returns [] for a too-short Latin query", async () => {
+  it("returns [] for a too-short Latin query", () => {
     const { result } = renderHook(() => useCoworkerSearch("session"));
-    expect(await act(async () => result.current("a"))).toEqual([]);
+    expect(result.current("a")).toEqual([]);
   });
 
-  it("ranks the preloaded directory by Pinyin initials and returns slim Coworkers (no avatarUrl)", async () => {
+  it("ranks the preloaded directory by Pinyin initials and returns slim Coworkers (no avatarUrl)", () => {
     const { result } = renderHook(() => useCoworkerSearch("session"));
-    const found = await act(async () => result.current("pal"));
-    expect(found).toEqual([{ openId: "ou_peng", name: "彭爱丽(Aili Peng)" }]);
+    expect(result.current("pal")).toEqual([{ openId: "ou_peng", name: "彭爱丽(Aili Peng)" }]);
   });
 
-  it("matches by glued full Pinyin and by Latin name substring", async () => {
+  it("matches by glued full Pinyin and by Latin name substring", () => {
     const { result } = renderHook(() => useCoworkerSearch("session"));
-    expect((await act(async () => result.current("pengaili")))[0]?.name).toBe("彭爱丽(Aili Peng)");
-    expect((await act(async () => result.current("james")))[0]?.name).toBe("James Liu");
+    expect(result.current("pengaili")[0]?.name).toBe("彭爱丽(Aili Peng)");
+    expect(result.current("james")[0]?.name).toBe("James Liu");
   });
 
-  it("finds a colleague by a single CJK character (爱 -> 彭爱丽)", async () => {
+  it("finds a colleague by a single CJK character (爱 -> 彭爱丽)", () => {
     const { result } = renderHook(() => useCoworkerSearch("session"));
-    const found = await act(async () => result.current("爱"));
-    expect(found.map((c) => c.name)).toContain("彭爱丽(Aili Peng)");
+    expect(result.current("爱").map((c) => c.name)).toContain("彭爱丽(Aili Peng)");
   });
 
-  it("preloads nothing when logged out (empty sessionId still safe)", async () => {
+  it("preloads nothing when logged out (empty sessionId still safe)", () => {
     mockUseColleagueDirectory.mockReturnValue({
       state: { status: "idle", contacts: [], mirroredAt: null },
       refresh: vi.fn(),
     });
     const { result } = renderHook(() => useCoworkerSearch(""));
-    expect(await act(async () => result.current("pal"))).toEqual([]);
+    expect(result.current("pal")).toEqual([]);
   });
 });

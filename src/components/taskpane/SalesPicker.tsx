@@ -1,5 +1,5 @@
 /* eslint-disable max-lines-per-function */
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Briefcase } from "lucide-react";
 
 import { CoworkerOption } from "./CoworkerPicker";
@@ -19,7 +19,8 @@ const PREVIEW_SALES: Coworker[] = [
 ];
 
 const RECENTS_KEY = "feishu_recent_sales";
-const SEARCH_DEBOUNCE_MS = 250;
+
+const EMPTY_RESULTS: Coworker[] = [];
 
 const SALES_FALLBACK_ICON = (
   <Briefcase className="size-4 translate-y-px" strokeWidth={2} />
@@ -32,22 +33,6 @@ function loadRecents(): Coworker[] {
   } catch {
     return [];
   }
-}
-
-function samePeople(a: Coworker[], b: Coworker[]) {
-  return (
-    a.length === b.length &&
-    a.every(
-      (person, index) =>
-        person.openId === b[index]?.openId &&
-        person.name === b[index]?.name &&
-        person.avatarUrl === b[index]?.avatarUrl,
-    )
-  );
-}
-
-function searchResultsReducer(state: Coworker[], results: Coworker[]) {
-  return samePeople(state, results) ? state : results;
 }
 
 function SalesSearchPanel({
@@ -122,36 +107,19 @@ export function SalesPicker({
   const [query, setQuery] = useState("");
   const [changing, setChanging] = useState(false);
   const [recents, setRecents] = useState<Coworker[]>(loadRecents);
-  const [results, dispatchResults] = useReducer(searchResultsReducer, []);
 
   const q = query.trim();
 
-  useEffect(() => {
-    if (!q) {
-      dispatchResults([]);
-      return;
-    }
-    const previewMatches = PREVIEW_SALES.filter((c) =>
-      c.name.toLowerCase().includes(q.toLowerCase()),
-    );
+  // Synchronous in-memory ranking (ADR-0024): preloaded directory, ranked per
+  // keystroke with no debounce/Promise. Fixtures only when a test harness opts in.
+  const results = useMemo<Coworker[]>(() => {
+    if (!q) return EMPTY_RESULTS;
     if (usePreviewCoworkers) {
-      dispatchResults(previewMatches);
-      return;
+      return PREVIEW_SALES.filter((c) =>
+        c.name.toLowerCase().includes(q.toLowerCase()),
+      );
     }
-    let cancelled = false;
-    const timer = window.setTimeout(() => {
-      search(q)
-        .then((found) => {
-          if (!cancelled) dispatchResults(found);
-        })
-        .catch(() => {
-          if (!cancelled) dispatchResults([]);
-        });
-    }, SEARCH_DEBOUNCE_MS);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
+    return search(q);
   }, [q, search, usePreviewCoworkers]);
 
   const directoryById = useMemo(() => {

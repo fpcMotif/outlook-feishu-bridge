@@ -17,7 +17,7 @@ vi.mock("../../hooks/useCoworkerSearch", () => {
   return {
     useCoworkerSearch: () =>
       vi.fn((query: string) =>
-        Promise.resolve(coworkers.filter((c) => c.name.toLowerCase().includes(query.toLowerCase()))),
+        coworkers.filter((c) => c.name.toLowerCase().includes(query.toLowerCase())),
       ),
   };
 });

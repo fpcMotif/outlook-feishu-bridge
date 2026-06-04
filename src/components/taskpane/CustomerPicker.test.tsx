@@ -13,7 +13,7 @@ import { CustomerPicker } from "./CustomerPicker";
 import { TASKPANE_SEARCH_PANEL_SHELL_HEADER } from "./taskpaneSearchPanelLayout";
 
 vi.mock("../../hooks/useCoworkerSearch", () => ({
-  useCoworkerSearch: () => vi.fn(() => Promise.resolve([])),
+  useCoworkerSearch: () => vi.fn((_query: string): unknown[] => []),
 }));
 
 const BAYER = {

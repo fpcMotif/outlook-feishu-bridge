@@ -2,8 +2,8 @@
 // keystroke + manual LRU model: the whole directory (<=800, often <30) is
 // preloaded once (useColleagueDirectory) and every keystroke ranks it IN MEMORY
 // via the pure rankColleagues matcher — zero network, zero Convex, no cache, no
-// cross-border tail. Matching is synchronous; the Promise return shape is kept
-// only so CoworkerPicker.tsx (which awaits search(q)) is untouched.
+// cross-border tail. Matching is synchronous and returns the ranked rows
+// immediately — no debounce, no Promise (ADR-0024).
 //
 // Latency tracing: from China the backend RTT is ~150-350ms, so a per-keystroke
 // server call could never be fast; a local scan should be sub-millisecond. We
@@ -44,7 +44,7 @@ export function useCoworkerSearch(sessionId: string, _userAccessToken?: string) 
   const rows = state.contacts;
 
   return useCallback(
-    (query: string): Promise<Coworker[]> => {
+    (query: string): Coworker[] => {
       const started = performance.now();
       const found = rankColleagues(query, rows);
       const elapsed = dtime(
@@ -58,7 +58,7 @@ export function useCoworkerSearch(sessionId: string, _userAccessToken?: string) 
             `(rows=${rows.length}, sessionMax=${Math.round(sessionMaxMs)}ms)`,
         );
       }
-      return Promise.resolve(found.map((row) => toCoworker(row)));
+      return found.map((row) => toCoworker(row));
     },
     [rows],
   );

@@ -1,4 +1,7 @@
-import { MAX_ATTACHMENT_COUNT } from "../../office/attachments";
+import {
+  MAX_ATTACHMENT_COUNT,
+  mailAttachmentRejectionReason,
+} from "../../office/attachments";
 import type { AttachmentInfo } from "../../office/mailItem";
 import { attachmentCount } from "./attachmentSelection";
 import type { UploadedFile, UploadStatus } from "./intakeReducer";
@@ -67,6 +70,8 @@ export function toggleAllMailAttachments({
     MAX_ATTACHMENT_COUNT - attachmentCount(selectedIds, uploadedFiles);
   for (const attachment of mailAttachments) {
     if (selected.has(attachment.id) || slots <= 0) continue;
+    // Never auto-select an oversized attachment — it would fail the Drive upload.
+    if (mailAttachmentRejectionReason(attachment) !== null) continue;
     onToggleMail(attachment.id);
     slots -= 1;
   }
@@ -88,12 +93,16 @@ export function buildMailRows({
   const selected = new Set(selectedIds);
   return mailAttachments.map((attachment) => {
     const checked = selected.has(attachment.id);
+    // Oversized mail attachments would fail the 20 MB Drive upload; surface them
+    // as blocked (like a rejected upload) so they can't be selected (#34).
+    const rejection = mailAttachmentRejectionReason(attachment);
     return {
       id: attachment.id,
       name: attachment.name,
       size: attachment.size,
       selected: checked,
-      disabled: !checked && !canSelectMore,
+      disabled: rejection !== null || (!checked && !canSelectMore),
+      rejection,
       onToggle: () => onToggleMail(attachment.id),
       onRemove: () => onRemoveMail(attachment.id),
     };

@@ -50,6 +50,7 @@ import {
   addDepartmentsToNameMap,
   addPrunePage,
   ASSUMED_MAX_CONTACTS,
+  contactsCrawlStopReason,
   dedupeUsersByOpenId,
   emptyPruneTotals,
   exceedsAssumedMax,
@@ -177,7 +178,9 @@ export const startRefreshIfAllowed = internalMutation({
   handler: async (
     ctx,
     args,
-  ): Promise<{ started: true } | { started: false; remainingMs: number }> => {
+  ): Promise<
+    { started: true; lastUserCount: number } | { started: false; remainingMs: number }
+  > => {
     const existing = await ctx.db.query("feishuContactsMirrorState").first();
     const lastStartedAt = existing?.lastRefreshStartedAt ?? null;
     if (lastStartedAt !== null) {
@@ -195,7 +198,9 @@ export const startRefreshIfAllowed = internalMutation({
         lastRefreshStartedAt: args.startedAt,
       });
     }
-    return { started: true };
+    // Return the last successful crawl's userCount so runFullSync can apply the
+    // prune completeness floor (contactsCrawlStopReason) without a second read.
+    return { started: true, lastUserCount: existing?.lastUserCount ?? 0 };
   },
 });
 
@@ -497,21 +502,26 @@ interface FullSyncResult extends WriteTotals {
   durationMs: number;
 }
 
-async function runFullSync(ctx: ActionCtx, startedAt: number): Promise<FullSyncResult> {
+async function runFullSync(ctx: ActionCtx, startedAt: number, lastUserCount: number): Promise<FullSyncResult> {
   const crawl = await crawlDirectory(ctx);
   if (exceedsAssumedMax(crawl.rows.length)) {
     console.error(
       `[contacts-mirror] ASSUMPTION BREACH users=${crawl.rows.length} exceeds assumed max 800 — revisit paging/cost`,
     );
   }
-  if (crawl.stopReason !== "complete") {
+  // Completeness floor (issue #47): a "complete" crawl that collapsed to
+  // implausibly few users vs the last run is downgraded to "incomplete" and
+  // rejected here — before any write or prune — so a degraded crawl can never
+  // wipe the live directory.
+  const stopReason = contactsCrawlStopReason(crawl.stopReason, crawl.rows.length, lastUserCount);
+  if (stopReason !== "complete") {
     throw new Error(
-      `Contacts mirror stopped before completion: reason=${crawl.stopReason} ` +
-        `departments=${crawl.departmentCount} users=${crawl.rows.length}`,
+      `Contacts mirror stopped before completion: reason=${stopReason} ` +
+        `departments=${crawl.departmentCount} users=${crawl.rows.length} lastUserCount=${lastUserCount}`,
     );
   }
   const writes = await writeRows(ctx, crawl.rows, startedAt);
-  const prune = shouldPruneStaleContacts(crawl.stopReason)
+  const prune = shouldPruneStaleContacts(stopReason)
     ? await pruneStaleContacts(ctx, crawl.seenOpenIds)
     : emptyPruneTotals();
   const finishedAt = Date.now();
@@ -523,7 +533,7 @@ async function runFullSync(ctx: ActionCtx, startedAt: number): Promise<FullSyncR
     lastUpdatedCount: writes.updated,
     lastUnchangedCount: writes.unchanged,
     lastSkippedResignedCount: crawl.skippedResigned,
-    lastStopReason: crawl.stopReason,
+    lastStopReason: stopReason,
     lastDurationMs: finishedAt - startedAt,
     lastFinishedAt: finishedAt,
     lastPruneScannedCount: prune.scanned,
@@ -534,7 +544,7 @@ async function runFullSync(ctx: ActionCtx, startedAt: number): Promise<FullSyncR
     userCount: crawl.rows.length,
     departmentCount: crawl.departmentCount,
     skippedResigned: crawl.skippedResigned,
-    stopReason: crawl.stopReason,
+    stopReason,
     pruneScanned: prune.scanned,
     deletedStale: prune.deleted,
     durationMs: finishedAt - startedAt,
@@ -571,7 +581,7 @@ export const fullSync = internalAction({
       console.log(`[contacts-mirror] fullSync skipped (refresh in flight, ${remainingS}s remaining)`);
       return skippedResult();
     }
-    const out = await runFullSync(ctx, started);
+    const out = await runFullSync(ctx, started, lease.lastUserCount);
     console.log(
       `[contacts-mirror] fullSync ok departments=${out.departmentCount} users=${out.userCount} ` +
         `inserted=${out.inserted} updated=${out.updated} unchanged=${out.unchanged} ` +

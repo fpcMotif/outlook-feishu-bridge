@@ -8,8 +8,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   ASSUMED_MAX_CONTACTS,
+  PRUNE_MIN_RETAIN_RATIO,
   addDepartmentsToNameMap,
   addPrunePage,
+  contactsCrawlStopReason,
   dedupeUsersByOpenId,
   departmentKey,
   emptyPruneTotals,
@@ -200,6 +202,30 @@ describe("shouldPruneStaleContacts", () => {
       expect(shouldPruneStaleContacts(reason)).toBe(false);
     },
   );
+});
+
+describe("contactsCrawlStopReason (prune completeness floor)", () => {
+  it("keeps complete when the crawl is plausibly full vs the last run", () => {
+    expect(contactsCrawlStopReason("complete", 480, 500)).toBe("complete");
+    expect(contactsCrawlStopReason("complete", 250, 500)).toBe("complete");
+  });
+
+  it("downgrades a clean crawl that collapsed below the retain ratio to incomplete", () => {
+    expect(PRUNE_MIN_RETAIN_RATIO).toBe(0.5);
+    expect(contactsCrawlStopReason("complete", 249, 500)).toBe("incomplete");
+    // The worst case: a clean-but-empty crawl that would otherwise wipe the table.
+    expect(contactsCrawlStopReason("complete", 0, 500)).toBe("incomplete");
+  });
+
+  it("allows the first-ever sync (no baseline) and an empty baseline to proceed", () => {
+    expect(contactsCrawlStopReason("complete", 0, 0)).toBe("complete");
+    expect(contactsCrawlStopReason("complete", 10, 0)).toBe("complete");
+  });
+
+  it("passes a non-complete stop reason through unchanged (already blocks prune)", () => {
+    expect(contactsCrawlStopReason("missingPageToken", 0, 500)).toBe("missingPageToken");
+    expect(contactsCrawlStopReason("duplicatePageToken", 0, 500)).toBe("duplicatePageToken");
+  });
 });
 
 describe("addPrunePage", () => {

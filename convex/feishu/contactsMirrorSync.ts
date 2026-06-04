@@ -184,6 +184,31 @@ export function shouldPruneStaleContacts(stopReason: ContactStopReason): boolean
   return stopReason === "complete";
 }
 
+// COMPLETENESS FLOOR (sibling of the Customer mirror's completenessStopReason).
+// The stopReason gate alone is not enough: the contacts directory has NO global
+// `total`, so a *clean but degraded* crawl — contact scope / app data-range
+// revoked, or a transient walk that returned has_more=false with far fewer users
+// than really exist — reports "complete" and would let the prune wipe the live
+// directory. The last successful crawl's userCount is the only plausibility
+// signal available; if this run observed implausibly fewer users than that
+// baseline, downgrade "complete" → "incomplete" so the crawl is rejected before
+// it can write or prune. A genuine large shrink (e.g. a real mass departure)
+// costs one skipped cycle and a loud error — the safe failure mode. Pure.
+export const PRUNE_MIN_RETAIN_RATIO = 0.5;
+
+export function contactsCrawlStopReason(
+  stopReason: ContactStopReason,
+  seenUserCount: number,
+  lastUserCount: number,
+  minRetainRatio: number = PRUNE_MIN_RETAIN_RATIO,
+): ContactStopReason {
+  if (stopReason !== "complete") return stopReason;
+  if (lastUserCount > 0 && seenUserCount < lastUserCount * minRetainRatio) {
+    return "incomplete";
+  }
+  return stopReason;
+}
+
 export function addPrunePage<TId>(
   totals: PruneTotals,
   scannedRows: readonly PrunableContactRow<TId>[],

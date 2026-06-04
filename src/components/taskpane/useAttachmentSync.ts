@@ -40,8 +40,18 @@ export function useAttachmentSync(): (
           : Promise.reject(new Error("Mail attachment download is unavailable in this host"));
 
       const { sources, failed } = await gatherAttachmentSources(downloadMail, selectedMail, uploads);
-      const attachments = sources.length > 0 ? await stageAndUploadAttachments(stagingDeps, sources) : [];
-      return { attachments, failed };
+      if (sources.length === 0) return { attachments: [], failed };
+      // Best-effort: a Convex-storage / Feishu-Drive failure during staging must
+      // NEVER block the authoritative Base write (ADR-0022). Degrade to "no
+      // attachments + reported failures" so syncRequest still records the note,
+      // customer, and coworkers; the caller surfaces the skipped files (#33).
+      try {
+        const attachments = await stageAndUploadAttachments(stagingDeps, sources);
+        return { attachments, failed };
+      } catch (e: unknown) {
+        const reason = e instanceof Error ? e.message : String(e);
+        return { attachments: [], failed: [...failed, ...sources.map((s) => ({ name: s.name, reason }))] };
+      }
     },
     [stagingDeps],
   );

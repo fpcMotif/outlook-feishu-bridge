@@ -15,8 +15,7 @@ vi.mock('./components/TaskPane', () => ({
 }))
 
 // The DebugPanel must never render itself by default. The App-level test
-// imports the real one (it's just a presentational component) and asserts
-// visibility via its sticky header "DBG dbg-2".
+// mocks it to a stub and asserts visibility via `data-testid="debug-panel"`.
 vi.mock('./components/DebugPanel', () => ({
   DebugPanel: () => <div data-testid="debug-panel">debug panel</div>,
 }))

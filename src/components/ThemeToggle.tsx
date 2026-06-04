@@ -1,7 +1,7 @@
 import { Moon, Sun } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 
-import { applyTheme, persistTheme, readTheme } from "@/lib/theme";
+import { applyTheme, persistTheme, readTheme, type Theme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 
 const iconTransition =
@@ -24,16 +24,17 @@ function ThemeIcon({ active, children }: { active: boolean; children: ReactNode 
 
 /** User-facing light/dark switch (ADR-0020). Mounted in the logged-in profile header. */
 export function ThemeToggle() {
-  const [dark, setDark] = useState(() => readTheme() === "dark");
+  const [theme, setTheme] = useState<Theme>(readTheme);
+  const dark = theme === "dark";
 
   useEffect(() => {
-    applyTheme(dark ? "dark" : "light");
-  }, [dark]);
+    applyTheme(theme);
+  }, [theme]);
 
   const toggle = () => {
-    setDark((on) => {
-      const next = !on;
-      persistTheme(next ? "dark" : "light");
+    setTheme((current) => {
+      const next: Theme = current === "dark" ? "light" : "dark";
+      persistTheme(next);
       return next;
     });
   };

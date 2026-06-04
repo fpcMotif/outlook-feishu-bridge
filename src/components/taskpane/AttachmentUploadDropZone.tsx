@@ -78,7 +78,7 @@ function UploadZoneBody({
           Drag & drop files or click to upload
         </span>
         <span className="text-muted-foreground block text-xs">
-          PDF, XLSX, DOCX up to 10MB each
+          PDF, XLSX, DOCX up to 20MB each
         </span>
       </span>
       <input

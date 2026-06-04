@@ -11,6 +11,8 @@ import {
   readAuthSnapshot,
   rememberAuthSnapshot,
 } from "./feishuAuthSnapshot";
+import * as colleagueDir from "./useColleagueDirectory";
+import * as customerDir from "./useCustomerDirectory";
 
 vi.mock("convex/react", () => ({
   useAction: vi.fn(),
@@ -186,6 +188,24 @@ describe("auth fast resume", () => {
       expect(result.current.isLoggedIn).toBe(false);
     });
     expect(readAuthSnapshot("sess-1")).toBeNull();
+  });
+
+  it("logout resets the colleague and customer directory singletons", async () => {
+    const resetColleague = vi
+      .spyOn(colleagueDir, "resetColleagueDirectory")
+      .mockImplementation(() => {});
+    const resetCustomer = vi
+      .spyOn(customerDir, "resetCustomerDirectory")
+      .mockImplementation(() => {});
+    mockUseQuery.mockReturnValue(null);
+
+    const { result } = renderHook(() => useFeishuAuth());
+    await act(async () => {
+      await result.current.logout();
+    });
+
+    expect(resetColleague).toHaveBeenCalledTimes(1);
+    expect(resetCustomer).toHaveBeenCalledTimes(1);
   });
 
   it("does NOT clear the snapshot on a transient in-flight query (undefined)", async () => {

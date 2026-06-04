@@ -1,7 +1,7 @@
 // Deep module: read the current Outlook mail item's body. Wraps Office.js's
 // callback-style item.body.getAsync into a promise and owns the "no item
-// selected" and async-failure cases, so callers (mail read, PDF render,
-// markdown conversion) don't each re-implement the getAsync dance.
+// selected" and async-failure cases, so callers don't each re-implement the
+// getAsync dance.
 
 function currentItem(): Office.MessageRead {
   const item = Office.context?.mailbox?.item as Office.MessageRead | undefined;
@@ -24,6 +24,3 @@ export function readMailBody(coercion: Office.CoercionType): Promise<string> {
 
 export const readMailBodyText = (): Promise<string> =>
   readMailBody(Office.CoercionType.Text);
-
-export const readMailBodyHtml = (): Promise<string> =>
-  readMailBody(Office.CoercionType.Html);

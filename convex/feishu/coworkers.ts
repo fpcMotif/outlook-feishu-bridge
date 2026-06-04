@@ -113,9 +113,9 @@ export const getCachedCoworkerSearch = internalQuery({
     query: v.string(),
   },
   handler: async (ctx, args): Promise<{ cachedAt: number; results: Coworker[] } | null> => {
-    const normalized = makeCacheLookupQuery(args.query);
-    const cached = await getFreshCoworkerCacheEntry(ctx, args.sessionId, normalized);
+    const cached = await getFreshCoworkerCacheEntry(ctx, args.sessionId, args.query);
     if (!cached) {
+      const normalized = makeCacheLookupQuery(args.query);
       console.log(`[coworkers] cache miss/stale session=${args.sessionId} q="${normalized.slice(0, 40)}"`);
       return null;
     }

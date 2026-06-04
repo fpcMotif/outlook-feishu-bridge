@@ -8,6 +8,7 @@ import type { Coworker } from "./coworkers";
 import { useCoworkerSearch } from "../../hooks/useCoworkerSearch";
 import { TaskpaneSearchDropdown } from "./TaskpaneSearchDropdown";
 import { TaskpaneSelectionRow } from "./TaskpaneSelectionRow";
+import { useOutsidePointerDismiss } from "./taskpaneOutsideDismiss";
 import {
   TASKPANE_SEARCH_PANEL_HEADER,
   TASKPANE_SEARCH_PANEL_SHELL_HEADER,
@@ -77,17 +78,7 @@ function SalesSearchPanel({
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!dismissable || !onDismiss) return;
-    const dismiss = onDismiss;
-    function onPointer(event: MouseEvent) {
-      if (panelRef.current && !panelRef.current.contains(event.target as Node)) {
-        dismiss();
-      }
-    }
-    document.addEventListener("mousedown", onPointer);
-    return () => document.removeEventListener("mousedown", onPointer);
-  }, [dismissable, onDismiss]);
+  useOutsidePointerDismiss(panelRef, onDismiss ?? (() => {}), dismissable && Boolean(onDismiss));
 
   return (
     <div
@@ -138,6 +129,10 @@ export function SalesPicker({
   const prevSelectedOpenId = useRef<string | null>(null);
   const [recents, setRecents] = useState<Coworker[]>(loadRecents);
   const [results, dispatchResults] = useReducer(searchResultsReducer, []);
+  // True while a debounced search for the current query is still in flight, so
+  // the dropdown shows a pending row instead of flashing the "no match" empty
+  // message before results land.
+  const [pending, setPending] = useState(false);
 
   const q = query.trim();
 
@@ -155,23 +150,31 @@ export function SalesPicker({
   useEffect(() => {
     if (!q) {
       dispatchResults([]);
+      setPending(false);
       return;
     }
-    const previewMatches = PREVIEW_SALES.filter((c) =>
-      c.name.toLowerCase().includes(q.toLowerCase()),
-    );
     if (usePreviewCoworkers) {
-      dispatchResults(previewMatches);
+      dispatchResults(
+        PREVIEW_SALES.filter((c) => c.name.toLowerCase().includes(q.toLowerCase())),
+      );
+      setPending(false);
       return;
     }
     let cancelled = false;
+    setPending(true);
     const timer = window.setTimeout(() => {
       search(q)
         .then((found) => {
-          if (!cancelled) dispatchResults(found);
+          if (!cancelled) {
+            dispatchResults(found);
+            setPending(false);
+          }
         })
         .catch(() => {
-          if (!cancelled) dispatchResults([]);
+          if (!cancelled) {
+            dispatchResults([]);
+            setPending(false);
+          }
         });
     }, SEARCH_DEBOUNCE_MS);
     return () => {
@@ -246,7 +249,11 @@ export function SalesPicker({
               onSelect={handleSelect}
             />
           ))
-        : null}
+        : pending
+          ? (
+              <div className="text-muted-foreground rounded-xl p-3 text-sm">Searching…</div>
+            )
+          : undefined}
     </SalesSearchPanel>
   );
 }

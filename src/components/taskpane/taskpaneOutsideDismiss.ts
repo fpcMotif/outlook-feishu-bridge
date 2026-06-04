@@ -8,10 +8,9 @@ export function useOutsidePointerDismiss(
 ) {
   useEffect(() => {
     if (!enabled) return;
-    const dismiss = onDismiss;
     function onPointer(event: MouseEvent) {
       if (boundaryRef.current && !boundaryRef.current.contains(event.target as Node)) {
-        dismiss();
+        onDismiss();
       }
     }
     document.addEventListener("mousedown", onPointer);

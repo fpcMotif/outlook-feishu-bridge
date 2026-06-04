@@ -40,7 +40,6 @@ export interface CustomerPickerProps {
   ) => Promise<CustomerRecord[]>;
   /** Optional fire-and-forget refresh: opening the picker triggers freshness. */
   triggerRefresh?: () => void;
-  emailDomain: string;
   selectedCustomer: CustomerRecord | null;
   // The signed-in Feishu user's open_id (the Initiator, ADR-0014). When
   // provided, the search panel offers a "Show mine" quick toggle.

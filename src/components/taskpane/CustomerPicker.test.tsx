@@ -40,7 +40,6 @@ describe("CustomerPicker", () => {
       <CustomerPicker
         directory={{ status: "ready", records: [] }}
         searchCustomers={vi.fn()}
-        emailDomain="bayerpharma.de"
         selectedCustomer={BAYER}
         onChange={vi.fn()}
       />,
@@ -60,7 +59,6 @@ describe("CustomerPicker no-match states", () => {
       <CustomerPicker
         directory={{ status: "ready", records: [] }}
         searchCustomers={vi.fn()}
-        emailDomain="unknown.io"
         selectedCustomer={null}
         onChange={vi.fn()}
       />,
@@ -80,7 +78,6 @@ describe("CustomerPicker no-match states", () => {
       <CustomerPicker
         directory={{ status: "loading", records: [] }}
         searchCustomers={vi.fn()}
-        emailDomain="bayerpharma.de"
         selectedCustomer={null}
         onChange={vi.fn()}
       />,
@@ -102,7 +99,6 @@ describe("CustomerPicker override search", () => {
         directory={{ status: "ready", records: [BAYER] }}
         searchCustomers={vi.fn()}
         triggerRefresh={triggerRefresh}
-        emailDomain="bayerpharma.de"
         selectedCustomer={BAYER}
         onChange={vi.fn()}
       />,
@@ -121,7 +117,6 @@ describe("CustomerPicker override search", () => {
       <CustomerPicker
         directory={{ status: "ready", records: [BAYER, STOCKMEIER] }}
         searchCustomers={vi.fn()}
-        emailDomain="bayerpharma.de"
         selectedCustomer={BAYER}
         onChange={vi.fn()}
       />,
@@ -156,7 +151,6 @@ describe("CustomerPicker server fallback", () => {
       <CustomerPicker
         directory={{ status: "ready", records: [BAYER] }}
         searchCustomers={searchCustomers}
-        emailDomain="unknown.io"
         selectedCustomer={null}
         onChange={vi.fn()}
       />,
@@ -177,7 +171,6 @@ describe("CustomerPicker server fallback", () => {
       <CustomerPicker
         directory={{ status: "ready", records: [BAYER] }}
         searchCustomers={vi.fn()}
-        emailDomain="unknown.io"
         selectedCustomer={null}
         onChange={vi.fn()}
       />,
@@ -196,7 +189,6 @@ describe("CustomerPicker server fallback", () => {
       <CustomerPicker
         directory={{ status: "ready", records: [BAYER] }}
         searchCustomers={searchCustomers}
-        emailDomain="unknown.io"
         selectedCustomer={null}
         onChange={vi.fn()}
       />,
@@ -217,7 +209,6 @@ describe("CustomerPicker server fallback", () => {
       <CustomerPicker
         directory={{ status: "ready", records: [BAYER] }}
         searchCustomers={searchCustomers}
-        emailDomain="unknown.io"
         selectedCustomer={null}
         onChange={vi.fn()}
       />,
@@ -237,7 +228,6 @@ describe("CustomerPicker server fallback", () => {
       <CustomerPicker
         directory={{ status: "ready", records: [BAYER] }}
         searchCustomers={searchCustomers}
-        emailDomain="unknown.io"
         selectedCustomer={null}
         onChange={vi.fn()}
       />,
@@ -257,7 +247,6 @@ describe("CustomerPicker server fallback", () => {
       <CustomerPicker
         directory={{ status: "ready", records: [] }}
         searchCustomers={vi.fn(() => Promise.resolve([]))}
-        emailDomain="unknown.io"
         selectedCustomer={null}
         onChange={vi.fn()}
         onCreateCustomer={onCreateCustomer}
@@ -282,7 +271,6 @@ describe("CustomerPicker server fallback", () => {
       <CustomerPicker
         directory={{ status: "ready", records: [] }}
         searchCustomers={searchCustomers}
-        emailDomain="unknown.io"
         selectedCustomer={null}
         currentUserOpenId="ou_florian"
         onChange={vi.fn()}
@@ -307,7 +295,6 @@ describe("CustomerPicker override commit", () => {
       <CustomerPicker
         directory={{ status: "ready", records: [BAYER, STOCKMEIER] }}
         searchCustomers={vi.fn()}
-        emailDomain="bayerpharma.de"
         selectedCustomer={BAYER}
         onChange={onChange}
       />,
@@ -349,7 +336,6 @@ describe("CustomerPicker owner filter", () => {
       <CustomerPicker
         directory={{ status: "ready", records: [florianRow, jennyRow] }}
         searchCustomers={vi.fn()}
-        emailDomain="something.example"
         selectedCustomer={null}
         onChange={vi.fn()}
       />,
@@ -368,7 +354,6 @@ describe("CustomerPicker owner filter", () => {
       <CustomerPicker
         directory={{ status: "ready", records: [florianRow, jennyRow] }}
         searchCustomers={vi.fn()}
-        emailDomain="something.example"
         selectedCustomer={null}
         currentUserOpenId="ou_florian"
         onChange={vi.fn()}
@@ -386,7 +371,6 @@ describe("CustomerPicker owner filter", () => {
       <CustomerPicker
         directory={{ status: "ready", records: [jennyRow] }}
         searchCustomers={vi.fn()}
-        emailDomain="something.example"
         selectedCustomer={null}
         currentUserOpenId="ou_florian"
         onChange={vi.fn()}
@@ -404,7 +388,6 @@ describe("CustomerPicker owner filter", () => {
       <CustomerPicker
         directory={{ status: "ready", records: [jennyRow] }}
         searchCustomers={vi.fn(() => Promise.resolve([]))}
-        emailDomain="something.example"
         selectedCustomer={null}
         currentUserOpenId="ou_florian"
         onChange={vi.fn()}
@@ -425,7 +408,6 @@ describe("CustomerPicker owner filter", () => {
       <CustomerPicker
         directory={{ status: "ready", records: [florianRow, jennyRow] }}
         searchCustomers={vi.fn(() => Promise.resolve([]))}
-        emailDomain="something.example"
         selectedCustomer={null}
         currentUserOpenId="ou_florian"
         onChange={vi.fn()}
@@ -450,7 +432,6 @@ describe("CustomerPicker stacked layout", () => {
           <CustomerPicker
             directory={{ status: "ready", records: [] }}
             searchCustomers={vi.fn()}
-            emailDomain="unknown.io"
             selectedCustomer={null}
             embedded
             onChange={vi.fn()}
@@ -483,7 +464,6 @@ describe("CustomerPicker dismiss scope", () => {
           <CustomerPicker
             directory={{ status: "ready", records: [jennyRow] }}
             searchCustomers={vi.fn()}
-            emailDomain="unknown.io"
             selectedCustomer={BAYER}
             currentUserOpenId="ou_florian"
             embedded
@@ -546,7 +526,6 @@ describe("CustomerPicker dismiss scope", () => {
             <CustomerPicker
               directory={{ status: "ready", records: [jennyRow] }}
               searchCustomers={vi.fn()}
-              emailDomain="unknown.io"
               selectedCustomer={BAYER}
               currentUserOpenId="ou_florian"
               embedded

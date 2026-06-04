@@ -5,28 +5,13 @@
 // SPA never touches Feishu Drive directly (no Drive-scoped token / CORS path,
 // and a 20 MB file would exceed the Convex action-arg cap — see ADR-0022).
 
-import { fileExtension } from "./attachments";
+import { UPLOAD_MIME_BY_EXTENSION, fileExtension } from "./attachments";
 
 // Office.js getAttachmentContentAsync exposes no usable contentType (deprecated),
 // so MIME is derived from the file extension (ADR-0022). pdf / excel / word /
 // image are the accepted upload kinds; anything else stages as octet-stream.
-const MIME_BY_EXTENSION: Record<string, string> = {
-  pdf: "application/pdf",
-  xls: "application/vnd.ms-excel",
-  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  csv: "text/csv",
-  doc: "application/msword",
-  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  png: "image/png",
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  gif: "image/gif",
-  webp: "image/webp",
-  bmp: "image/bmp",
-};
-
 export function mimeFromName(name: string): string {
-  return MIME_BY_EXTENSION[fileExtension(name)] ?? "application/octet-stream";
+  return UPLOAD_MIME_BY_EXTENSION[fileExtension(name)] ?? "application/octet-stream";
 }
 
 // Decode an Office.js Base64 attachment payload into a typed Blob for staging.
@@ -95,10 +80,10 @@ export async function postBytesToConvex(
   return (await res.json()) as { storageId: string };
 }
 
-export type UploadProgressListener = (loadedRatio: number) => void;
+export type UploadProgressListener = (percent: number) => void;
 
 // XMLHttpRequest exposes upload progress; fetch does not. Used for eager intake
-// uploads so large files show real byte progress in the attachment row.
+// uploads so large files show a real 0-100 percent in the attachment row.
 export function postBytesToConvexWithProgress(
   url: string,
   blob: Blob,

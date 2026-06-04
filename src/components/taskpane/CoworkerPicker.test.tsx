@@ -58,4 +58,36 @@ describe("CoworkerPicker remote search", () => {
     // useCoworkerSearch hook resolves [] below MIN_COWORKER_SEARCH_LENGTH.
     expect(search).toHaveBeenCalledWith("a");
   });
+
+  it("shows the empty message when no Feishu coworkers match the query", async () => {
+    renderCoworkerPicker();
+
+    fireEvent.change(screen.getByRole("combobox", { name: /search feishu coworkers/i }), {
+      target: { value: "zzzznomatch" },
+    });
+
+    expect(
+      await screen.findByText('No real Feishu coworkers match "zzzznomatch"'),
+    ).toBeInTheDocument();
+  });
+
+  it("does not flash the empty message while the debounced search is pending", async () => {
+    renderCoworkerPicker();
+
+    fireEvent.change(screen.getByRole("combobox", { name: /search feishu coworkers/i }), {
+      target: { value: "zzzznomatch" },
+    });
+
+    // Before the debounce settles, the no-match message must NOT be shown.
+    expect(
+      screen.queryByText('No real Feishu coworkers match "zzzznomatch"'),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("Searching…")).toBeInTheDocument();
+
+    // Once settled with no results, the empty message appears and the pending row goes.
+    expect(
+      await screen.findByText('No real Feishu coworkers match "zzzznomatch"'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Searching…")).not.toBeInTheDocument();
+  });
 });

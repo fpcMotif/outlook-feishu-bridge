@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import type { AttachmentInfo } from "./mailItem";
 import {
+  ALLOWED_UPLOAD_EXTENSIONS,
   MAX_ATTACHMENT_BYTES,
   MAX_ATTACHMENT_COUNT,
+  UPLOAD_MIME_BY_EXTENSION,
   fileExtension,
   formatAttachmentMeta,
   formatBytes,
@@ -50,6 +52,10 @@ describe("upload validation (ADR-0022 decision #4)", () => {
     expect(fileExtension("archive.tar.gz")).toBe("gz");
     expect(fileExtension("noext")).toBe("");
     expect(fileExtension(".hidden")).toBe("hidden");
+  });
+
+  it("derives the allow-list from the single MIME source of truth", () => {
+    expect(ALLOWED_UPLOAD_EXTENSIONS).toEqual(Object.keys(UPLOAD_MIME_BY_EXTENSION));
   });
 
   it("allows pdf / excel / word / image uploads and rejects the rest", () => {

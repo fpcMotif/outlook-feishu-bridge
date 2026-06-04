@@ -25,6 +25,10 @@ export interface ColleagueDirectoryState {
 // Singleton — survives component remounts within a session; reset on logout.
 let cache: ColleagueDirectoryState = { status: "idle", contacts: [], mirroredAt: null };
 let inflight: Promise<void> | null = null;
+// Bumped by reset() so a preload that was in flight at logout cannot publish the
+// previous user's directory after the fact (the stale promise's then/catch and
+// finally are gated on the generation they were started under).
+let generation = 0;
 const listeners = new Set<() => void>();
 
 function publish(next: ColleagueDirectoryState) {
@@ -44,6 +48,7 @@ function getSnapshot(): ColleagueDirectoryState {
 }
 
 export function resetColleagueDirectory() {
+  generation += 1;
   inflight = null;
   publish({ status: "idle", contacts: [], mirroredAt: null });
 }
@@ -72,9 +77,11 @@ export function useColleagueDirectory(isLoggedIn: boolean): UseColleagueDirector
       `colleague directory: preload ${refreshNonce === 0 ? "starting" : "refreshing"} (nonce=${refreshNonce})`,
     );
     const started = performance.now();
+    const gen = generation;
     inflight = convex
       .query(api.feishu.contactsMirror.listForPicker, {})
       .then((res) => {
+        if (gen !== generation) return;
         const contacts = res.contacts as ColleagueRow[];
         const elapsed = dtime(`colleague directory: preload ready (${contacts.length} rows)`, started);
         if (elapsed > 1500) {
@@ -83,6 +90,7 @@ export function useColleagueDirectory(isLoggedIn: boolean): UseColleagueDirector
         publish({ status: "ready", contacts, mirroredAt: res.mirroredAt });
       })
       .catch((e: unknown) => {
+        if (gen !== generation) return;
         dtime(
           `colleague directory: preload FAILED — ${e instanceof Error ? e.message : String(e)}`,
           started,
@@ -90,7 +98,7 @@ export function useColleagueDirectory(isLoggedIn: boolean): UseColleagueDirector
         publish({ status: "error", contacts: cache.contacts, mirroredAt: cache.mirroredAt });
       })
       .finally(() => {
-        inflight = null;
+        if (gen === generation) inflight = null;
       });
   }, [isLoggedIn, convex, refreshNonce]);
 

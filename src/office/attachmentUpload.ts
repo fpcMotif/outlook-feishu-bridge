@@ -1,9 +1,11 @@
 // SPA attachment pipeline (ADR-0022): turn picker selections — existing mail
-// attachments downloaded as Base64 plus user-uploaded DOM Files — into Feishu
-// Drive file_tokens for the Base row. Bytes are staged through Convex File
-// Storage, then minted into tokens by the uploadAttachmentsToDrive action; the
-// SPA never touches Feishu Drive directly (no Drive-scoped token / CORS path,
-// and a 20 MB file would exceed the Convex action-arg cap — see ADR-0022).
+// attachments downloaded as Base64 plus user-uploaded DOM Files — into STAGED
+// Convex File-Storage refs for the Base row. The SPA only stages bytes here; the
+// Feishu Drive upload_all that mints `file_token`s now runs server-side in the
+// deferred Base-write worker (off the submit critical path — ADR-0022 latency
+// optimization), so the submit no longer blocks on the serial 5 QPS Drive
+// uploads. The SPA never touches Feishu Drive directly (no Drive-scoped token /
+// CORS path, and a 20 MB file would exceed the Convex action-arg cap).
 
 import { fileExtension } from "./attachments";
 
@@ -45,24 +47,33 @@ export interface AttachmentSource {
 }
 
 // Injected so the orchestration stays pure and testable: the Convex storage
-// upload-URL mint, the raw byte POST, and the Drive token-minting action.
+// upload-URL mint and the raw byte POST. (The Drive token-minting action is no
+// longer a submit-path dependency — it moved into the backend sync worker.)
 export interface AttachmentStagingDeps {
   generateUploadUrl: () => Promise<string>;
   uploadBytes: (url: string, blob: Blob) => Promise<{ storageId: string }>;
-  uploadToDrive: (
-    sources: { storageId: string; fileName: string }[],
-  ) => Promise<{ attachments: { fileToken: string }[] }>;
 }
 
-// Stage each blob to Convex File Storage, then mint Feishu Drive file_tokens in
-// one backend call. Returns the [{ fileToken }] shape syncRequest consumes, in
-// input order. Empty input short-circuits with no network calls.
-export async function stageAndUploadAttachments(
+// A staged file ready for the backend to upload to Drive: the Convex storage id
+// plus the display name. Exactly the `attachmentSources` shape syncRequest takes.
+export interface StagedAttachmentSource {
+  storageId: string;
+  fileName: string;
+}
+
+// Stage each blob to Convex File Storage and return the staged { storageId,
+// fileName } refs in input order — the `attachmentSources` shape syncRequest
+// consumes. Sources that arrived already staged (eager intake uploads carry a
+// storageId) skip the byte POST. The Drive upload_all NO LONGER happens here: it
+// runs server-side in the deferred Base-write worker, so the submit path stays
+// off the serial 5 QPS Drive critical path (ADR-0022). Empty input
+// short-circuits with no network calls.
+export function stageAttachmentSources(
   deps: AttachmentStagingDeps,
   sources: AttachmentSource[],
-): Promise<{ fileToken: string }[]> {
-  if (sources.length === 0) return [];
-  const staged = await Promise.all(
+): Promise<StagedAttachmentSource[]> {
+  if (sources.length === 0) return Promise.resolve([]);
+  return Promise.all(
     sources.map(async (source) => {
       if (source.storageId) {
         return { storageId: source.storageId, fileName: source.name };
@@ -75,8 +86,6 @@ export async function stageAndUploadAttachments(
       return { storageId, fileName: source.name };
     }),
   );
-  const { attachments } = await deps.uploadToDrive(staged);
-  return attachments;
 }
 
 // Default uploadBytes: POST raw bytes to a Convex storage upload URL (1 h TTL),

@@ -6,7 +6,7 @@ import {
   mimeFromName,
   postBytesToConvex,
   postBytesToConvexWithProgress,
-  stageAndUploadAttachments,
+  stageAttachmentSources,
   type AttachmentStagingDeps,
 } from "./attachmentUpload";
 
@@ -34,20 +34,19 @@ describe("base64ToBlob", () => {
   });
 });
 
-describe("stageAndUploadAttachments", () => {
+describe("stageAttachmentSources", () => {
   it("returns [] and makes no calls when there are no sources", async () => {
     const deps: AttachmentStagingDeps = {
       generateUploadUrl: vi.fn(),
       uploadBytes: vi.fn(),
-      uploadToDrive: vi.fn(),
     };
 
-    await expect(stageAndUploadAttachments(deps, [])).resolves.toEqual([]);
+    await expect(stageAttachmentSources(deps, [])).resolves.toEqual([]);
     expect(deps.generateUploadUrl).not.toHaveBeenCalled();
-    expect(deps.uploadToDrive).not.toHaveBeenCalled();
+    expect(deps.uploadBytes).not.toHaveBeenCalled();
   });
 
-  it("stages each blob then mints Drive tokens in one backend call, preserving order", async () => {
+  it("stages each blob to Convex storage, preserving order (no Drive call)", async () => {
     const a = new Blob(["a"]);
     const b = new Blob(["bb"]);
     const deps: AttachmentStagingDeps = {
@@ -59,48 +58,37 @@ describe("stageAndUploadAttachments", () => {
         .fn()
         .mockResolvedValueOnce({ storageId: "st_a" })
         .mockResolvedValueOnce({ storageId: "st_b" }),
-      uploadToDrive: vi.fn().mockResolvedValue({
-        attachments: [{ fileToken: "tok_a" }, { fileToken: "tok_b" }],
-      }),
     };
 
+    // The submit path now returns staged { storageId, fileName } refs; the Drive
+    // upload_all is the backend worker's job (ADR-0022).
     await expect(
-      stageAndUploadAttachments(deps, [
+      stageAttachmentSources(deps, [
         { name: "a.pdf", blob: a },
         { name: "b.png", blob: b },
       ]),
-    ).resolves.toEqual([{ fileToken: "tok_a" }, { fileToken: "tok_b" }]);
+    ).resolves.toEqual([
+      { storageId: "st_a", fileName: "a.pdf" },
+      { storageId: "st_b", fileName: "b.png" },
+    ]);
 
     expect(deps.generateUploadUrl).toHaveBeenCalledTimes(2);
     expect(deps.uploadBytes).toHaveBeenNthCalledWith(1, "https://up/1", a);
     expect(deps.uploadBytes).toHaveBeenNthCalledWith(2, "https://up/2", b);
-    expect(deps.uploadToDrive).toHaveBeenCalledTimes(1);
-    expect(deps.uploadToDrive).toHaveBeenCalledWith([
-      { storageId: "st_a", fileName: "a.pdf" },
-      { storageId: "st_b", fileName: "b.png" },
-    ]);
   });
 
   it("skips byte upload when a source already has a storageId", async () => {
     const deps: AttachmentStagingDeps = {
       generateUploadUrl: vi.fn(),
       uploadBytes: vi.fn(),
-      uploadToDrive: vi.fn().mockResolvedValue({
-        attachments: [{ fileToken: "tok_cached" }],
-      }),
     };
 
     await expect(
-      stageAndUploadAttachments(deps, [
-        { name: "cached.pdf", storageId: "st_cached" },
-      ]),
-    ).resolves.toEqual([{ fileToken: "tok_cached" }]);
+      stageAttachmentSources(deps, [{ name: "cached.pdf", storageId: "st_cached" }]),
+    ).resolves.toEqual([{ storageId: "st_cached", fileName: "cached.pdf" }]);
 
     expect(deps.generateUploadUrl).not.toHaveBeenCalled();
     expect(deps.uploadBytes).not.toHaveBeenCalled();
-    expect(deps.uploadToDrive).toHaveBeenCalledWith([
-      { storageId: "st_cached", fileName: "cached.pdf" },
-    ]);
   });
 });
 

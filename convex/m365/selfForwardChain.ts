@@ -8,6 +8,7 @@
 //   client_credentials: https://learn.microsoft.com/entra/identity-platform/v2-oauth2-client-creds-grant-flow
 //   message-forward:    https://learn.microsoft.com/graph/api/message-forward
 
+import { readError } from "./aadErrors";
 import {
   buildSelfForwardForwardBody,
   type SelfForwardRequestSelection,
@@ -45,41 +46,6 @@ export type SelfForwardStep = "token" | "forward";
 export type SelfForwardResult =
   | { ok: true; requestId?: string }
   | { ok: false; step: SelfForwardStep; code: string; message: string };
-
-interface AadErrorEnvelope {
-  error?: string | { code?: string; message?: string };
-  error_description?: string;
-  error_codes?: number[];
-}
-
-async function readError(
-  res: Response,
-): Promise<{ code: string; message: string }> {
-  let body: AadErrorEnvelope | string = "";
-  try {
-    body = (await res.json()) as AadErrorEnvelope;
-  } catch {
-    try {
-      body = await res.text();
-    } catch {
-      body = "";
-    }
-  }
-  if (typeof body === "string") {
-    return { code: `HTTP_${res.status}`, message: body || res.statusText };
-  }
-  if (typeof body.error === "string") {
-    return {
-      code: body.error,
-      message: body.error_description ?? res.statusText,
-    };
-  }
-  const err = body.error ?? {};
-  return {
-    code: err.code ?? `HTTP_${res.status}`,
-    message: err.message ?? res.statusText,
-  };
-}
 
 type StepFail = { ok: false; step: SelfForwardStep; code: string; message: string };
 

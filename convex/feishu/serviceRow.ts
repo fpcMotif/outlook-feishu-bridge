@@ -78,10 +78,8 @@ function readSkipSet(): Set<string> {
   return new Set(
     (process.env.DIAG_SKIP_FIELDS ?? "")
       .split(",")
-      .flatMap((s) => {
-        const field = s.trim();
-        return field ? [field] : [];
-      }),
+      .map((s) => s.trim())
+      .filter((field) => field.length > 0),
   );
 }
 

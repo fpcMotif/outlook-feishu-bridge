@@ -180,4 +180,16 @@ describe("SalesPicker selected row", () => {
     });
   });
 
+  it("shows the empty message when no Feishu users match the query", async () => {
+    render(<SalesPicker sessionId="sess" onSelect={vi.fn()} />);
+
+    fireEvent.change(screen.getByLabelText("Search Feishu sales"), {
+      target: { value: "zzzznomatch" },
+    });
+
+    expect(
+      await screen.findByText('No Feishu users match "zzzznomatch"'),
+    ).toBeInTheDocument();
+  });
+
 });

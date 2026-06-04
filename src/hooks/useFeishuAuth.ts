@@ -3,6 +3,8 @@ import { useAction, useQuery, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import type { FeishuUser } from "../components/taskpane/feishuUser";
 import { clearAuthSnapshot } from "./feishuAuthSnapshot";
+import { resetColleagueDirectory } from "./useColleagueDirectory";
+import { resetCustomerDirectory } from "./useCustomerDirectory";
 import {
   useAuthState,
   useProactiveTouch,
@@ -184,6 +186,8 @@ function useAuthActions({
   const logout = useCallback(async () => {
     localStorage.removeItem(FALLBACK_KEY);
     clearAuthSnapshot();
+    resetColleagueDirectory();
+    resetCustomerDirectory();
     setFallback(null);
     await logoutMutation({ sessionId });
   }, [logoutMutation, sessionId, setFallback]);

@@ -14,6 +14,11 @@ export function buildSyncPayload(
   user: { openId: string; userName?: string } | undefined,
   requestNote: string,
 ) {
+  const sales = state.selectedSales
+    ? { openId: state.selectedSales.openId, name: state.selectedSales.name }
+    : user?.openId
+      ? { openId: user.openId, name: user.userName }
+      : undefined;
   return {
     subject: mailItem.subject,
     from: mailItem.from,
@@ -29,16 +34,8 @@ export function buildSyncPayload(
     selectedCustomer: state.selectedCustomer
       ? { recordId: state.selectedCustomer.recordId, name: state.selectedCustomer.name }
       : undefined,
-    selectedSales: state.selectedSales
-      ? { openId: state.selectedSales.openId, name: state.selectedSales.name }
-      : user?.openId
-        ? { openId: user.openId, name: user.userName }
-        : undefined,
-    initiator: state.selectedSales
-      ? { openId: state.selectedSales.openId, name: state.selectedSales.name }
-      : user?.openId
-        ? { openId: user.openId, name: user.userName }
-        : undefined,
+    selectedSales: sales,
+    initiator: sales,
     requestNote,
     selectedCoworkers: state.selectedCoworker ? [state.selectedCoworker] : [],
   };

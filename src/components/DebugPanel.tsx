@@ -1,14 +1,9 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import { getDebugEntries, subscribeDebug, type DebugEntry } from "../debug";
+import type { OfficeState } from "../office/useOffice";
 
 // Bump on each deploy so you can confirm the taskpane loaded the fresh bundle.
 const BUILD_TAG = "dbg-2";
-
-interface OfficeInfo {
-  isReady: boolean;
-  host: string | null;
-  error: string | null;
-}
 
 const PANEL: CSSProperties = {
   position: "fixed",
@@ -67,7 +62,7 @@ function levelColor(level: DebugEntry["level"]): string {
   return "oklch(0.84 0.17 145)";
 }
 
-function DebugBody({ office, entries }: { office: OfficeInfo; entries: DebugEntry[] }) {
+function DebugBody({ office, entries }: { office: OfficeState; entries: DebugEntry[] }) {
   return (
     <div style={{ padding: "2px 6px" }}>
       <div>url {location.href}</div>
@@ -88,7 +83,7 @@ function DebugBody({ office, entries }: { office: OfficeInfo; entries: DebugEntr
   );
 }
 
-export function DebugPanel({ office }: { office: OfficeInfo }) {
+export function DebugPanel({ office }: { office: OfficeState }) {
   const [, setTick] = useState(0);
   const [open, setOpen] = useState(false);
   const [conn, setConn] = useState("?");

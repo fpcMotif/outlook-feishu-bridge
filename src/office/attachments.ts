@@ -8,22 +8,28 @@ import type { AttachmentInfo } from "./mailItem";
 export const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 export const MAX_ATTACHMENT_COUNT = 10;
 
-// Extensions accepted for user uploads. Existing mail attachments are offered
-// as-is because they are already real files from the inbox.
-export const ALLOWED_UPLOAD_EXTENSIONS = [
-  "pdf",
-  "xls",
-  "xlsx",
-  "csv",
-  "doc",
-  "docx",
-  "png",
-  "jpg",
-  "jpeg",
-  "gif",
-  "webp",
-  "bmp",
-];
+// ADR-0022: MIME is derived from the file extension; these are the accepted
+// upload kinds (pdf / excel / word / image). Single source of truth — both the
+// allow-list and the MIME mapping (attachmentUpload.ts) derive from this table.
+// Existing mail attachments are offered as-is because they are already real
+// files from the inbox.
+export const UPLOAD_MIME_BY_EXTENSION: Record<string, string> = {
+  pdf: "application/pdf",
+  xls: "application/vnd.ms-excel",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  csv: "text/csv",
+  doc: "application/msword",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  bmp: "image/bmp",
+};
+
+// Extensions accepted for user uploads, derived from the MIME table above.
+export const ALLOWED_UPLOAD_EXTENSIONS = Object.keys(UPLOAD_MIME_BY_EXTENSION);
 
 // Mail attachments the picker may offer: real file attachments only. Inline
 // images and cloud/item attachment types are dropped (ADR-0022).

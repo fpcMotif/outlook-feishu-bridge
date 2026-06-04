@@ -12,12 +12,7 @@ interface Step {
   state: StepState;
 }
 
-// ADR-0017: the parallel Self-Forward ("Note to myself") landed in the
-// Initiator's own mailbox plus audit recipient — or didn't. `null` means we
-// didn't try (dev preview
-// without Office.js); the chip is hidden in that case.
-type SelfForwardStatus = "pending" | "ok" | "failed" | null;
-
+import type { SelfForwardStatus } from "./intakeTypes";
 import { relativeSubmittedTime } from "./relativeSubmittedTime";
 
 function StepRow({ step, last }: { step: Step; last: boolean }) {

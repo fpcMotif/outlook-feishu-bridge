@@ -273,9 +273,3 @@ export const getBitableSyncByConversation = query({
     };
   },
 });
-
-export const listRecent = query({
-  handler: async (ctx) => {
-    return await ctx.db.query("emailRecords").order("desc").take(20);
-  },
-});

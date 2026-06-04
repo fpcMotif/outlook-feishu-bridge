@@ -18,6 +18,9 @@ import { dlog, dtime } from "../debug";
 // on logout via {@link resetCustomerDirectory}.
 let cache: CustomerDirectoryState = { status: "idle", records: [] };
 let inflight: Promise<void> | null = null;
+// Bumped by reset() so a preload in flight at logout cannot publish the previous
+// user's directory after the fact (stale then/catch/finally are generation-gated).
+let generation = 0;
 const listeners = new Set<() => void>();
 
 function publish(next: CustomerDirectoryState) {
@@ -37,6 +40,7 @@ function getSnapshot(): CustomerDirectoryState {
 }
 
 export function resetCustomerDirectory() {
+  generation += 1;
   inflight = null;
   publish({ status: "idle", records: [] });
 }
@@ -70,8 +74,10 @@ export function useCustomerDirectory(isLoggedIn: boolean): UseCustomerDirectory 
       `customer directory: preload ${refreshNonce === 0 ? "starting" : "refreshing"} (nonce=${refreshNonce})`,
     );
     const started = performance.now();
+    const gen = generation;
     inflight = list({})
       .then((res: { records: CustomerRecord[] }) => {
+        if (gen !== generation) return;
         const elapsed = dtime(
           `customer directory: preload ready (${res.records.length} rows)`,
           started,
@@ -80,11 +86,12 @@ export function useCustomerDirectory(isLoggedIn: boolean): UseCustomerDirectory 
         publish({ status: "ready", records: res.records });
       })
       .catch((e: unknown) => {
+        if (gen !== generation) return;
         dtime(`customer directory: preload FAILED — ${e instanceof Error ? e.message : String(e)}`, started);
         publish({ status: "error", records: cache.records });
       })
       .finally(() => {
-        inflight = null;
+        if (gen === generation) inflight = null;
       });
   }, [isLoggedIn, list, refreshNonce]);
 

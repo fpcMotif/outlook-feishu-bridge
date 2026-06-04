@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { dlog, dload } from '../debug';
 
-interface OfficeState {
+export interface OfficeState {
   isReady: boolean;
   host: string | null;
   error: string | null;

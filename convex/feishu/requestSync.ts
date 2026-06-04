@@ -1,3 +1,5 @@
+/* eslint-disable max-lines -- cohesive request-sync module: the two public
+   actions + the shared reconcile helper belong together (ADR-0012/0018/0022). */
 // Public actions the taskpane calls to sync a sales request into the Bitable
 // Service table. These wrap the internal Bitable writes (bitable.ts) and persist
 // the email detail to the Convex Email Record. Chat/bot/PDF/Doc are retired
@@ -5,6 +7,7 @@
 
 import { action, internalAction, type ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
+import type { Doc } from "../_generated/dataModel";
 import { v } from "convex/values";
 import {
   initiatorValidator,
@@ -218,6 +221,49 @@ export const syncRequest = action({
   },
 });
 
+// One reconcile attempt for a due backup row. ADR-0022 decision #5 (accepted v1
+// limitation): this retry replays createServiceRecord WITHOUT attachments and
+// with body-preview only — both are degraded vs the inline path, so we warn
+// rather than hide the drop inside the aggregate synced count.
+async function reconcileServiceRow(
+  ctx: ActionCtx,
+  record: Doc<"emailRecords">,
+): Promise<"synced" | "failed"> {
+  try {
+    const selectedCoworkers = requireExactlyOneCoworker(record.selectedCoworkers);
+    if (!record.bitableClientToken) {
+      throw new Error(`Missing bitableClientToken for ${record.internetMessageId}`);
+    }
+    const { recordId } = await ctx.runAction(internal.feishu.bitable.createServiceRecord, {
+      subject: record.subject,
+      clientEmail: record.clientEmail ?? record.from,
+      clientRecordId: record.selectedCustomer?.recordId,
+      dateOfOffer: record.dateTimeCreated,
+      requestNote: record.requestNote,
+      body: record.bodyPreview,
+      selectedCoworkers,
+      selectedSales: record.initiator,
+      initiator: record.initiator,
+      emailConversationId: record.conversationId,
+      clientToken: record.bitableClientToken,
+    });
+    console.warn(
+      `[requestSync] reconcile created row ${recordId} for ${record.internetMessageId}` +
+        ` WITHOUT attachments (body-preview only, attempt ${record.bitableAttemptCount ?? 0})`,
+    );
+    await ctx.runMutation(internal.emails.markBitableSyncSucceeded, {
+      internetMessageId: record.internetMessageId,
+      requestSyncKey: record.requestSyncKey,
+      bitableRecordId: recordId,
+      attemptedAt: Date.now(),
+    });
+    return "synced";
+  } catch (e: unknown) {
+    await markFailure(ctx, record, e);
+    return "failed";
+  }
+}
+
 export const reconcilePendingBitableSync = internalAction({
   args: {},
   handler: async (ctx): Promise<{ checked: number; synced: number; failed: number }> => {
@@ -225,41 +271,7 @@ export const reconcilePendingBitableSync = internalAction({
       now: Date.now(),
       limit: RECONCILE_LIMIT,
     });
-    const outcomes = await Promise.all(
-      due.map(async (record) => {
-        try {
-          const selectedCoworkers = requireExactlyOneCoworker(record.selectedCoworkers);
-          if (!record.bitableClientToken) {
-            throw new Error(`Missing bitableClientToken for ${record.internetMessageId}`);
-          }
-          const { recordId } = await ctx.runAction(internal.feishu.bitable.createServiceRecord, {
-            subject: record.subject,
-            clientEmail: record.clientEmail ?? record.from,
-            clientRecordId: record.selectedCustomer?.recordId,
-            dateOfOffer: record.dateTimeCreated,
-            requestNote: record.requestNote,
-            // ADR-0022: only the stored ≤500-char preview is available on retry —
-            // the full body is never persisted on the backup.
-            body: record.bodyPreview,
-            selectedCoworkers,
-            selectedSales: record.initiator,
-            initiator: record.initiator,
-            emailConversationId: record.conversationId,
-            clientToken: record.bitableClientToken,
-          });
-          await ctx.runMutation(internal.emails.markBitableSyncSucceeded, {
-            internetMessageId: record.internetMessageId,
-            requestSyncKey: record.requestSyncKey,
-            bitableRecordId: recordId,
-            attemptedAt: Date.now(),
-          });
-          return "synced" as const;
-        } catch (e: unknown) {
-          await markFailure(ctx, record, e);
-          return "failed" as const;
-        }
-      }),
-    );
+    const outcomes = await Promise.all(due.map((record) => reconcileServiceRow(ctx, record)));
     const synced = outcomes.filter((o) => o === "synced").length;
     const failed = outcomes.filter((o) => o === "failed").length;
     if (due.length > 0) {

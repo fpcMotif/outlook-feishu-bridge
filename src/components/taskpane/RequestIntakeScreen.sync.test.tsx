@@ -267,7 +267,7 @@ describe("RequestIntakeScreen sync wiring", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("stays on the sync screen after a queued sync until Convex reports the Base record", async () => {
+  it("shows received after a queued sync, then upgrades when Convex reports the Base record", async () => {
     mockSync.mockResolvedValueOnce({
       status: "pending",
       recordId: null,
@@ -294,8 +294,9 @@ describe("RequestIntakeScreen sync wiring", () => {
     );
 
     expect(
-      await screen.findByRole("heading", { name: /Syncing to Feishu Base/i }),
+      await screen.findByRole("heading", { name: /^Received$/i }),
     ).toBeInTheDocument();
+    expect(screen.getByText("Base row syncing")).toBeInTheDocument();
     expect(
       screen.queryByRole("heading", { name: /^Synced$/i }),
     ).not.toBeInTheDocument();
@@ -324,6 +325,22 @@ describe("RequestIntakeScreen sync wiring", () => {
       "href",
       "https://feishu.cn/base/app?table=tbl&record=rec_async",
     );
+  });
+
+  it("opens a pending existing sync directly on the received screen", () => {
+    mockExistingSync = {
+      status: "pending",
+      recordId: null,
+      detailUrl: null,
+      syncedAt: Date.now() - 3 * 60 * 60 * 1000,
+    };
+
+    renderScreen();
+
+    expect(screen.getByRole("heading", { name: /^Received$/i })).toBeInTheDocument();
+    expect(screen.getByText("Base row syncing")).toBeInTheDocument();
+    expect(screen.getByText("Less than 1d ago")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Sync with/i })).not.toBeInTheDocument();
   });
 
   // Customer-matching wiring (ADR-0013): when the directory contains a row

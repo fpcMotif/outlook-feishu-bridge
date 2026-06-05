@@ -185,7 +185,11 @@ export function useRequestIntakeScreen(
         return sync({ ...payload, attachmentSources });
       })
       .then((result) => {
-        if (activeSyncGenerationRef.current !== syncGeneration || !result.recordId) return;
+        if (activeSyncGenerationRef.current !== syncGeneration) return;
+        if (!result.recordId) {
+          dispatch({ type: "syncQueued" });
+          return;
+        }
         activeSyncGenerationRef.current = null;
         dispatch({
           type: "syncSucceeded",

@@ -66,6 +66,7 @@ export type IntakeAction =
   | { type: "customerAutoMatched"; customer: CustomerRecord | null }
   | { type: "customerOverridden"; customer: CustomerRecord | null }
   | { type: "syncStarted" }
+  | { type: "syncQueued" }
   | { type: "syncSucceeded"; recordId: string; detailUrl?: string | null }
   | { type: "syncFailed"; message: string }
   | { type: "selfForwardStarted" }

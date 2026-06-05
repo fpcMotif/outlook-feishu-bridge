@@ -93,6 +93,13 @@ export function intakeReducer(
         selfForwardStatus: state.selfForwardStatus === "ok" ? "ok" : "pending",
         selfForwardError: null,
       };
+    case "syncQueued":
+      return {
+        ...state,
+        screen: "received",
+        bitableRecordId: null,
+        bitableDetailUrl: null,
+      };
     case "syncSucceeded":
       return {
         ...state,

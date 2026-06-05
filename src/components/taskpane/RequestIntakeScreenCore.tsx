@@ -1,6 +1,5 @@
 import { ReceivedScreen } from "./ReceivedScreen";
 import { resolveIntakeScreen } from "./RequestIntakeRouter";
-import { SyncScreen } from "./SyncScreen";
 import { RequestIntakeBuildPane } from "./RequestIntakeBuildPane";
 import type { RequestIntakeScreenProps } from "./requestIntakeScreenProps";
 import type { RequestIntakeSyncApi } from "./requestIntakeSyncApi";
@@ -12,8 +11,7 @@ function resolveExistingSyncOverlay({
   existingSync,
   existingSyncStatus,
   screen,
-  syncPreview,
-}: Pick<IntakeVm, "existingSync" | "existingSyncStatus" | "syncPreview"> & {
+}: Pick<IntakeVm, "existingSync" | "existingSyncStatus"> & {
   screen: IntakeVm["state"]["screen"];
 }) {
   if (existingSyncStatus === "synced" && existingSync?.recordId && screen === "build") {
@@ -27,9 +25,17 @@ function resolveExistingSyncOverlay({
       />
     );
   }
-  return existingSyncStatus === "pending" && screen === "build" ? (
-    <SyncScreen preview={syncPreview} />
-  ) : null;
+  if (existingSyncStatus === "pending" && screen === "build") {
+    return (
+      <ReceivedScreen
+        coworkerCount={existingSync?.coworkerCount ?? 1}
+        recordId={null}
+        detailUrl={null}
+        submittedAt={existingSync?.syncedAt}
+      />
+    );
+  }
+  return null;
 }
 
 export function RequestIntakeScreenCore(props: RequestIntakeScreenProps & { syncApi: RequestIntakeSyncApi }) {
@@ -68,7 +74,6 @@ export function RequestIntakeScreenCore(props: RequestIntakeScreenProps & { sync
     existingSync,
     existingSyncStatus,
     screen: state.screen,
-    syncPreview,
   });
   if (existingSyncOverlay) return existingSyncOverlay;
 

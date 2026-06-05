@@ -84,6 +84,15 @@ describe("ReceivedScreen layout", () => {
     // Ensure we didn't accidentally render unexpected extra alignment line elements.
     expect(container.querySelectorAll('[class~="bg-border/80"]').length).toBe(2);
   });
+
+  it("shows a queued received state before the Base row id arrives", () => {
+    render(<ReceivedScreen coworkerCount={1} recordId={null} />);
+
+    expect(screen.getByRole("heading", { name: /^Received$/i })).toBeInTheDocument();
+    expect(screen.getByText("Convex backup saved")).toBeInTheDocument();
+    expect(screen.getByText("Base row syncing")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Open in Feishu/i })).not.toBeInTheDocument();
+  });
 });
 
 describe("ReceivedScreen submitted timestamp", () => {

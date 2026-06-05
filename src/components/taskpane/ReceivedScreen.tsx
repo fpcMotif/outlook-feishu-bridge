@@ -65,7 +65,7 @@ function SuccessHalo() {
   );
 }
 
-function buildSteps(coworkerCount: number, submittedAt?: number): Step[] {
+function buildSteps(coworkerCount: number, rowSynced: boolean, submittedAt?: number): Step[] {
   return [
     {
       title: "Submitted",
@@ -73,17 +73,19 @@ function buildSteps(coworkerCount: number, submittedAt?: number): Step[] {
       state: "done",
     },
     {
-      title: "Base row created",
-      sub:
-        coworkerCount > 0
-          ? `${coworkerCount} coworker${coworkerCount > 1 ? "s" : ""} attached`
-          : "Request details attached",
-      state: "done",
-    },
-    {
       title: "Convex backup saved",
       sub: "Recovery record available",
       state: "done",
+    },
+    {
+      title: rowSynced ? "Base row created" : "Base row syncing",
+      sub:
+        rowSynced && coworkerCount > 0
+          ? `${coworkerCount} coworker${coworkerCount > 1 ? "s" : ""} attached`
+          : rowSynced
+            ? "Request details attached"
+            : "Attachments finishing in Feishu",
+      state: rowSynced ? "done" : "active",
     },
   ];
 }
@@ -185,7 +187,8 @@ export function ReceivedScreen({
   selfForwardStatus?: SelfForwardStatus;
   onRetrySelfForward?: () => void;
 }) {
-  const steps = buildSteps(coworkerCount, submittedAt);
+  const rowSynced = Boolean(recordId);
+  const steps = buildSteps(coworkerCount, rowSynced, submittedAt);
 
   return (
     <div className="bg-background text-foreground no-scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto px-5 py-8">
@@ -198,7 +201,7 @@ export function ReceivedScreen({
             </div>
           ) : null}
           <h1 className="text-foreground text-[clamp(1.5rem,5vw,1.875rem)] leading-[1.05] font-semibold tracking-tight text-balance">
-            {alreadySynced ? "Already synced" : "Synced"}
+            {alreadySynced ? "Already synced" : rowSynced ? "Synced" : "Received"}
           </h1>
           <BitableRecordAction recordId={recordId} detailUrl={detailUrl} />
           <SelfForwardChip

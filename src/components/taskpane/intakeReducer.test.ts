@@ -175,6 +175,13 @@ describe("intakeReducer sync and self-forward state", () => {
     expect(next.bitableRecordId).toBe("rec_123");
   });
 
+  it("syncQueued moves to the received screen without claiming a Base record", () => {
+    const next = intakeReducer(base, { type: "syncQueued" });
+    expect(next.screen).toBe("received");
+    expect(next.bitableRecordId).toBeNull();
+    expect(next.bitableDetailUrl).toBeNull();
+  });
+
   it("syncFailed routes to the error screen with the message", () => {
     const next = intakeReducer(base, {
       type: "syncFailed",

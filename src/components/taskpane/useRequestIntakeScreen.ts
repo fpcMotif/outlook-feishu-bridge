@@ -6,6 +6,7 @@ import { initialIntakeState, intakeReducer } from "./intakeReducer";
 import { useCustomerAutoMatch } from "../../hooks/useCustomerAutoMatch";
 import { useCustomerSearch } from "../../hooks/useCustomerSearch";
 import { useSelfForward, type SelfForwardResult } from "../../hooks/useSelfForward";
+import { dtime } from "../../debug";
 import { buildCreateCustomerTaskUrl } from "./buildCreateCustomerTaskUrl";
 import { buildFilledRequests, canSubmitSync, submitSyncHint } from "./submitSyncGate";
 import {
@@ -18,6 +19,16 @@ import { useIntakeAttachments } from "./useIntakeAttachments";
 import { scheduleSalesDefault } from "./scheduleSalesDefault";
 import type { RequestIntakeScreenProps } from "./requestIntakeScreenProps";
 import type { RequestIntakeSyncApi } from "./requestIntakeSyncApi";
+import type { UploadedFile } from "./intakeReducer";
+
+function hasPendingSelectedUploads(uploadedFiles: UploadedFile[]): boolean {
+  return uploadedFiles.some((file) => {
+    if (file.rejection !== null || !file.selected || file.status === "error") {
+      return false;
+    }
+    return file.status !== "complete" || !file.storageId;
+  });
+}
 
 export function useRequestIntakeScreen(
   props: RequestIntakeScreenProps & { syncApi: RequestIntakeSyncApi },
@@ -38,6 +49,7 @@ export function useRequestIntakeScreen(
   const [state, dispatch] = useReducer(intakeReducer, mailItem.from, initialIntakeState);
   const generationRef = useRef(0);
   const activeSyncGenerationRef = useRef<number | null>(null);
+  const submitToReceivedStartedRef = useRef<number | null>(null);
 
   if (state.mailFrom !== mailItem.from) {
     dispatch({ type: "mailFromChanged", mailFrom: mailItem.from });
@@ -90,6 +102,7 @@ export function useRequestIntakeScreen(
     hasCustomer: state.selectedCustomer !== null,
     hasCoworker: state.selectedCoworker !== null,
     fulfilledRequestCount: filledCount,
+    hasPendingSelectedUploads: hasPendingSelectedUploads(state.uploadedFiles),
     devPreview,
     selectedCoworkerOpenId: state.selectedCoworker?.openId ?? null,
   };
@@ -166,6 +179,7 @@ export function useRequestIntakeScreen(
     const syncGeneration = generationRef.current + 1;
     generationRef.current = syncGeneration;
     activeSyncGenerationRef.current = syncGeneration;
+    submitToReceivedStartedRef.current = performance.now();
     dispatch({ type: "syncStarted" });
     const payload = buildSyncPayload(mailItem, state, user, requestNote);
     const baseWrite = stageSelected()
@@ -205,6 +219,14 @@ export function useRequestIntakeScreen(
     if (state.selfForwardStatus !== "ok") void fireSelfForward();
     return baseWrite;
   }, [sync, mailItem, state, user, requestNote, fireSelfForward, stageSelected]);
+
+  useEffect(() => {
+    if (state.screen !== "received" || submitToReceivedStartedRef.current === null) {
+      return;
+    }
+    dtime("submit click to received screen", submitToReceivedStartedRef.current);
+    submitToReceivedStartedRef.current = null;
+  }, [state.screen]);
 
   const applyExistingSyncUpdate = useCallback(() => {
     if (activeSyncGenerationRef.current === null) return;

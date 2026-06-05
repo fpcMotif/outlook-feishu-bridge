@@ -55,6 +55,8 @@ export type SubmitSyncGateInput = {
   hasCoworker: boolean;
   /** Number of request types with a non-empty trimmed note. */
   fulfilledRequestCount: number;
+  /** True while selected user-uploaded files are still staging to Convex. */
+  hasPendingSelectedUploads?: boolean;
   /** Browser dev host (TaskPane devPreview) — blocks preview fixture coworkers. */
   devPreview?: boolean;
   selectedCoworkerOpenId?: string | null;
@@ -64,13 +66,19 @@ export function canSubmitSync({
   hasCustomer,
   hasCoworker,
   fulfilledRequestCount,
+  hasPendingSelectedUploads = false,
   devPreview = false,
   selectedCoworkerOpenId,
 }: SubmitSyncGateInput): boolean {
   if (devPreview && isPreviewCoworkerOpenId(selectedCoworkerOpenId)) {
     return false;
   }
-  return hasCustomer && hasCoworker && fulfilledRequestCount > 0;
+  return (
+    hasCustomer &&
+    hasCoworker &&
+    fulfilledRequestCount > 0 &&
+    !hasPendingSelectedUploads
+  );
 }
 
 /** Hint for the disabled dock button; first missing requirement wins (top-to-bottom on screen). */
@@ -87,5 +95,12 @@ export function submitSyncHint(input: SubmitSyncGateInput): string {
   if (input.fulfilledRequestCount === 0) {
     return "Start a request below";
   }
+  if (inputHasPendingUploads(input)) {
+    return "Wait for file uploads";
+  }
   return "Ready to sync";
+}
+
+function inputHasPendingUploads(input: Pick<SubmitSyncGateInput, "hasPendingSelectedUploads">): boolean {
+  return input.hasPendingSelectedUploads === true;
 }

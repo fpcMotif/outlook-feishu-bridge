@@ -52,6 +52,17 @@ const cases: { name: string; input: SubmitSyncGateInput; can: boolean; hint: str
     hint: "Ready to sync",
   },
   {
+    name: "selected upload still pending",
+    input: {
+      hasCustomer: true,
+      hasCoworker: true,
+      fulfilledRequestCount: 1,
+      hasPendingSelectedUploads: true,
+    },
+    can: false,
+    hint: "Wait for file uploads",
+  },
+  {
     name: "dev preview fixture coworker",
     input: {
       hasCustomer: true,

@@ -46,6 +46,7 @@ vi.mock("../../hooks/useAttachmentStaging", () => ({
   useAttachmentStaging: () => ({
     generateUploadUrl: vi.fn().mockResolvedValue("https://up/test"),
     uploadBytes: vi.fn().mockResolvedValue({ storageId: "st_test" }),
+    uploadToDrive: vi.fn().mockResolvedValue({ attachments: [] }),
   }),
 }));
 vi.mock("../../hooks/useCoworkerSearch", () => {
@@ -96,7 +97,7 @@ vi.mock("../../hooks/useCustomerSearch", () => ({
 }));
 
 import type { AttachmentSyncResult } from "./useAttachmentSync";
-const emptyStage: AttachmentSyncResult = { sources: [], failed: [] };
+const emptyStage: AttachmentSyncResult = { attachments: [], failed: [] };
 const mockStageAttachments = vi.fn(
   (): Promise<AttachmentSyncResult> => Promise.resolve(emptyStage),
 );
@@ -155,7 +156,7 @@ describe("RequestIntakeScreen sync wiring", () => {
     mockSendSelfForward.mockClear();
     mockSendSelfForward.mockImplementation(() => Promise.resolve({ ok: true }));
     mockStageAttachments.mockReset();
-    mockStageAttachments.mockResolvedValue({ sources: [], failed: [] });
+    mockStageAttachments.mockResolvedValue({ attachments: [], failed: [] });
     localStorage.clear();
   });
 
@@ -457,7 +458,7 @@ describe("RequestIntakeScreen sync wiring", () => {
     });
   });
 
-  it("waits only for attachment storage staging before queued sync while Self-Forward runs in parallel", async () => {
+  it("keeps attachment token minting on the sync critical path while Self-Forward runs in parallel", async () => {
     let resolveStage!: (value: AttachmentSyncResult) => void;
     mockStageAttachments.mockReturnValueOnce(
       new Promise<AttachmentSyncResult>((resolve) => {
@@ -502,14 +503,11 @@ describe("RequestIntakeScreen sync wiring", () => {
     await waitFor(() => expect(mockSendSelfForward).toHaveBeenCalledTimes(1));
     expect(mockSync).not.toHaveBeenCalled();
 
-    resolveStage({
-      sources: [{ storageId: "st_slow", fileName: "rfq.pdf" }],
-      failed: [],
-    });
+    resolveStage({ attachments: [{ fileToken: "tokSLOW" }], failed: [] });
 
     await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(1));
     expect(mockSync.mock.calls[0][0]).toMatchObject({
-      attachmentSources: [{ storageId: "st_slow", fileName: "rfq.pdf" }],
+      attachments: [{ fileToken: "tokSLOW" }],
     });
   });
 
@@ -592,12 +590,11 @@ describe("RequestIntakeScreen sync wiring", () => {
     expect(screen.queryByText(/Note to myself sent/i)).not.toBeInTheDocument();
   });
 
-  // ADR-0022 latency optimization: a checked mail attachment is staged at submit
-  // and its Convex storageId rides into the syncRequest payload's
-  // `attachmentSources`; the Drive upload_all runs later in the backend worker.
-  it("stages a checked mail attachment and rides its storageId into the sync payload", async () => {
+  // ADR-0022: a checked mail attachment is staged at submit and its minted
+  // Feishu Drive file_token rides into the syncRequest payload's `attachments`.
+  it("stages a checked mail attachment and rides its file_token into the sync payload", async () => {
     mockStageAttachments.mockResolvedValueOnce({
-      sources: [{ storageId: "st_rfq", fileName: "rfq.pdf" }],
+      attachments: [{ fileToken: "tokFILE" }],
       failed: [],
     });
     render(
@@ -638,7 +635,7 @@ describe("RequestIntakeScreen sync wiring", () => {
       [],
     );
     expect(mockSync.mock.calls[0][0]).toMatchObject({
-      attachmentSources: [{ storageId: "st_rfq", fileName: "rfq.pdf" }],
+      attachments: [{ fileToken: "tokFILE" }],
     });
   });
 

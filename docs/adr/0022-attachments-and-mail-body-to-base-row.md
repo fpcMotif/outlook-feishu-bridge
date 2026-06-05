@@ -1,6 +1,6 @@
 # Attachments + mail body to the Base row, files staged via Convex File Storage
 
-> **Status: accepted** (decisions grilled 2026-06-02). **Amended 2026-06-04** — the Drive `upload_all` moved off the submit critical path into the **deferred Base-write worker** (latency optimization); see [Amendment](#amendment-2026-06-04--drive-upload_all-runs-end-to-end-in-the-deferred-worker). The original client-orchestrated path below (decision #3) is retained as the historical record. Reverses two clauses of [ADR-0010](0010-pivot-to-bitable-intake.md) — "the email **body** stays off the Base" and "attaching **files** to the Base row is deferred" — and **partially revives** the binaries-cross-via-Convex-File-Storage pattern of the retired [ADR-0004](0004-binaries-cross-via-convex-file-storage.md), now routed to Feishu **Drive** instead of the retired forward pipeline. All record writes still go through [ADR-0012](0012-bitable-record-api.md)'s create API and the no-touch-existing-rows rule. All six design decisions are resolved (see [Resolved decisions](#resolved-decisions)). The three live Base column names — initially **assumed** `Request Note` / `Email Body` / `Attachments` — were **confirmed against the live schema via `listFields` on 2026-06-03** and are in fact `Quotation Note` / `Email Content` / `Sales Files`. The assumed names had shipped and were failing every create with `1254045 FieldNameNotFound`; the constants in [serviceRow.ts](../../convex/feishu/serviceRow.ts) are now corrected. Two ⚠️ UNVERIFIED Feishu limits remain.
+> **Status: accepted** (decisions grilled 2026-06-02). Reverses two clauses of [ADR-0010](0010-pivot-to-bitable-intake.md) — "the email **body** stays off the Base" and "attaching **files** to the Base row is deferred" — and **partially revives** the binaries-cross-via-Convex-File-Storage pattern of the retired [ADR-0004](0004-binaries-cross-via-convex-file-storage.md), now routed to Feishu **Drive** instead of the retired forward pipeline. All record writes still go through [ADR-0012](0012-bitable-record-api.md)'s create API and the no-touch-existing-rows rule. All six design decisions are resolved (see [Resolved decisions](#resolved-decisions)). The three live Base column names — initially **assumed** `Request Note` / `Email Body` / `Attachments` — were **confirmed against the live schema via `listFields` on 2026-06-03** and are in fact `Quotation Note` / `Email Content` / `Sales Files`. The assumed names had shipped and were failing every create with `1254045 FieldNameNotFound`; the constants in [serviceRow.ts](../../convex/feishu/serviceRow.ts) are now corrected. Two ⚠️ UNVERIFIED Feishu limits remain.
 
 ## Context
 
@@ -77,48 +77,6 @@ The add-in writes **9 columns** via Convex (the 3 note columns collapse to 1; bo
 - **Storage hygiene.** `uploadAttachmentsToDrive` deletes each staged storage object after a successful Feishu upload. Because `file_token`s are minted *before* `syncRequest` and the create is idempotent (`client_token`), an immediate retry re-sends the same tokens — never re-uploading bytes or duplicating the row.
 - **Reconcile drops attachments (known v1 limitation).** The outbox/reconcile path ([ADR-0018](0018-request-sync-outbox-and-reconcile.md)) rebuilds the row from the pending **Email Record**, which by [decision #5](#resolved-decisions) stores **no attachment metadata** (and no full body). So if the immediate create fails after staging and the row is later reconciled, it lands with the body **preview** and **no attachments** — best-effort attachments on the immediate sync only; logged when it happens.
 - **No-touch rule holds.** Body/attachment writes ride the create path only.
-
-## Amendment 2026-06-04 — Drive `upload_all` runs end-to-end in the deferred worker
-
-**Problem.** Decision #3's path made the **SPA** orchestrate two awaited backend round trips: first `uploadAttachmentsToDrive` (which uploads every selected file to Drive **serially** at the 5 QPS frequency cap — see the rate-limit note above), then `syncRequest`. The submit button therefore **blocked on the entire serial Drive upload** before the sync UI could even move to "syncing"; with several attachments that is several seconds of dead time on the critical path.
-
-**Change.** The Drive `upload_all` moves **server-side**, into the existing **Deferred Base write** worker ([ADR-0018](0018-request-sync-outbox-and-reconcile.md)'s `processPendingBitableSync`), so the whole chain runs end-to-end in the backend — *Convex File Storage → `upload_all` → Bitable create* — in one scheduled action:
-
-- The SPA still stages bytes to **Convex File Storage** (mail-attachment downloads + eager intake uploads), but now passes the staged refs straight to `syncRequest` as **`attachmentSources: [{ storageId, fileName }]`** — it no longer mints tokens or calls Drive itself ([useAttachmentSync.ts](../../src/components/taskpane/useAttachmentSync.ts) → [requestSync.ts](../../convex/feishu/requestSync.ts)).
-- `syncRequest` returns **`pending` immediately** (the outbox is begun and the worker scheduled); the taskpane flips to "syncing" at once and watches `getBitableSyncByConversation` for `synced`.
-- Inside the worker, `resolveSyncAttachments` runs the serial-with-backoff Drive `upload_all` via the extracted **`uploadStagedSourcesToDrive`** helper ([drive.ts](../../convex/feishu/drive.ts)) **immediately before** `createServiceRecord`, reusing the tenant token. **Tokens are still minted before the create**, so decision #3's idempotency story is preserved: the create's `client_token` still dedupes, and `beginBitableSync` schedules the worker exactly once (no double upload).
-- The public `uploadAttachmentsToDrive` action is kept as a thin wrapper around the helper (still a valid standalone capability) but is no longer on the submit path.
-
-**Net latency win:** the submit awaits only the Convex storage POST (parallel, no QPS cap); the 5 QPS serial Drive uploads + the create now run together in the background worker, one client round trip fewer and off the perceived-latency path.
-
-**Idempotency / failure behaviour (unchanged contract).** Because the worker is scheduled once and reconcile rebuilds from the **Email Record** — which still stores **no** `attachmentSources`/tokens (decision #5) — a worker that fails *after* the Drive upload is reconciled into a row **without** attachments and **never re-uploads** (no quota waste, no duplicate row). This simply extends the already-documented "reconcile drops attachments" best-effort limitation to cover Drive-upload failures too. `attachmentSources` is never persisted on the backup; it lives only in the scheduler args.
-
-## Proposed amendment — no-bare-row invariant + manifest-backed pre-mint (NOT YET IMPLEMENTED — tracked in #55)
-
-> Status: **proposed**, no code yet. Captures a 2026-06-05 domain review of the 2026-06-04 amendment. The current shipped behaviour (reconcile drops attachments) is unchanged until #55 lands.
-
-**The dangerous path to kill.** The 2026-06-04 amendment's failure behaviour — "a worker that fails after the Drive upload is reconciled into a row **without** attachments" — is a *silent degraded success*: reconcile rebuilds from the Email Record (which stores no attachments), so the user lands on a green "Synced" with files silently missing. **Invariant:** never create the row when the manifest expected attachments but no valid `file_token`s (and no re-mintable bytes) are available — that is a hard `needs_attachment_recovery` state, not a create.
-
-**Key coupling (provenance, not row hash).** The minted `file_token` must NOT depend on the row hash; it is bound to the **Base upload point**:
-
-| Thing | Couple with | Why |
-|---|---|---|
-| Minted `file_token` | `tenantKey` + `app_token` + `sourceHash` (+ name/size/mime) | The token was uploaded into a specific Base (`parent_type=bitable_file`, `parent_node=app_token`). |
-| Bitable row create | `app_token` + `table_id` + `rowHash` + stable `client_token` | Our own dedupe/retry key — prevents duplicate rows. |
-| Retry / correction | saved `client_token` + saved minted tokens + manifest | Prevents re-upload **and** the bare-row bug. |
-
-`client_token` is already a reused UUIDv4 (`crypto.randomUUID()` via `beginBitableSync`) — keep it; never pass `rowHash` as `client_token` (Feishu rejects non-UUIDv4). `sourceHash` = the sha256 Convex already exposes on the `_storage` system table (free dedupe). At create, validate `app_token === FEISHU_BITABLE_APP_TOKEN`; re-mint on mismatch.
-
-**Pre-mint / pre-transfer (the latency win).** Eager intake uploads already stage bytes to Convex storage *while the salesperson fills the form*; chain `upload_all` there to **pre-mint** the `file_token` so the post-submit worker does ~zero Drive work — the 5 QPS serial transfer overlaps human think-time. Submit carries a **mixed manifest**: `{kind:"token", fileToken, provenance}` for pre-minted files, `{kind:"source", storageId}` for any still in flight; the worker finishes only the unminted entries. Gotchas: **keep staged bytes until the row is created** (re-mint fallback + guards Drive's unreferenced-media TTL); pre-mint only *selected* files + add a storage/media reaper cron (deselected pre-mints orphan media and burn the 10k/day cap); persist the manifest + tokens + `client_token` on the `emailRecords` outbox (the load-bearing schema change that lets reconcile honour the invariant instead of dropping attachments).
-
-```mermaid
-flowchart TD
-  A[resolve manifest] --> B{all expected attachments resolvable?<br/>valid token OR re-mintable bytes}
-  B -- yes --> C[create row · Sales Files = file_tokens]
-  B -- no --> D[needs_attachment_recovery<br/>DO NOT create the row]
-  C --> E[mark succeeded · delete staged bytes]
-  D --> F[retry w/ same client_token + saved tokens,<br/>or surface to user]
-```
 
 ## Alternatives rejected
 

@@ -2,10 +2,10 @@
 import { renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const stageAttachmentSources = vi.fn();
+const stageAndUploadAttachments = vi.fn();
 vi.mock("../../office/attachmentUpload", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../office/attachmentUpload")>();
-  return { ...actual, stageAttachmentSources: (...args: unknown[]) => stageAttachmentSources(...args) };
+  return { ...actual, stageAndUploadAttachments: (...args: unknown[]) => stageAndUploadAttachments(...args) };
 });
 
 const useAttachmentStaging = vi.fn();
@@ -21,10 +21,10 @@ describe("useAttachmentSync", () => {
     vi.clearAllMocks();
   });
 
-  it("stages valid uploads and returns the staged sources (no Office host needed)", async () => {
+  it("stages valid uploads and returns the minted tokens (no Office host needed)", async () => {
     const deps = { marker: "deps" };
     useAttachmentStaging.mockReturnValue(deps);
-    stageAttachmentSources.mockResolvedValue([{ storageId: "st_a", fileName: "a.pdf" }]);
+    stageAndUploadAttachments.mockResolvedValue([{ fileToken: "tok" }]);
 
     const { result } = renderHook(() => useAttachmentSync());
     const uploads: UploadedFile[] = [
@@ -33,20 +33,18 @@ describe("useAttachmentSync", () => {
 
     const out = await result.current([], uploads);
 
-    expect(stageAttachmentSources).toHaveBeenCalledWith(deps, [{ name: "a.pdf", blob: uploads[0].file }]);
-    // The submit path returns staged storageIds; the Drive mint is the backend
-    // worker's job (ADR-0022).
-    expect(out).toEqual({ sources: [{ storageId: "st_a", fileName: "a.pdf" }], failed: [] });
+    expect(stageAndUploadAttachments).toHaveBeenCalledWith(deps, [{ name: "a.pdf", blob: uploads[0].file }]);
+    expect(out).toEqual({ attachments: [{ fileToken: "tok" }], failed: [] });
   });
 
   it("best-effort: a selected mail attachment fails to download outside an Office host", async () => {
     useAttachmentStaging.mockReturnValue({});
-    stageAttachmentSources.mockResolvedValue([]);
+    stageAndUploadAttachments.mockResolvedValue([]);
 
     const { result } = renderHook(() => useAttachmentSync());
     const out = await result.current([{ id: "m1", name: "rfq.pdf" }], []);
 
     expect(out.failed.map((f) => f.name)).toEqual(["rfq.pdf"]);
-    expect(stageAttachmentSources).not.toHaveBeenCalled();
+    expect(stageAndUploadAttachments).not.toHaveBeenCalled();
   });
 });

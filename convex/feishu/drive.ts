@@ -124,61 +124,41 @@ async function prepareDriveSource(
   return { ...source, bytes };
 }
 
-/**
- * Relay each staged Convex File-Storage object to Feishu Drive `medias/upload_all`
- * and return the minted `file_token`s in input order — exactly the `attachments`
- * shape the Bitable create consumes. Staged storage objects are deleted after a
- * successful upload. An optional `tenantToken` is reused (the deferred Base-write
- * worker already holds one) to avoid a redundant token resolve.
- *
- * Extracted from the public action so the END-TO-END path can run server-side in
- * the deferred Base-write worker (ADR-0022 latency optimization): the taskpane now
- * hands raw storageIds straight to `syncRequest`, and the worker runs this
- * `upload_all` right before the idempotent record create — off the submit
- * critical path, which no longer blocks on the serial 5 QPS Drive uploads.
- */
-export async function uploadStagedSourcesToDrive(
-  ctx: ActionCtx,
-  sources: DriveSource[],
-  tenantToken?: string,
-): Promise<{ attachments: { fileToken: string }[] }> {
-  const appToken = process.env.FEISHU_BITABLE_APP_TOKEN;
-  if (!appToken) throw new Error("FEISHU_BITABLE_APP_TOKEN must be set");
-  if (sources.length === 0) return { attachments: [] };
-
-  const [token, firstPrepared] = await Promise.all([
-    tenantToken ? Promise.resolve(tenantToken) : resolveFeishuToken(ctx, "tenant"),
-    prepareDriveSource(ctx, sources[0]),
-  ]);
-  let nextPrepared: Promise<PreparedDriveSource> | null = null;
-
-  // SERIAL, not Promise.all: `medias/upload_all` does not support concurrent
-  // calls and is QPS-limited (ADR-0022). We only prefetch one storage blob
-  // ahead so the current Drive upload overlaps the next Convex storage read
-  // without holding every selected attachment in action memory at once.
-  const attachments: { fileToken: string }[] = [];
-  for (let index = 0; index < sources.length; index++) {
-    // eslint-disable-next-line react-doctor/async-await-in-loop -- bounded pipeline: each Drive upload depends on this prepared source
-    const source = index === 0 ? firstPrepared : await nextPrepared!;
-    const afterNext = sources[index + 1];
-    nextPrepared = afterNext ? prepareDriveSource(ctx, afterNext) : null;
-    // eslint-disable-next-line react-doctor/async-await-in-loop -- serial by design: medias/upload_all is 5 QPS-limited (ADR-0022); parallel trips 99991400
-    const fileToken = await withDriveRateLimitRetry(() =>
-      uploadMediaToDrive(ctx, new Blob([source.bytes]), source.fileName, appToken, token),
-    );
-    await ctx.storage.delete(source.storageId);
-    attachments.push({ fileToken });
-  }
-  return { attachments };
-}
-
-// PUBLIC action wrapper around uploadStagedSourcesToDrive. Kept as a standalone
-// capability (the submit path now relays via syncRequest's attachmentSources, so
-// the SPA no longer calls this directly — see requestSync.ts / ADR-0022).
+// PUBLIC action the taskpane calls: relay each staged file to Drive and return
+// the minted tokens in input order — exactly the `attachments` shape syncRequest
+// consumes. Staged storage objects are deleted after a successful upload.
 export const uploadAttachmentsToDrive = action({
   args: {
     sources: v.array(v.object({ storageId: v.id("_storage"), fileName: v.string() })),
   },
-  handler: (ctx, args): Promise<{ attachments: { fileToken: string }[] }> =>
-    uploadStagedSourcesToDrive(ctx, args.sources),
+  handler: async (ctx, args): Promise<{ attachments: { fileToken: string }[] }> => {
+    const appToken = process.env.FEISHU_BITABLE_APP_TOKEN;
+    if (!appToken) throw new Error("FEISHU_BITABLE_APP_TOKEN must be set");
+    if (args.sources.length === 0) return { attachments: [] };
+
+    const [tenantToken, firstPrepared] = await Promise.all([
+      resolveFeishuToken(ctx, "tenant"),
+      prepareDriveSource(ctx, args.sources[0]),
+    ]);
+    let nextPrepared: Promise<PreparedDriveSource> | null = null;
+
+    // SERIAL, not Promise.all: `medias/upload_all` does not support concurrent
+    // calls and is QPS-limited (ADR-0022). We only prefetch one storage blob
+    // ahead so the current Drive upload overlaps the next Convex storage read
+    // without holding every selected attachment in action memory at once.
+    const attachments: { fileToken: string }[] = [];
+    for (let index = 0; index < args.sources.length; index++) {
+      // eslint-disable-next-line react-doctor/async-await-in-loop -- bounded pipeline: each Drive upload depends on this prepared source
+      const source = index === 0 ? firstPrepared : await nextPrepared!;
+      const afterNext = args.sources[index + 1];
+      nextPrepared = afterNext ? prepareDriveSource(ctx, afterNext) : null;
+      // eslint-disable-next-line react-doctor/async-await-in-loop -- serial by design: medias/upload_all is 5 QPS-limited (ADR-0022); parallel trips 99991400
+      const fileToken = await withDriveRateLimitRetry(() =>
+        uploadMediaToDrive(ctx, new Blob([source.bytes]), source.fileName, appToken, tenantToken),
+      );
+      await ctx.storage.delete(source.storageId);
+      attachments.push({ fileToken });
+    }
+    return { attachments };
+  },
 });

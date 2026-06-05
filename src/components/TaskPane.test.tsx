@@ -29,6 +29,7 @@ vi.mock("../hooks/useAttachmentStaging", () => ({
   useAttachmentStaging: () => ({
     generateUploadUrl: vi.fn().mockResolvedValue("https://up/test"),
     uploadBytes: vi.fn().mockResolvedValue({ storageId: "st_test" }),
+    uploadToDrive: vi.fn().mockResolvedValue({ attachments: [] }),
   }),
 }));
 
@@ -60,7 +61,7 @@ vi.mock("../hooks/useCustomerSearch", () => {
 });
 
 vi.mock("./taskpane/useAttachmentSync", () => ({
-  useAttachmentSync: () => vi.fn(() => Promise.resolve({ sources: [], failed: [] })),
+  useAttachmentSync: () => vi.fn(() => Promise.resolve({ attachments: [], failed: [] })),
 }));
 
 const mockUseMailItem = vi.mocked(useMailItem);

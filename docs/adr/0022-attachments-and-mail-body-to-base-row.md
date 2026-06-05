@@ -93,6 +93,33 @@ The add-in writes **9 columns** via Convex (the 3 note columns collapse to 1; bo
 
 **Idempotency / failure behaviour (unchanged contract).** Because the worker is scheduled once and reconcile rebuilds from the **Email Record** — which still stores **no** `attachmentSources`/tokens (decision #5) — a worker that fails *after* the Drive upload is reconciled into a row **without** attachments and **never re-uploads** (no quota waste, no duplicate row). This simply extends the already-documented "reconcile drops attachments" best-effort limitation to cover Drive-upload failures too. `attachmentSources` is never persisted on the backup; it lives only in the scheduler args.
 
+## Proposed amendment — no-bare-row invariant + manifest-backed pre-mint (NOT YET IMPLEMENTED — tracked in #55)
+
+> Status: **proposed**, no code yet. Captures a 2026-06-05 domain review of the 2026-06-04 amendment. The current shipped behaviour (reconcile drops attachments) is unchanged until #55 lands.
+
+**The dangerous path to kill.** The 2026-06-04 amendment's failure behaviour — "a worker that fails after the Drive upload is reconciled into a row **without** attachments" — is a *silent degraded success*: reconcile rebuilds from the Email Record (which stores no attachments), so the user lands on a green "Synced" with files silently missing. **Invariant:** never create the row when the manifest expected attachments but no valid `file_token`s (and no re-mintable bytes) are available — that is a hard `needs_attachment_recovery` state, not a create.
+
+**Key coupling (provenance, not row hash).** The minted `file_token` must NOT depend on the row hash; it is bound to the **Base upload point**:
+
+| Thing | Couple with | Why |
+|---|---|---|
+| Minted `file_token` | `tenantKey` + `app_token` + `sourceHash` (+ name/size/mime) | The token was uploaded into a specific Base (`parent_type=bitable_file`, `parent_node=app_token`). |
+| Bitable row create | `app_token` + `table_id` + `rowHash` + stable `client_token` | Our own dedupe/retry key — prevents duplicate rows. |
+| Retry / correction | saved `client_token` + saved minted tokens + manifest | Prevents re-upload **and** the bare-row bug. |
+
+`client_token` is already a reused UUIDv4 (`crypto.randomUUID()` via `beginBitableSync`) — keep it; never pass `rowHash` as `client_token` (Feishu rejects non-UUIDv4). `sourceHash` = the sha256 Convex already exposes on the `_storage` system table (free dedupe). At create, validate `app_token === FEISHU_BITABLE_APP_TOKEN`; re-mint on mismatch.
+
+**Pre-mint / pre-transfer (the latency win).** Eager intake uploads already stage bytes to Convex storage *while the salesperson fills the form*; chain `upload_all` there to **pre-mint** the `file_token` so the post-submit worker does ~zero Drive work — the 5 QPS serial transfer overlaps human think-time. Submit carries a **mixed manifest**: `{kind:"token", fileToken, provenance}` for pre-minted files, `{kind:"source", storageId}` for any still in flight; the worker finishes only the unminted entries. Gotchas: **keep staged bytes until the row is created** (re-mint fallback + guards Drive's unreferenced-media TTL); pre-mint only *selected* files + add a storage/media reaper cron (deselected pre-mints orphan media and burn the 10k/day cap); persist the manifest + tokens + `client_token` on the `emailRecords` outbox (the load-bearing schema change that lets reconcile honour the invariant instead of dropping attachments).
+
+```mermaid
+flowchart TD
+  A[resolve manifest] --> B{all expected attachments resolvable?<br/>valid token OR re-mintable bytes}
+  B -- yes --> C[create row · Sales Files = file_tokens]
+  B -- no --> D[needs_attachment_recovery<br/>DO NOT create the row]
+  C --> E[mark succeeded · delete staged bytes]
+  D --> F[retry w/ same client_token + saved tokens,<br/>or surface to user]
+```
+
 ## Alternatives rejected
 
 - **Microsoft Graph to fetch attachment bytes** — off-limits per [ADR-0015](0015-m365-office-js-official-sources.md) unless ADR-scoped; `getAttachmentContentAsync` covers Mailbox ≥ 1.8.

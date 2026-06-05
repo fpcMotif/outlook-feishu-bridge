@@ -82,7 +82,7 @@ sequenceDiagram
     Note over U,SPA: ⚠️ "Syncing…" appears only AFTER every upload finishes
 ```
 
-## Worker decision logic — `resolveSyncAttachments`
+## Worker decision logic — `resolveSyncAttachments` (current — shipped)
 
 ```mermaid
 flowchart TD
@@ -95,7 +95,21 @@ flowchart TD
     F --> G
     G --> H{create ok?}
     H -- yes --> I[markBitableSyncSucceeded<br/>live query → 'synced']
-    H -- no --> J[markBitableSyncFailed → reconcile<br/>rebuilds from Email Record:<br/>no sources ⇒ row WITHOUT attachments,<br/>never re-uploads]
+    H -- no --> J["⚠️ markBitableSyncFailed → reconcile<br/>rebuilds from Email Record:<br/>no sources ⇒ row WITHOUT attachments<br/>(SILENT DROP — known issue #55)"]
+```
+
+> ⚠️ **Known issue (#55):** the highlighted `J` branch is a *silent degraded success* — a Drive-upload failure ends with a bare row and a green "Synced". The proposed fix below replaces it with a hard `needs_attachment_recovery` state.
+
+## Corrected logic — no-bare-row invariant (PROPOSED, #55 — not yet implemented)
+
+```mermaid
+flowchart TD
+    A[worker / reconcile<br/>load persisted manifest + tokens + client_token] --> B{all expected attachments<br/>resolvable?<br/>valid token OR re-mintable bytes}
+    B -- yes --> C[validate token provenance<br/>tenant + app_token, re-mint on mismatch]
+    C --> D[createServiceRecord<br/>Sales Files = file_tokens + client_token]
+    D --> E[mark succeeded · delete staged bytes]
+    B -- no --> F["needs_attachment_recovery<br/>DO NOT create the row"]
+    F --> G[retry w/ same client_token + saved tokens,<br/>or surface to user]
 ```
 
 ## Why the UX improves

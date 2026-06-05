@@ -1,5 +1,12 @@
 /* eslint-disable max-lines-per-function */
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 import { UserRound } from "lucide-react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -81,7 +88,10 @@ function SalesSearchPanel({
     if (!dismissable || !onDismiss) return;
     const dismiss = onDismiss;
     function onPointer(event: MouseEvent) {
-      if (panelRef.current && !panelRef.current.contains(event.target as Node)) {
+      if (
+        panelRef.current &&
+        !panelRef.current.contains(event.target as Node)
+      ) {
         dismiss();
       }
     }
@@ -97,7 +107,7 @@ function SalesSearchPanel({
     >
       <div className={TASKPANE_SEARCH_PANEL_HEADER}>
         <span id="sales-search-title" className={TASKPANE_SEARCH_PANEL_TITLE}>
-          Pick a sales
+          Pick a sale
         </span>
       </div>
       <TaskpaneSearchDropdown
@@ -195,7 +205,10 @@ export function SalesPicker({
   }, []);
 
   const handleSelect = (sales: Coworker) => {
-    const next = [sales, ...loadRecents().filter((c) => c.openId !== sales.openId)].slice(0, 6);
+    const next = [
+      sales,
+      ...loadRecents().filter((c) => c.openId !== sales.openId),
+    ].slice(0, 6);
     try {
       localStorage.setItem(RECENTS_KEY, JSON.stringify(next));
     } catch {

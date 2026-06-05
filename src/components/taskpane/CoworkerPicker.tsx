@@ -1,7 +1,7 @@
 /* eslint-disable max-lines-per-function, max-lines */
 import * as React from "react";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { Check } from "lucide-react";
+import { Check, UserRound } from "lucide-react";
 
 import { CoworkerIcon } from "./icons/CoworkerIcon";
 
@@ -66,6 +66,11 @@ const COWORKER_FALLBACK_ICON = (
   <CoworkerIcon className="size-4 translate-y-px" strokeWidth={2} />
 );
 
+/** Search dropdown + image-error fallback — single person glyph (matches SalesPicker). */
+const SEARCH_PERSON_FALLBACK_ICON = (
+  <UserRound className="size-5" strokeWidth={1.8} aria-hidden="true" />
+);
+
 function CoworkerSelectedLeading({ avatarUrl }: { avatarUrl: string }) {
   return (
     <Avatar className="size-8 bg-secondary">
@@ -97,8 +102,8 @@ export function CoworkerOption({
     >
       <Avatar className="size-10 bg-secondary">
         {coworker.avatarUrl ? <AvatarImage src={coworker.avatarUrl} alt="" /> : null}
-        <AvatarFallback className="bg-secondary text-muted-foreground">
-          <CoworkerIcon className="size-5" strokeWidth={2} />
+        <AvatarFallback className="bg-secondary text-muted-foreground/70">
+          {SEARCH_PERSON_FALLBACK_ICON}
         </AvatarFallback>
       </Avatar>
       <span className="min-w-0 flex-1">

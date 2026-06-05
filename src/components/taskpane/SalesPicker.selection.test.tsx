@@ -18,21 +18,27 @@ vi.mock("../../hooks/useCoworkerSearch", () => {
   return {
     useCoworkerSearch: () =>
       vi.fn((query: string) =>
-        Promise.resolve(coworkers.filter((c) => c.name.toLowerCase().includes(query.toLowerCase()))),
+        Promise.resolve(
+          coworkers.filter((c) =>
+            c.name.toLowerCase().includes(query.toLowerCase()),
+          ),
+        ),
       ),
   };
 });
 
 describe("SalesPicker selected row", () => {
-  it("shows Pick a sales prompt before any selection", () => {
+  it("shows Pick a sale prompt before any selection", () => {
     render(<SalesPicker sessionId="sess" onSelect={() => {}} />);
 
-    expect(screen.getByText("Pick a sales")).toBeInTheDocument();
+    expect(screen.getByText("Pick a sale")).toBeInTheDocument();
     expect(document.querySelector('[data-sales-row="true"]')).toBeNull();
   });
 
   it("enters the selected row with stagger when the system applies a default", () => {
-    const { rerender } = render(<SalesPicker sessionId="sess" onSelect={() => {}} />);
+    const { rerender } = render(
+      <SalesPicker sessionId="sess" onSelect={() => {}} />,
+    );
 
     rerender(
       <SalesPicker
@@ -47,7 +53,9 @@ describe("SalesPicker selected row", () => {
       />,
     );
 
-    const row = document.querySelector('[data-sales-row="true"]') as HTMLElement;
+    const row = document.querySelector(
+      '[data-sales-row="true"]',
+    ) as HTMLElement;
     expect(row).toHaveClass("taskpane-selection-enter-group");
     expect(within(row).getByText("Jenny Xu")).toBeInTheDocument();
     expect(row.querySelector('[data-slot="avatar"]')).toBeInTheDocument();
@@ -57,7 +65,11 @@ describe("SalesPicker selected row", () => {
     function ControlledPicker() {
       const [selected, setSelected] = useState<Coworker | null>(null);
       return (
-        <SalesPicker sessionId="sess" selectedSales={selected} onSelect={setSelected} />
+        <SalesPicker
+          sessionId="sess"
+          selectedSales={selected}
+          onSelect={setSelected}
+        />
       );
     }
     render(<ControlledPicker />);
@@ -67,7 +79,9 @@ describe("SalesPicker selected row", () => {
     });
     fireEvent.click(await screen.findByRole("button", { name: /Jenny Xu/i }));
 
-    const row = document.querySelector('[data-sales-row="true"]') as HTMLElement;
+    const row = document.querySelector(
+      '[data-sales-row="true"]',
+    ) as HTMLElement;
     expect(row).not.toHaveClass("taskpane-selection-enter-group");
   });
 
@@ -118,11 +132,13 @@ describe("SalesPicker selected row", () => {
       />,
     );
 
-    const row = document.querySelector('[data-sales-row="true"]') as HTMLElement;
+    const row = document.querySelector(
+      '[data-sales-row="true"]',
+    ) as HTMLElement;
     expect(row).not.toBeNull();
-    expect(row.querySelector(':scope > span[aria-hidden="true"]')).not.toHaveClass(
-      "text-muted-foreground",
-    );
+    expect(
+      row.querySelector(':scope > span[aria-hidden="true"]'),
+    ).not.toHaveClass("text-muted-foreground");
     expect(row.querySelector('[data-slot="avatar"]')).toBeInTheDocument();
   });
 
@@ -135,7 +151,9 @@ describe("SalesPicker selected row", () => {
       />,
     );
 
-    const row = document.querySelector('[data-sales-row="true"]') as HTMLElement;
+    const row = document.querySelector(
+      '[data-sales-row="true"]',
+    ) as HTMLElement;
     expect(row).not.toBeNull();
     expect(row.querySelector(':scope > span[aria-hidden="true"]')).toHaveClass(
       "flex",
@@ -179,5 +197,4 @@ describe("SalesPicker selected row", () => {
       avatarUrl: "https://example.test/jenny.png",
     });
   });
-
 });

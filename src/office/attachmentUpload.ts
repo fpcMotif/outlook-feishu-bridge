@@ -6,6 +6,7 @@
 // and a 20 MB file would exceed the Convex action-arg cap — see ADR-0022).
 
 import { fileExtension } from "./attachments";
+import { dtime } from "../debug";
 
 // Office.js getAttachmentContentAsync exposes no usable contentType (deprecated),
 // so MIME is derived from the file extension (ADR-0022). pdf / excel / word /
@@ -62,20 +63,29 @@ export async function stageAndUploadAttachments(
   sources: AttachmentSource[],
 ): Promise<{ fileToken: string }[]> {
   if (sources.length === 0) return [];
+  const stageStarted = performance.now();
   const staged = await Promise.all(
     sources.map(async (source) => {
       if (source.storageId) {
         return { storageId: source.storageId, fileName: source.name };
       }
       if (!source.blob) {
-        throw new Error(`Attachment source "${source.name}" has no blob or storageId`);
+        throw new Error(
+          `Attachment source "${source.name}" has no blob or storageId`,
+        );
       }
       const url = await deps.generateUploadUrl();
       const { storageId } = await deps.uploadBytes(url, source.blob);
       return { storageId, fileName: source.name };
     }),
   );
+  dtime(`attachment storage stage (${staged.length} files)`, stageStarted);
+  const driveStarted = performance.now();
   const { attachments } = await deps.uploadToDrive(staged);
+  dtime(
+    `attachment drive token mint (${attachments.length} files)`,
+    driveStarted,
+  );
   return attachments;
 }
 

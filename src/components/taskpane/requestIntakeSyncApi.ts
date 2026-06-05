@@ -6,5 +6,5 @@ export type RequestIntakeSyncApi = ReturnType<typeof useRequestSync>;
 export const loggedOutRequestIntakeSyncApi: RequestIntakeSyncApi = {
   sync: () => Promise.resolve({ status: "pending", recordId: null, detailUrl: null }),
   correct: () => Promise.resolve({ recordId: "", detailUrl: null }),
-  existingSync: undefined,
+  existingSync: null,
 };

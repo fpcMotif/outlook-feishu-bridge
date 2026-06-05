@@ -8,6 +8,7 @@ export function RequestIntakeSyncBridge(props: RequestIntakeScreenProps) {
   const syncApi = useRequestSync({
     userEmail: props.mailItem.userEmail,
     conversationId: props.mailItem.conversationId,
+    internetMessageId: props.mailItem.internetMessageId,
   });
   return <RequestIntakeScreenCore {...props} syncApi={syncApi} />;
 }

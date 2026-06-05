@@ -73,6 +73,18 @@ describe("CoworkerPicker selected row", () => {
     expect(within(row as HTMLElement).getByText("Sales Ops")).toBeInTheDocument();
   });
 
+  it("shows a quiet person icon in search when avatarUrl is missing", async () => {
+    render(<CoworkerPicker sessionId="sess" onSelect={() => {}} />);
+
+    fireEvent.change(screen.getByLabelText("Search Feishu coworkers"), {
+      target: { value: "Sales" },
+    });
+
+    const option = await screen.findByRole("button", { name: /Sales Ops/i });
+    expect(option.querySelector(".lucide-user-round")).toBeInTheDocument();
+    expect(option.querySelector('[data-slot="avatar-image"]')).toBeNull();
+  });
+
   it("passes avatarUrl when selecting a coworker from search", async () => {
     const onSelect = vi.fn();
     render(

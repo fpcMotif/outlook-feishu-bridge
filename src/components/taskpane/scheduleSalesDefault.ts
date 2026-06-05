@@ -3,7 +3,7 @@ export const SALES_DEFAULT_DELAY_MS = 2500;
 
 /**
  * Applies the signed-in sales default one frame after mount, then after a short
- * delay so the empty "Pick a sales" state is visible first.
+ * delay so the empty "Pick a sale" state is visible first.
  */
 export function scheduleSalesDefault(
   apply: () => void,

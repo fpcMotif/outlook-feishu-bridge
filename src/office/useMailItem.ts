@@ -50,9 +50,27 @@ export function useMailItem(autoRead = false) {
   }, []);
 
   useEffect(() => {
-    if (!autoRead || didAutoRead.current) return;
-    didAutoRead.current = true;
-    void readCurrentItem();
+    if (!autoRead) return;
+    if (!didAutoRead.current) {
+      didAutoRead.current = true;
+      void readCurrentItem();
+    }
+
+    // With SupportsPinning enabled in the manifest, Outlook keeps this same task
+    // pane instance alive as the user moves between messages instead of reloading
+    // the add-in. Re-read the selected item on ItemChanged so a pinned pane never
+    // shows metadata/body from the previously-open email. Guarded for hosts that
+    // lack the event API (dev browser, older Outlook).
+    const mailbox = Office.context?.mailbox;
+    if (!mailbox?.addHandlerAsync || !Office.EventType?.ItemChanged) return;
+    const onItemChanged = () => {
+      dlog("ItemChanged: re-reading current item (pinned pane)");
+      void readCurrentItem();
+    };
+    mailbox.addHandlerAsync(Office.EventType.ItemChanged, onItemChanged);
+    return () => {
+      mailbox.removeHandlerAsync?.(Office.EventType.ItemChanged);
+    };
   }, [autoRead, readCurrentItem]);
 
   return { mailItem, loading, error, readCurrentItem };

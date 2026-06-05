@@ -18,6 +18,7 @@ import {
   MAX_MEDIA_UPLOAD_BYTES,
   uploadAttachmentsToDrive,
   uploadMediaToDrive,
+  uploadStagedSourcesToDrive,
   withDriveRateLimitRetry,
 } from "./drive";
 import { FeishuError } from "./client";
@@ -165,6 +166,48 @@ describe("uploadAttachmentsToDrive action", () => {
     ).rejects.toThrow(/20 MB/);
 
     expect(callFeishu).not.toHaveBeenCalled();
+    expect(storageDelete).not.toHaveBeenCalled();
+  });
+
+  it("does not delete any staged file when a later Drive upload fails", async () => {
+    getStorageBytes.mockResolvedValue(new Uint8Array([1]).buffer);
+    callFeishu
+      .mockResolvedValueOnce({ file_token: "tokenA" })
+      .mockRejectedValueOnce(new Error("Drive failed"));
+
+    await expect(
+      uploadAttachmentsHandler(ctx, {
+        sources: [
+          { storageId: "kg_a", fileName: "a.pdf" },
+          { storageId: "kg_b", fileName: "b.xlsx" },
+        ],
+      }),
+    ).rejects.toThrow("Drive failed");
+
+    expect(storageDelete).not.toHaveBeenCalled();
+  });
+
+  it("can leave staged storage for the worker until the Base row is created", async () => {
+    getStorageBytes
+      .mockResolvedValueOnce(new Uint8Array([1, 2, 3]).buffer)
+      .mockResolvedValueOnce(new Uint8Array([9, 9]).buffer);
+    callFeishu
+      .mockResolvedValueOnce({ file_token: "tokenA" })
+      .mockResolvedValueOnce({ file_token: "tokenB" });
+
+    await expect(
+      uploadStagedSourcesToDrive(
+        ctx,
+        [
+          { storageId: "kg_a", fileName: "a.pdf" },
+          { storageId: "kg_b", fileName: "b.xlsx" },
+        ] as never,
+        { deleteAfterUpload: false },
+      ),
+    ).resolves.toEqual({
+      attachments: [{ fileToken: "tokenA" }, { fileToken: "tokenB" }],
+    });
+
     expect(storageDelete).not.toHaveBeenCalled();
   });
 

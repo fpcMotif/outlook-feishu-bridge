@@ -15,6 +15,13 @@ export const attachmentKeyValidator = v.object({
 
 export type AttachmentKey = Infer<typeof attachmentKeyValidator>;
 
+export const stagedAttachmentSourceValidator = v.object({
+  storageId: v.id("_storage"),
+  fileName: v.string(),
+});
+
+export type StagedAttachmentSource = Infer<typeof stagedAttachmentSourceValidator>;
+
 // A single request the sender filled in (Quotation / Sample / R&D Support) plus
 // its free-text note, and the Feishu coworker chosen as the Bitable assignee.
 export const requestSelectionValidator = v.object({
@@ -112,6 +119,7 @@ export const emailRecordFields = {
   bitableLastAttemptAt: v.optional(v.number()),
   bitableAttemptCount: v.optional(v.number()),
   bitableNextRetryAt: v.optional(v.number()),
+  bitableAttachmentSources: v.optional(v.array(stagedAttachmentSourceValidator)),
 };
 
 export const emailRecordValidator = v.object(emailRecordFields);
@@ -139,6 +147,7 @@ export interface EmailRecordInput {
   selectedCoworkers?: SelectedCoworker[];
   selectedCustomer?: SelectedCustomer;
   initiator?: Initiator;
+  bitableAttachmentSources?: StagedAttachmentSource[];
 }
 
 // The Feishu handle produced during sync.
@@ -191,5 +200,6 @@ export function toEmailRecord(
     bitableLastAttemptAt: undefined,
     bitableAttemptCount: undefined,
     bitableNextRetryAt: undefined,
+    bitableAttachmentSources: input.bitableAttachmentSources,
   };
 }

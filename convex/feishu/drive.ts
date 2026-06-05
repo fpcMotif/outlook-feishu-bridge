@@ -127,9 +127,11 @@ async function prepareDriveSource(
 /**
  * Relay each staged Convex File-Storage object to Feishu Drive `medias/upload_all`
  * and return the minted `file_token`s in input order — exactly the `attachments`
- * shape the Bitable create consumes. Staged storage objects are deleted after a
- * successful upload. An optional `tenantToken` is reused (the deferred Base-write
- * worker already holds one) to avoid a redundant token resolve.
+ * shape the Bitable create consumes. Staged storage objects are deleted only
+ * after the whole batch succeeds, unless the deferred worker asks to keep them
+ * until the Base row create is confirmed. An optional `tenantToken` is reused
+ * (the deferred Base-write worker already holds one) to avoid a redundant token
+ * resolve.
  *
  * Extracted from the public action so the END-TO-END path can run server-side in
  * the deferred Base-write worker (ADR-0022 latency optimization): the taskpane now
@@ -140,14 +142,14 @@ async function prepareDriveSource(
 export async function uploadStagedSourcesToDrive(
   ctx: ActionCtx,
   sources: DriveSource[],
-  tenantToken?: string,
+  opts: { tenantToken?: string; deleteAfterUpload?: boolean } = {},
 ): Promise<{ attachments: { fileToken: string }[] }> {
   const appToken = process.env.FEISHU_BITABLE_APP_TOKEN;
   if (!appToken) throw new Error("FEISHU_BITABLE_APP_TOKEN must be set");
   if (sources.length === 0) return { attachments: [] };
 
   const [token, firstPrepared] = await Promise.all([
-    tenantToken ? Promise.resolve(tenantToken) : resolveFeishuToken(ctx, "tenant"),
+    opts.tenantToken ? Promise.resolve(opts.tenantToken) : resolveFeishuToken(ctx, "tenant"),
     prepareDriveSource(ctx, sources[0]),
   ]);
   let nextPrepared: Promise<PreparedDriveSource> | null = null;
@@ -166,10 +168,19 @@ export async function uploadStagedSourcesToDrive(
     const fileToken = await withDriveRateLimitRetry(() =>
       uploadMediaToDrive(ctx, new Blob([source.bytes]), source.fileName, appToken, token),
     );
-    await ctx.storage.delete(source.storageId);
     attachments.push({ fileToken });
   }
+  if (opts.deleteAfterUpload ?? true) {
+    await deleteStagedSources(ctx, sources);
+  }
   return { attachments };
+}
+
+export async function deleteStagedSources(
+  ctx: ActionCtx,
+  sources: DriveSource[],
+): Promise<void> {
+  await Promise.all(sources.map((source) => ctx.storage.delete(source.storageId)));
 }
 
 // PUBLIC action wrapper around uploadStagedSourcesToDrive. Kept as a standalone

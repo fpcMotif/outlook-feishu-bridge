@@ -1,10 +1,17 @@
 import { action, internalAction, type ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
-import { initiatorValidator, selectedCoworkerValidator, selectedCustomerValidator, toEmailRecord, type SelectedCoworker } from "../emailRecord";
+import {
+  initiatorValidator,
+  selectedCoworkerValidator,
+  selectedCustomerValidator,
+  stagedAttachmentSourceValidator,
+  toEmailRecord,
+  type SelectedCoworker,
+} from "../emailRecord";
 import { assertRealCoworkerOpenIds, poisonedOutboxReason } from "./previewFixtures";
 import { buildConfiguredBitableRecordDetailUrl } from "./bitableUrl";
-import { uploadStagedSourcesToDrive } from "./drive";
+import { deleteStagedSources, uploadStagedSourcesToDrive } from "./drive";
 import type { Id } from "../_generated/dataModel";
 
 // Shared intake submitted by the taskpane.
@@ -29,12 +36,10 @@ const intakeArgs = {
   // upload_all runs server-side in the deferred worker (ADR-0022).
   attachments: v.optional(v.array(v.object({ fileToken: v.string() }))),
   // Staged Convex File-Storage refs the deferred Base-write worker uploads to
-  // Feishu Drive (upload_all) right before the idempotent create. Keeping the
-  // Drive mint off the submit path is the ADR-0022 latency optimization. Never
-  // persisted on the Email Record backup — they live only in the scheduler args.
-  attachmentSources: v.optional(
-    v.array(v.object({ storageId: v.id("_storage"), fileName: v.string() })),
-  ),
+  // Feishu Drive (upload_all) right before the idempotent create. Persisted on
+  // the Email Record backup while pending/failed so retries use exactly the
+  // attachments the user selected at submit.
+  attachmentSources: v.optional(v.array(stagedAttachmentSourceValidator)),
   selectedCoworkers: v.optional(v.array(selectedCoworkerValidator)),
 };
 
@@ -92,10 +97,26 @@ async function resolveSyncAttachments(
   args: RequestSyncArgs,
 ): Promise<{ fileToken: string }[] | undefined> {
   if (args.attachmentSources && args.attachmentSources.length > 0) {
-    const { attachments } = await uploadStagedSourcesToDrive(ctx, args.attachmentSources);
+    const { attachments } = await uploadStagedSourcesToDrive(ctx, args.attachmentSources, {
+      deleteAfterUpload: false,
+    });
     return attachments;
   }
   return args.attachments;
+}
+
+async function cleanupAttachmentSources(
+  ctx: ActionCtx,
+  sources: RequestSyncArgs["attachmentSources"],
+) {
+  if (!sources || sources.length === 0) return;
+  try {
+    await deleteStagedSources(ctx, sources);
+  } catch (e: unknown) {
+    console.warn(
+      `[requestSync] failed to clean staged attachments after successful Bitable row create: ${errorMessage(e)}`,
+    );
+  }
 }
 
 function buildEmailRecordBackup(args: RequestSyncArgs, sentToBitable: boolean) {
@@ -116,6 +137,7 @@ function buildEmailRecordBackup(args: RequestSyncArgs, sentToBitable: boolean) {
       selectedCoworkers: args.selectedCoworkers,
       selectedCustomer: args.selectedCustomer,
       initiator: args.selectedSales ?? args.initiator,
+      bitableAttachmentSources: args.attachmentSources,
     },
     { sentToBitable },
   );
@@ -206,7 +228,9 @@ export const processPendingBitableSync = internalAction({
       // END-TO-END here: stage Convex files -> Drive upload_all -> create row, all
       // in the backend, then the sync continues directly into the create (ADR-0022).
       const attachments = await resolveSyncAttachments(ctx, args);
-      return await syncBitableRequest(ctx, { ...args, attachments }, selectedCoworkers, args.clientToken);
+      const result = await syncBitableRequest(ctx, { ...args, attachments }, selectedCoworkers, args.clientToken);
+      await cleanupAttachmentSources(ctx, args.attachmentSources);
+      return result;
     } catch (e: unknown) {
       const backup = buildEmailRecordBackup({ ...args, selectedCoworkers }, false);
       await markFailure(ctx, backup, e);
@@ -288,29 +312,33 @@ export const reconcilePendingBitableSync = internalAction({
           if (!record.bitableClientToken) {
             throw new Error(`Missing bitableClientToken for ${record.internetMessageId}`);
           }
+          const replayArgs = {
+            subject: record.subject,
+            from: record.from,
+            to: record.to,
+            cc: record.cc,
+            body: record.bodyPreview,
+            internetMessageId: record.internetMessageId,
+            itemId: record.itemId,
+            conversationId: record.conversationId,
+            userEmail: record.userEmail,
+            dateTimeCreated: record.dateTimeCreated,
+            clientEmail: record.clientEmail,
+            selectedCustomer: record.selectedCustomer,
+            selectedSales: record.initiator,
+            initiator: record.initiator,
+            requestNote: record.requestNote,
+            attachmentSources: record.bitableAttachmentSources,
+            selectedCoworkers,
+          };
+          const attachments = await resolveSyncAttachments(ctx, replayArgs);
           const result = await syncBitableRequest(
             ctx,
-            {
-              subject: record.subject,
-              from: record.from,
-              to: record.to,
-              cc: record.cc,
-              body: record.bodyPreview,
-              internetMessageId: record.internetMessageId,
-              itemId: record.itemId,
-              conversationId: record.conversationId,
-              userEmail: record.userEmail,
-              dateTimeCreated: record.dateTimeCreated,
-              clientEmail: record.clientEmail,
-              selectedCustomer: record.selectedCustomer,
-              selectedSales: record.initiator,
-              initiator: record.initiator,
-              requestNote: record.requestNote,
-              selectedCoworkers,
-            },
+            { ...replayArgs, attachments },
             selectedCoworkers,
             record.bitableClientToken,
           );
+          await cleanupAttachmentSources(ctx, record.bitableAttachmentSources);
           return result.status;
         } catch (e: unknown) {
           await markFailure(ctx, record, e);
@@ -348,6 +376,7 @@ export const correctRequest = action({
       initiator: resolveSyncSales(args),
       emailConversationId: args.conversationId,
     });
+    await cleanupAttachmentSources(ctx, args.attachmentSources);
     return { recordId, detailUrl: buildConfiguredBitableRecordDetailUrl(recordId) };
   },
 });

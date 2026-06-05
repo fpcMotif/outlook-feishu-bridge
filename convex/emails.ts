@@ -176,6 +176,7 @@ export const markBitableSyncSucceeded = internalMutation({
       bitableLastAttemptAt: args.attemptedAt,
       bitableLastError: undefined,
       bitableNextRetryAt: undefined,
+      bitableAttachmentSources: undefined,
     });
     return { detailUrl: buildConfiguredBitableRecordDetailUrl(args.bitableRecordId) };
   },

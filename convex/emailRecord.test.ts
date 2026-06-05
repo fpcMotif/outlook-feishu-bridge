@@ -57,6 +57,7 @@ const syncRecord: EmailRecord = {
   bitableLastAttemptAt: undefined,
   bitableAttemptCount: undefined,
   bitableNextRetryAt: undefined,
+  bitableAttachmentSources: undefined,
 };
 
 describe("toEmailRecord", () => {
@@ -87,6 +88,20 @@ describe("toEmailRecord", () => {
     expect(record.sentToBitable).toBe(false);
     expect(record.bitableRecordId).toBeUndefined();
     expect(record.clientEmail).toBe("client@corp.com");
+  });
+
+  it("persists the exact staged attachment manifest while a Bitable sync is pending", () => {
+    const bitableAttachmentSources = [
+      { storageId: "kg_a", fileName: "quote.pdf" },
+      { storageId: "kg_b", fileName: "spec.xlsx" },
+    ] as EmailRecordInput["bitableAttachmentSources"];
+
+    const record = toEmailRecord(
+      { ...syncInput, bitableAttachmentSources },
+      { sentToBitable: false },
+    );
+
+    expect(record.bitableAttachmentSources).toEqual(bitableAttachmentSources);
   });
 
   it("truncates the body to a 500-char preview; the full body is never persisted", () => {

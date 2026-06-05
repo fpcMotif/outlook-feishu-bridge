@@ -1,11 +1,13 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // The deferred worker now runs the Drive upload_all itself (ADR-0022). Stub the
 // extracted helper so these unit tests stay network-free; the serial-upload /
 // rate-limit behaviour is covered in drive.test.ts.
 const uploadStagedSourcesToDrive = vi.fn();
+const deleteStagedSources = vi.fn();
 vi.mock("./drive", () => ({
   uploadStagedSourcesToDrive: (...args: unknown[]) => uploadStagedSourcesToDrive(...args),
+  deleteStagedSources: (...args: unknown[]) => deleteStagedSources(...args),
 }));
 
 import {
@@ -19,6 +21,11 @@ import type { SelectedCoworker } from "../emailRecord";
 const jenny: SelectedCoworker = { openId: "ou_1fa1e520f980675ed46ff40aa177a488", name: "Jenny Xu" };
 const dave: SelectedCoworker = { openId: "ou_a61fa1232a614a04639cd33695d0a7da", name: "Dave Lin" };
 const ERR = "Bitable Sync requires exactly one Feishu coworker";
+
+beforeEach(() => {
+  uploadStagedSourcesToDrive.mockReset();
+  deleteStagedSources.mockReset();
+});
 
 describe("requireExactlyOneCoworker", () => {
   it("returns the array unchanged when exactly one coworker is present", () => {
@@ -121,6 +128,41 @@ describe("syncRequest durable dual sync", () => {
       body: "Please quote 10kg.",
       attachments: [{ fileToken: "boxcnAAA" }],
     });
+  });
+
+  it("persists and schedules the exact staged attachmentSources selected at submit", async () => {
+    const sources = [
+      { storageId: "kg_a", fileName: "quote.pdf" },
+      { storageId: "kg_b", fileName: "spec.xlsx" },
+    ];
+    const { attachments: _legacy, ...withoutTokens } = baseArgs;
+    const runMutation = vi
+      .fn()
+      .mockResolvedValueOnce({
+        bitableClientToken: "client-token-1",
+        bitableRecordId: null,
+        detailUrl: null,
+        shouldSchedule: true,
+      });
+    const runAction = vi.fn();
+    const scheduler = { runAfter: vi.fn().mockResolvedValueOnce("scheduled-1") };
+
+    await expect(
+      syncRequestHandler(
+        { runMutation, runAction, scheduler },
+        { ...withoutTokens, attachmentSources: sources } as never,
+      ),
+    ).resolves.toMatchObject({ status: "pending" });
+
+    expect(runMutation.mock.calls[0][1]).toMatchObject({
+      internetMessageId: "<msg-1@example.com>",
+      bitableAttachmentSources: sources,
+    });
+    expect(scheduler.runAfter.mock.calls[0][2]).toMatchObject({
+      attachmentSources: sources,
+      clientToken: "client-token-1",
+    });
+    expect(runAction).not.toHaveBeenCalled();
   });
 
   it("short-circuits when the Convex backup already knows the Base record id", async () => {
@@ -244,14 +286,47 @@ describe("processPendingBitableSync", () => {
     // The Drive upload_all happens in the worker (not the submit path)...
     expect(uploadStagedSourcesToDrive).toHaveBeenCalledTimes(1);
     expect(uploadStagedSourcesToDrive.mock.calls[0][1]).toEqual(sources);
+    expect(uploadStagedSourcesToDrive.mock.calls[0][2]).toEqual({ deleteAfterUpload: false });
     // ...and the create writes the freshly minted tokens, not the storageIds.
     expect(runAction.mock.calls[0][1]).toMatchObject({
       attachments: [{ fileToken: "boxMINTED1" }, { fileToken: "boxMINTED2" }],
     });
+    expect(deleteStagedSources).toHaveBeenCalledTimes(1);
+    expect(deleteStagedSources.mock.calls[0][1]).toEqual(sources);
+    expect(runAction.mock.invocationCallOrder[0]).toBeLessThan(
+      deleteStagedSources.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("keeps staged attachmentSources retryable when the Base create fails after Drive minting", async () => {
+    uploadStagedSourcesToDrive.mockResolvedValueOnce({
+      attachments: [{ fileToken: "boxMINTED1" }],
+    });
+    const runAction = vi.fn().mockRejectedValueOnce(new Error("Base create failed"));
+    const runMutation = vi.fn().mockResolvedValueOnce({ detailUrl: null });
+
+    const sources = [{ storageId: "kg_a", fileName: "a.pdf" }];
+    const { attachments: _legacy, ...withoutTokens } = baseArgs;
+    await expect(
+      processPendingHandler(
+        { runMutation, runAction },
+        { ...withoutTokens, attachmentSources: sources, clientToken: "client-token-1" } as never,
+      ),
+    ).rejects.toThrow("Base create failed");
+
+    expect(uploadStagedSourcesToDrive).toHaveBeenCalledWith(
+      expect.anything(),
+      sources,
+      { deleteAfterUpload: false },
+    );
+    expect(deleteStagedSources).not.toHaveBeenCalled();
+    expect(runMutation.mock.calls[0][1]).toMatchObject({
+      internetMessageId: "<msg-1@example.com>",
+      error: "Base create failed",
+    });
   });
 
   it("does NOT call Drive when only pre-minted attachments are supplied", async () => {
-    uploadStagedSourcesToDrive.mockClear();
     const runAction = vi.fn().mockResolvedValueOnce({ recordId: "rec_service_pre" });
     const runMutation = vi.fn().mockResolvedValueOnce({ detailUrl: null });
 
@@ -261,6 +336,7 @@ describe("processPendingBitableSync", () => {
     );
 
     expect(uploadStagedSourcesToDrive).not.toHaveBeenCalled();
+    expect(deleteStagedSources).not.toHaveBeenCalled();
     expect(runAction.mock.calls[0][1]).toMatchObject({
       attachments: [{ fileToken: "boxcnAAA" }],
     });
@@ -311,12 +387,20 @@ const reconcileHandler = (
 
 describe("reconcilePendingBitableSync", () => {
   it("replays due Convex backups with their stored idempotency token", async () => {
+    uploadStagedSourcesToDrive.mockResolvedValueOnce({
+      attachments: [{ fileToken: "boxMINTED1" }, { fileToken: "boxMINTED2" }],
+    });
+    const sources = [
+      { storageId: "kg_a", fileName: "quote.pdf" },
+      { storageId: "kg_b", fileName: "spec.xlsx" },
+    ];
     const runQuery = vi.fn().mockResolvedValueOnce([
       {
         ...baseArgs,
         bodyPreview: "Please quote 10kg.",
         sentToBitable: false,
         bitableClientToken: "client-token-1",
+        bitableAttachmentSources: sources,
       },
     ]);
     const runAction = vi.fn().mockResolvedValueOnce({ recordId: "rec_service_1" });
@@ -336,10 +420,14 @@ describe("reconcilePendingBitableSync", () => {
       // ADR-0022: the reconcile (outbox) path can only write the stored ≤500-char
       // preview as the body — the full body is never persisted on the backup.
       body: "Please quote 10kg.",
+      attachments: [{ fileToken: "boxMINTED1" }, { fileToken: "boxMINTED2" }],
     });
-    // ADR-0022 decision #5: attachments are NOT persisted on the backup, so a
-    // reconciled row carries none (known v1 limitation).
-    expect(runAction.mock.calls[0][1].attachments).toBeUndefined();
+    expect(uploadStagedSourcesToDrive).toHaveBeenCalledWith(
+      expect.anything(),
+      sources,
+      { deleteAfterUpload: false },
+    );
+    expect(deleteStagedSources).toHaveBeenCalledWith(expect.anything(), sources);
     expect(runMutation.mock.calls[0][1]).toMatchObject({
       internetMessageId: "<msg-1@example.com>",
       bitableRecordId: "rec_service_1",

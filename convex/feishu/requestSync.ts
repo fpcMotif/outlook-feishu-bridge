@@ -4,6 +4,8 @@ import { v } from "convex/values";
 import { initiatorValidator, selectedCoworkerValidator, selectedCustomerValidator, toEmailRecord, type SelectedCoworker } from "../emailRecord";
 import { assertRealCoworkerOpenIds, poisonedOutboxReason } from "./previewFixtures";
 import { buildConfiguredBitableRecordDetailUrl } from "./bitableUrl";
+import { uploadStagedSourcesToDrive } from "./drive";
+import type { Id } from "../_generated/dataModel";
 
 // Shared intake submitted by the taskpane.
 const intakeArgs = {
@@ -22,7 +24,17 @@ const intakeArgs = {
   selectedSales: v.optional(initiatorValidator),
   initiator: v.optional(initiatorValidator),
   requestNote: v.optional(v.string()),
+  // Pre-minted Feishu Drive tokens — the legacy/correction shape. The submit
+  // path now sends `attachmentSources` instead (storageIds), so the Drive
+  // upload_all runs server-side in the deferred worker (ADR-0022).
   attachments: v.optional(v.array(v.object({ fileToken: v.string() }))),
+  // Staged Convex File-Storage refs the deferred Base-write worker uploads to
+  // Feishu Drive (upload_all) right before the idempotent create. Keeping the
+  // Drive mint off the submit path is the ADR-0022 latency optimization. Never
+  // persisted on the Email Record backup — they live only in the scheduler args.
+  attachmentSources: v.optional(
+    v.array(v.object({ storageId: v.id("_storage"), fileName: v.string() })),
+  ),
   selectedCoworkers: v.optional(v.array(selectedCoworkerValidator)),
 };
 
@@ -65,7 +77,25 @@ interface RequestSyncArgs {
   initiator?: { openId: string; name?: string };
   requestNote?: string;
   attachments?: { fileToken: string }[];
+  attachmentSources?: { storageId: Id<"_storage">; fileName: string }[];
   selectedCoworkers?: SelectedCoworker[];
+}
+
+// Resolve the attachment tokens the create writes. When the submit path handed
+// staged storageIds (`attachmentSources`), run the Drive upload_all HERE —
+// inside the deferred worker, off the submit critical path — minting tokens just
+// before the idempotent create (ADR-0022). uploadStagedSourcesToDrive resolves
+// one tenant token and reuses it across every serial Drive upload. Pre-minted
+// `attachments` (correction/legacy) pass through unchanged.
+async function resolveSyncAttachments(
+  ctx: ActionCtx,
+  args: RequestSyncArgs,
+): Promise<{ fileToken: string }[] | undefined> {
+  if (args.attachmentSources && args.attachmentSources.length > 0) {
+    const { attachments } = await uploadStagedSourcesToDrive(ctx, args.attachmentSources);
+    return attachments;
+  }
+  return args.attachments;
 }
 
 function buildEmailRecordBackup(args: RequestSyncArgs, sentToBitable: boolean) {
@@ -173,7 +203,10 @@ export const processPendingBitableSync = internalAction({
   handler: async (ctx, args): Promise<Extract<SyncRequestResult, { status: "synced" }>> => {
     const selectedCoworkers = requireExactlyOneCoworker(args.selectedCoworkers);
     try {
-      return await syncBitableRequest(ctx, args, selectedCoworkers, args.clientToken);
+      // END-TO-END here: stage Convex files -> Drive upload_all -> create row, all
+      // in the backend, then the sync continues directly into the create (ADR-0022).
+      const attachments = await resolveSyncAttachments(ctx, args);
+      return await syncBitableRequest(ctx, { ...args, attachments }, selectedCoworkers, args.clientToken);
     } catch (e: unknown) {
       const backup = buildEmailRecordBackup({ ...args, selectedCoworkers }, false);
       await markFailure(ctx, backup, e);
@@ -300,6 +333,7 @@ export const correctRequest = action({
   args: { recordId: v.string(), ...intakeArgs },
   handler: async (ctx, args): Promise<{ recordId: string; detailUrl: string | null }> => {
     const selectedCoworkers = requireExactlyOneCoworker(args.selectedCoworkers);
+    const attachments = await resolveSyncAttachments(ctx, args);
     const { recordId } = await ctx.runAction(internal.feishu.bitable.correctServiceRecord, {
       recordId: args.recordId,
       subject: args.subject,
@@ -308,7 +342,7 @@ export const correctRequest = action({
       dateOfOffer: args.dateTimeCreated,
       requestNote: args.requestNote,
       body: args.body,
-      attachments: args.attachments,
+      attachments,
       selectedCoworkers,
       selectedSales: resolveSyncSales(args),
       initiator: resolveSyncSales(args),

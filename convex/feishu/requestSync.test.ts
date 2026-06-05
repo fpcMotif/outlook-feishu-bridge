@@ -1,5 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 
+// The deferred worker now runs the Drive upload_all itself (ADR-0022). Stub the
+// extracted helper so these unit tests stay network-free; the serial-upload /
+// rate-limit behaviour is covered in drive.test.ts.
+const uploadStagedSourcesToDrive = vi.fn();
+vi.mock("./drive", () => ({
+  uploadStagedSourcesToDrive: (...args: unknown[]) => uploadStagedSourcesToDrive(...args),
+}));
+
 import {
   processPendingBitableSync,
   reconcilePendingBitableSync,
@@ -209,6 +217,52 @@ describe("processPendingBitableSync", () => {
     expect(runMutation.mock.calls[0][1]).toMatchObject({
       internetMessageId: "<msg-1@example.com>",
       error: "Feishu unavailable",
+    });
+  });
+
+  // ADR-0022 latency optimization: the worker uploads the staged storageIds to
+  // Drive end-to-end, then rides the MINTED tokens into the idempotent create.
+  it("uploads staged attachmentSources to Drive, then creates with the minted tokens", async () => {
+    uploadStagedSourcesToDrive.mockResolvedValueOnce({
+      attachments: [{ fileToken: "boxMINTED1" }, { fileToken: "boxMINTED2" }],
+    });
+    const runAction = vi.fn().mockResolvedValueOnce({ recordId: "rec_service_att" });
+    const runMutation = vi.fn().mockResolvedValueOnce({ detailUrl: null });
+
+    const sources = [
+      { storageId: "kg_a", fileName: "a.pdf" },
+      { storageId: "kg_b", fileName: "b.xlsx" },
+    ];
+    const { attachments: _legacy, ...withoutTokens } = baseArgs;
+    await expect(
+      processPendingHandler(
+        { runMutation, runAction },
+        { ...withoutTokens, attachmentSources: sources, clientToken: "client-token-1" } as never,
+      ),
+    ).resolves.toMatchObject({ status: "synced", recordId: "rec_service_att" });
+
+    // The Drive upload_all happens in the worker (not the submit path)...
+    expect(uploadStagedSourcesToDrive).toHaveBeenCalledTimes(1);
+    expect(uploadStagedSourcesToDrive.mock.calls[0][1]).toEqual(sources);
+    // ...and the create writes the freshly minted tokens, not the storageIds.
+    expect(runAction.mock.calls[0][1]).toMatchObject({
+      attachments: [{ fileToken: "boxMINTED1" }, { fileToken: "boxMINTED2" }],
+    });
+  });
+
+  it("does NOT call Drive when only pre-minted attachments are supplied", async () => {
+    uploadStagedSourcesToDrive.mockClear();
+    const runAction = vi.fn().mockResolvedValueOnce({ recordId: "rec_service_pre" });
+    const runMutation = vi.fn().mockResolvedValueOnce({ detailUrl: null });
+
+    await processPendingHandler(
+      { runMutation, runAction },
+      { ...baseArgs, clientToken: "client-token-1" },
+    );
+
+    expect(uploadStagedSourcesToDrive).not.toHaveBeenCalled();
+    expect(runAction.mock.calls[0][1]).toMatchObject({
+      attachments: [{ fileToken: "boxcnAAA" }],
     });
   });
 });

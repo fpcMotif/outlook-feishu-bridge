@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 
+import type { Id } from "../../../convex/_generated/dataModel";
 import type { Coworker } from "./coworkers";
 import { initialIntakeState, intakeReducer } from "./intakeReducer";
 import { useCustomerAutoMatch } from "../../hooks/useCustomerAutoMatch";
@@ -174,7 +175,14 @@ export function useRequestIntakeScreen(
             `[intake] skipped ${staged.failed.length} attachment(s): ${staged.failed.map((f) => f.name).join(", ")}`,
           );
         }
-        return sync({ ...payload, attachments: staged.attachments });
+        // Hand the staged Convex storageIds straight to syncRequest; the deferred
+        // Base-write worker runs the Drive upload_all end-to-end (ADR-0022), so the
+        // submit returns "pending" fast instead of blocking on serial Drive uploads.
+        const attachmentSources = staged.sources.map((source) => ({
+          storageId: source.storageId as Id<"_storage">,
+          fileName: source.fileName,
+        }));
+        return sync({ ...payload, attachmentSources });
       })
       .then((result) => {
         if (activeSyncGenerationRef.current !== syncGeneration || !result.recordId) return;

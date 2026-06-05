@@ -1,9 +1,11 @@
 // Submit-time attachment pipeline (ADR-0022): the one seam RequestIntakeScreen
 // calls. Downloads checked mail attachments (Office.js getAttachmentContentAsync)
-// + collects valid uploads, stages the bytes to Convex File Storage, and mints
-// Feishu Drive file_tokens via uploadAttachmentsToDrive. Best-effort — a failed
-// mail download is reported, never fatal. Returns the { fileToken }[] the
-// syncRequest payload carries.
+// + collects valid uploads and stages the bytes to Convex File Storage. The
+// Feishu Drive upload_all that mints `file_token`s runs LATER, server-side in the
+// deferred Base-write worker — the submit path no longer blocks on it (ADR-0022
+// latency optimization). Best-effort — a failed mail download is reported, never
+// fatal. Returns the staged { storageId, fileName }[] the syncRequest payload
+// carries as `attachmentSources`.
 
 import { useCallback } from "react";
 
@@ -12,8 +14,9 @@ import {
   type AttachmentContentReader,
 } from "../../office/attachmentDownload";
 import {
-  stageAndUploadAttachments,
+  stageAttachmentSources,
   type AttachmentSource,
+  type StagedAttachmentSource,
 } from "../../office/attachmentUpload";
 import { dlog, dtime } from "../../debug";
 import type { OfficeLike } from "../../office/mailItem";
@@ -25,7 +28,7 @@ import {
 import type { UploadedFile } from "./intakeReducer";
 
 export interface AttachmentSyncResult {
-  attachments: { fileToken: string }[];
+  sources: StagedAttachmentSource[];
   failed: AttachmentFailure[];
 }
 
@@ -58,29 +61,26 @@ export function useAttachmentSync(): (
             );
 
       const gatherStarted = performance.now();
-      const { sources, failed } = await gatherAttachmentSources(
+      const { sources: gathered, failed } = await gatherAttachmentSources(
         downloadMail,
         selectedMail,
         uploads,
       );
       dtime(
-        `attachment source gather (${sources.length} ready, ${failed.length} failed)`,
+        `attachment source gather (${gathered.length} ready, ${failed.length} failed)`,
         gatherStarted,
       );
-      const tokenStarted = performance.now();
-      const attachments =
-        sources.length > 0
-          ? await stageAndUploadAttachments(stagingDeps, sources)
+      const stageStarted = performance.now();
+      const sources =
+        gathered.length > 0
+          ? await stageAttachmentSources(stagingDeps, gathered)
           : [];
+      dtime(`attachment storage pipeline (${sources.length} staged)`, stageStarted);
       dtime(
-        `attachment token pipeline (${attachments.length} tokens)`,
-        tokenStarted,
-      );
-      dtime(
-        `attachment sync total (${attachments.length} tokens, ${failed.length} failed)`,
+        `attachment sync total (${sources.length} staged, ${failed.length} failed)`,
         started,
       );
-      return { attachments, failed };
+      return { sources, failed };
     },
     [stagingDeps],
   );

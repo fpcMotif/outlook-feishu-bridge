@@ -1,11 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { SALES_DEFAULT_DELAY_MS, scheduleSalesDefault } from "./scheduleSalesDefault";
+import {
+  SALES_DEFAULT_DELAY_MS,
+  resetSalesDefaultForTests,
+  scheduleSalesDefault,
+} from "./scheduleSalesDefault";
 
 describe("scheduleSalesDefault", () => {
   const rafCallbacks: FrameRequestCallback[] = [];
 
   beforeEach(() => {
+    resetSalesDefaultForTests();
     rafCallbacks.length = 0;
     vi.useFakeTimers();
     vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
@@ -51,5 +56,16 @@ describe("scheduleSalesDefault", () => {
     for (const cb of rafCallbacks) cb(0);
     vi.advanceTimersByTime(SALES_DEFAULT_DELAY_MS);
     expect(apply).not.toHaveBeenCalled();
+  });
+
+  it("applies immediately after the first default in the session (no 2.5s on a context switch)", () => {
+    // First application consumes the one-time onboarding delay.
+    scheduleSalesDefault(vi.fn());
+    // A later application — e.g. a pinned-pane conversation switch — must not wait.
+    const onSwitch = vi.fn();
+    scheduleSalesDefault(onSwitch);
+    for (const cb of rafCallbacks) cb(0);
+    vi.advanceTimersByTime(1);
+    expect(onSwitch).toHaveBeenCalledTimes(1);
   });
 });

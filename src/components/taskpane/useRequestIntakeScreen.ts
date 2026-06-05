@@ -15,6 +15,12 @@ import {
 import { buildSyncPayload } from "./buildSyncPayload";
 import { useIntakeAttachments } from "./useIntakeAttachments";
 import { scheduleSalesDefault } from "./scheduleSalesDefault";
+import {
+  buildUploadDraftKey,
+  clearUploadDraft,
+  restoreUploadDraft,
+  snapshotUploadDraft,
+} from "./uploadDraftCache";
 import type { RequestIntakeScreenProps } from "./requestIntakeScreenProps";
 import type { RequestIntakeSyncApi } from "./requestIntakeSyncApi";
 
@@ -34,10 +40,42 @@ export function useRequestIntakeScreen(
   const { sync, existingSync } = syncApi;
   const existingSyncStatus = existingSync?.status ?? null;
   const { sendNote: sendSelfForwardNote } = useSelfForward();
-  const [state, dispatch] = useReducer(intakeReducer, mailItem.from, initialIntakeState);
+
+  // Per-conversation upload-draft restore (ADR-0022): keyed by Feishu openId +
+  // Outlook userEmail + conversationId. The Core is keyed by mailKey, so this lazy
+  // initializer runs ONCE per conversation mount and rehydrates that
+  // conversation's previously-cached completed uploads — StrictMode-safe (a
+  // dispatch would double-append).
+  const draftKey = useMemo(
+    () => buildUploadDraftKey(user?.openId, mailItem.userEmail, mailItem.conversationId),
+    [user?.openId, mailItem.userEmail, mailItem.conversationId],
+  );
+  const [state, dispatch] = useReducer(intakeReducer, draftKey, (key) =>
+    initialIntakeState({ mailFrom: mailItem.from, restoredUploads: restoreUploadDraft(key) }),
+  );
   const generationRef = useRef(0);
   const activeSyncGenerationRef = useRef<number | null>(null);
 
+  // Kept current each render so the unmount-cleanup effect snapshots the LEAVING
+  // conversation's FRESH state. It reads reducer state (which carries storageId on
+  // completed uploads), NOT completedStorage — the parent already cleared the
+  // per-id caches by unmount time.
+  const uploadsForDraftRef = useRef(state.uploadedFiles);
+  uploadsForDraftRef.current = state.uploadedFiles;
+  const draftKeyRef = useRef(draftKey);
+  draftKeyRef.current = draftKey;
+  const screenRef = useRef(state.screen);
+  screenRef.current = state.screen;
+
+  // A clean-slate reset on an email switch is driven by the per-conversation React
+  // key on this component (see deriveMailKey / RequestIntakeScreen): moving to a
+  // different conversation remounts and re-seeds this reducer, resetting notes,
+  // Sales, customer, attachments, and the sync screen. Sales is conversation-scoped
+  // like the rest of the request — within one thread there is no remount, so a
+  // reassigned Sales survives reading sibling replies before sync (ADR-0025). This
+  // guard is the only within-thread adjustment: a sibling message from a different
+  // sender refreshes the customer auto-match to the new domain. After a remount it
+  // is a harmless no-op (fresh state already seeds mailFrom).
   if (state.mailFrom !== mailItem.from) {
     dispatch({ type: "mailFromChanged", mailFrom: mailItem.from });
   }
@@ -106,6 +144,21 @@ export function useRequestIntakeScreen(
       });
     });
   }, [user?.openId, user?.userName, user?.avatarUrl]);
+
+  // On unmount (conversation switch on a pinned pane) snapshot this conversation's
+  // completed uploads so returning restores them. If it was already synced
+  // ("received"), CLEAR instead — its storageIds are consumed/deleted server-side
+  // after a successful sync, so a restored draft would point at dead blobs.
+  useEffect(() => {
+    return () => {
+      const key = draftKeyRef.current;
+      if (screenRef.current === "received") {
+        clearUploadDraft(key);
+      } else {
+        snapshotUploadDraft(key, uploadsForDraftRef.current);
+      }
+    };
+  }, []);
 
   const selectCoworker = (coworker: Coworker) => {
     dispatch({ type: "coworkerSelected", coworker });
@@ -184,6 +237,9 @@ export function useRequestIntakeScreen(
           recordId: result.recordId,
           detailUrl: result.detailUrl ?? null,
         });
+        // The staged blobs are deleted server-side after a successful Drive mint,
+        // so this conversation's cached storageIds are now dead — drop the draft.
+        clearUploadDraft(draftKey);
       })
       .catch((e: unknown) => {
         if (activeSyncGenerationRef.current !== syncGeneration) return;
@@ -192,7 +248,7 @@ export function useRequestIntakeScreen(
       });
     if (state.selfForwardStatus !== "ok") void fireSelfForward();
     return baseWrite;
-  }, [sync, mailItem, state, user, requestNote, fireSelfForward, stageSelected]);
+  }, [sync, mailItem, state, user, requestNote, fireSelfForward, stageSelected, draftKey]);
 
   const applyExistingSyncUpdate = useCallback(() => {
     if (activeSyncGenerationRef.current === null) return;

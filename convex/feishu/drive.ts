@@ -131,34 +131,56 @@ export const uploadAttachmentsToDrive = action({
   args: {
     sources: v.array(v.object({ storageId: v.id("_storage"), fileName: v.string() })),
   },
-  handler: async (ctx, args): Promise<{ attachments: { fileToken: string }[] }> => {
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ attachments: { fileToken: string }[]; skipped: string[] }> => {
     const appToken = process.env.FEISHU_BITABLE_APP_TOKEN;
     if (!appToken) throw new Error("FEISHU_BITABLE_APP_TOKEN must be set");
-    if (args.sources.length === 0) return { attachments: [] };
+    if (args.sources.length === 0) return { attachments: [], skipped: [] };
 
-    const [tenantToken, firstPrepared] = await Promise.all([
-      resolveFeishuToken(ctx, "tenant"),
-      prepareDriveSource(ctx, args.sources[0]),
-    ]);
-    let nextPrepared: Promise<PreparedDriveSource> | null = null;
+    // Kick the first storage read off alongside the token resolve, but mark it
+    // handled so a rejected prepare (a dead/GC'd storageId, or >20 MB) never
+    // surfaces as an unhandled rejection while it waits to be consumed below.
+    const tenantTokenPromise = resolveFeishuToken(ctx, "tenant");
+    const startPrepare = (source: DriveSource): Promise<PreparedDriveSource> => {
+      const prepared = prepareDriveSource(ctx, source);
+      void prepared.catch(() => {});
+      return prepared;
+    };
+    let nextPrepared: Promise<PreparedDriveSource> | null = startPrepare(args.sources[0]);
+    const tenantToken = await tenantTokenPromise;
 
     // SERIAL, not Promise.all: `medias/upload_all` does not support concurrent
-    // calls and is QPS-limited (ADR-0022). We only prefetch one storage blob
-    // ahead so the current Drive upload overlaps the next Convex storage read
-    // without holding every selected attachment in action memory at once.
+    // calls and is QPS-limited (ADR-0022). We prefetch one storage blob ahead so
+    // the current Drive upload overlaps the next Convex storage read.
+    // PER-FILE fault tolerance: a dead storageId (a GC'd or already-consumed
+    // staged file — e.g. a restored draft pointing at a synced-then-deleted blob)
+    // is SKIPPED, never aborting the batch. An attachment failure must never flip
+    // the whole sync to syncFailed and discard the user's just-typed notes.
     const attachments: { fileToken: string }[] = [];
+    const skipped: string[] = [];
     for (let index = 0; index < args.sources.length; index++) {
-      // eslint-disable-next-line react-doctor/async-await-in-loop -- bounded pipeline: each Drive upload depends on this prepared source
-      const source = index === 0 ? firstPrepared : await nextPrepared!;
+      const prepared = nextPrepared!;
       const afterNext = args.sources[index + 1];
-      nextPrepared = afterNext ? prepareDriveSource(ctx, afterNext) : null;
-      // eslint-disable-next-line react-doctor/async-await-in-loop -- serial by design: medias/upload_all is 5 QPS-limited (ADR-0022); parallel trips 99991400
-      const fileToken = await withDriveRateLimitRetry(() =>
-        uploadMediaToDrive(ctx, new Blob([source.bytes]), source.fileName, appToken, tenantToken),
-      );
-      await ctx.storage.delete(source.storageId);
-      attachments.push({ fileToken });
+      nextPrepared = afterNext ? startPrepare(afterNext) : null;
+      const fileName = args.sources[index].fileName;
+      try {
+        // eslint-disable-next-line react-doctor/async-await-in-loop -- bounded pipeline: each Drive upload depends on this prepared source
+        const source = await prepared;
+        // eslint-disable-next-line react-doctor/async-await-in-loop -- serial by design: medias/upload_all is 5 QPS-limited (ADR-0022); parallel trips 99991400
+        const fileToken = await withDriveRateLimitRetry(() =>
+          uploadMediaToDrive(ctx, new Blob([source.bytes]), source.fileName, appToken, tenantToken),
+        );
+        // eslint-disable-next-line react-doctor/async-await-in-loop -- cleanup tied to this iteration's upload
+        await ctx.storage.delete(source.storageId);
+        attachments.push({ fileToken });
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : String(e);
+        console.warn(`[drive] skipped attachment "${fileName}": ${message}`);
+        skipped.push(fileName);
+      }
     }
-    return { attachments };
+    return { attachments, skipped };
   },
 });

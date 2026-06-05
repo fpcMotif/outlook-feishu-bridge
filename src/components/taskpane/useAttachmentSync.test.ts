@@ -24,7 +24,7 @@ describe("useAttachmentSync", () => {
   it("stages valid uploads and returns the minted tokens (no Office host needed)", async () => {
     const deps = { marker: "deps" };
     useAttachmentStaging.mockReturnValue(deps);
-    stageAndUploadAttachments.mockResolvedValue([{ fileToken: "tok" }]);
+    stageAndUploadAttachments.mockResolvedValue({ attachments: [{ fileToken: "tok" }], skipped: [] });
 
     const { result } = renderHook(() => useAttachmentSync());
     const uploads: UploadedFile[] = [
@@ -39,7 +39,7 @@ describe("useAttachmentSync", () => {
 
   it("best-effort: a selected mail attachment fails to download outside an Office host", async () => {
     useAttachmentStaging.mockReturnValue({});
-    stageAndUploadAttachments.mockResolvedValue([]);
+    stageAndUploadAttachments.mockResolvedValue({ attachments: [], skipped: [] });
 
     const { result } = renderHook(() => useAttachmentSync());
     const out = await result.current([{ id: "m1", name: "rfq.pdf" }], []);

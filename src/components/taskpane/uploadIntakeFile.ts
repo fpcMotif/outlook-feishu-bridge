@@ -30,6 +30,18 @@ export function clearIntakeUploadCache(id: string): void {
   inFlight.delete(id);
 }
 
+/**
+ * Drop ALL module-level upload bookkeeping. These Maps live outside React, so a
+ * key-remount of the intake tree does not clear them; call this when the intake
+ * context (conversation) switches on a long-lived pinned pane so stale storage
+ * ids cannot ride into the next conversation and completedStorage cannot grow
+ * unbounded across a marathon session. Idempotent (safe under StrictMode).
+ */
+export function resetIntakeUploadCaches(): void {
+  inFlight.clear();
+  completedStorage.clear();
+}
+
 export function intakeUploadInFlight(id: string): Promise<void> | undefined {
   return inFlight.get(id);
 }

@@ -2,7 +2,7 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { SALES_DEFAULT_DELAY_MS } from "./scheduleSalesDefault";
+import { resetSalesDefaultForTests, SALES_DEFAULT_DELAY_MS } from "./scheduleSalesDefault";
 
 let mockExistingSync:
   | {
@@ -151,6 +151,7 @@ async function searchCoworker(name: string) {
 }
 
 beforeEach(() => {
+  resetSalesDefaultForTests();
   localStorage.clear();
   customerDirectoryRecords = [FANPC, MICROSOFT];
   mockExistingSync = null;

@@ -42,7 +42,10 @@ describe("stageAndUploadAttachments", () => {
       uploadToDrive: vi.fn(),
     };
 
-    await expect(stageAndUploadAttachments(deps, [])).resolves.toEqual([]);
+    await expect(stageAndUploadAttachments(deps, [])).resolves.toEqual({
+      attachments: [],
+      skipped: [],
+    });
     expect(deps.generateUploadUrl).not.toHaveBeenCalled();
     expect(deps.uploadToDrive).not.toHaveBeenCalled();
   });
@@ -61,6 +64,7 @@ describe("stageAndUploadAttachments", () => {
         .mockResolvedValueOnce({ storageId: "st_b" }),
       uploadToDrive: vi.fn().mockResolvedValue({
         attachments: [{ fileToken: "tok_a" }, { fileToken: "tok_b" }],
+        skipped: [],
       }),
     };
 
@@ -69,7 +73,10 @@ describe("stageAndUploadAttachments", () => {
         { name: "a.pdf", blob: a },
         { name: "b.png", blob: b },
       ]),
-    ).resolves.toEqual([{ fileToken: "tok_a" }, { fileToken: "tok_b" }]);
+    ).resolves.toEqual({
+      attachments: [{ fileToken: "tok_a" }, { fileToken: "tok_b" }],
+      skipped: [],
+    });
 
     expect(deps.generateUploadUrl).toHaveBeenCalledTimes(2);
     expect(deps.uploadBytes).toHaveBeenNthCalledWith(1, "https://up/1", a);
@@ -87,6 +94,7 @@ describe("stageAndUploadAttachments", () => {
       uploadBytes: vi.fn(),
       uploadToDrive: vi.fn().mockResolvedValue({
         attachments: [{ fileToken: "tok_cached" }],
+        skipped: [],
       }),
     };
 
@@ -94,7 +102,7 @@ describe("stageAndUploadAttachments", () => {
       stageAndUploadAttachments(deps, [
         { name: "cached.pdf", storageId: "st_cached" },
       ]),
-    ).resolves.toEqual([{ fileToken: "tok_cached" }]);
+    ).resolves.toEqual({ attachments: [{ fileToken: "tok_cached" }], skipped: [] });
 
     expect(deps.generateUploadUrl).not.toHaveBeenCalled();
     expect(deps.uploadBytes).not.toHaveBeenCalled();

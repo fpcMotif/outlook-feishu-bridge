@@ -43,6 +43,35 @@ describe("initialIntakeState", () => {
   });
 });
 
+describe("intakeReducer upload restore", () => {
+  const file = (id: string): UploadedFile => ({
+    id,
+    file: new File([], `${id}.pdf`, { type: "application/pdf" }),
+    rejection: null,
+    selected: true,
+    status: "complete",
+    progress: 100,
+    storageId: `st_${id}`,
+    uploadError: null,
+  });
+
+  it("seeds uploadedFiles from the object initializer (restore-on-mount)", () => {
+    const s = initialIntakeState({ mailFrom: "a@b.com", restoredUploads: [file("u1")] });
+    expect(s.uploadedFiles.map((u) => u.id)).toEqual(["u1"]);
+    expect(s.clientEmail).toBe("a@b.com");
+  });
+
+  it("the legacy string initializer seeds no uploads", () => {
+    expect(initialIntakeState("a@b.com").uploadedFiles).toEqual([]);
+  });
+
+  it("uploadsRestored appends without dropping existing uploads", () => {
+    const base = initialIntakeState({ mailFrom: "a@b.com", restoredUploads: [file("u1")] });
+    const next = intakeReducer(base, { type: "uploadsRestored", files: [file("u2")] });
+    expect(next.uploadedFiles.map((u) => u.id)).toEqual(["u1", "u2"]);
+  });
+});
+
 describe("intakeReducer sales selection", () => {
   const base = initialIntakeState("a@b.com");
 
@@ -71,6 +100,7 @@ describe("intakeReducer sales selection", () => {
     expect(blocked.selectedSales?.openId).toBe("ou_other");
     expect(blocked.salesTouched).toBe(true);
   });
+
 });
 
 describe("intakeReducer request state", () => {

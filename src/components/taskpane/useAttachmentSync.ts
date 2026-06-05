@@ -68,19 +68,28 @@ export function useAttachmentSync(): (
         gatherStarted,
       );
       const tokenStarted = performance.now();
-      const attachments =
+      const drive =
         sources.length > 0
           ? await stageAndUploadAttachments(stagingDeps, sources)
-          : [];
+          : { attachments: [], skipped: [] };
+      // A Drive-skipped file (dead/GC'd storageId) is surfaced as a soft failure,
+      // never fatal — the Base row is still created with the tokens that minted.
+      const allFailed: AttachmentFailure[] = [
+        ...failed,
+        ...drive.skipped.map((name) => ({
+          name,
+          reason: "Attachment file was unavailable and was skipped",
+        })),
+      ];
       dtime(
-        `attachment token pipeline (${attachments.length} tokens)`,
+        `attachment token pipeline (${drive.attachments.length} tokens, ${drive.skipped.length} skipped)`,
         tokenStarted,
       );
       dtime(
-        `attachment sync total (${attachments.length} tokens, ${failed.length} failed)`,
+        `attachment sync total (${drive.attachments.length} tokens, ${allFailed.length} failed)`,
         started,
       );
-      return { attachments, failed };
+      return { attachments: drive.attachments, failed: allFailed };
     },
     [stagingDeps],
   );

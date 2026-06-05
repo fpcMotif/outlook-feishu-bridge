@@ -27,7 +27,18 @@ function selectedAttachmentCount(state: IntakeState): number {
   );
 }
 
-export function initialIntakeState(mailFrom: string): IntakeState {
+// Accepts a bare sender string (the ~dozen existing call sites) or an object that
+// also seeds restored upload drafts — the StrictMode-safe restore vehicle, since a
+// useReducer lazy initializer runs exactly once per mount (a dispatch would
+// double-append). See uploadDraftCache / useRequestIntakeScreen.
+type InitialIntakeArg =
+  | string
+  | { mailFrom: string; restoredUploads?: UploadedFile[] };
+
+export function initialIntakeState(arg: InitialIntakeArg): IntakeState {
+  const mailFrom = typeof arg === "string" ? arg : arg.mailFrom;
+  const restoredUploads =
+    typeof arg === "string" ? [] : (arg.restoredUploads ?? []);
   return {
     notes: {},
     clientEmail: mailFrom,
@@ -45,7 +56,7 @@ export function initialIntakeState(mailFrom: string): IntakeState {
     selfForwardError: null,
     selectedAttachmentIds: [],
     dismissedMailAttachmentIds: [],
-    uploadedFiles: [],
+    uploadedFiles: restoredUploads,
   };
 }
 
@@ -138,6 +149,11 @@ export function intakeReducer(
       };
     }
     case "filesAdded":
+      return {
+        ...state,
+        uploadedFiles: [...state.uploadedFiles, ...action.files],
+      };
+    case "uploadsRestored":
       return {
         ...state,
         uploadedFiles: [...state.uploadedFiles, ...action.files],

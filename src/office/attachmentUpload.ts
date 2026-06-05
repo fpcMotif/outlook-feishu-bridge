@@ -52,7 +52,7 @@ export interface AttachmentStagingDeps {
   uploadBytes: (url: string, blob: Blob) => Promise<{ storageId: string }>;
   uploadToDrive: (
     sources: { storageId: string; fileName: string }[],
-  ) => Promise<{ attachments: { fileToken: string }[] }>;
+  ) => Promise<{ attachments: { fileToken: string }[]; skipped: string[] }>;
 }
 
 // Stage each blob to Convex File Storage, then mint Feishu Drive file_tokens in
@@ -61,8 +61,8 @@ export interface AttachmentStagingDeps {
 export async function stageAndUploadAttachments(
   deps: AttachmentStagingDeps,
   sources: AttachmentSource[],
-): Promise<{ fileToken: string }[]> {
-  if (sources.length === 0) return [];
+): Promise<{ attachments: { fileToken: string }[]; skipped: string[] }> {
+  if (sources.length === 0) return { attachments: [], skipped: [] };
   const stageStarted = performance.now();
   const staged = await Promise.all(
     sources.map(async (source) => {
@@ -81,12 +81,12 @@ export async function stageAndUploadAttachments(
   );
   dtime(`attachment storage stage (${staged.length} files)`, stageStarted);
   const driveStarted = performance.now();
-  const { attachments } = await deps.uploadToDrive(staged);
+  const { attachments, skipped } = await deps.uploadToDrive(staged);
   dtime(
-    `attachment drive token mint (${attachments.length} files)`,
+    `attachment drive token mint (${attachments.length} files, ${skipped.length} skipped)`,
     driveStarted,
   );
-  return attachments;
+  return { attachments, skipped };
 }
 
 // Default uploadBytes: POST raw bytes to a Convex storage upload URL (1 h TTL),

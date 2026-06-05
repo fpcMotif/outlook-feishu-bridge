@@ -74,6 +74,10 @@ export type IntakeAction =
   | { type: "attachmentToggled"; id: string }
   | { type: "mailAttachmentRemoved"; id: string }
   | { type: "filesAdded"; files: UploadedFile[] }
+  // Append restored upload drafts (per-conversation cache). Production restore
+  // seeds via the useReducer lazy initializer (StrictMode-safe); this action is a
+  // documented, unit-tested seam.
+  | { type: "uploadsRestored"; files: UploadedFile[] }
   | { type: "uploadedFileToggled"; id: string }
   | { type: "uploadedFilesSelectionChanged"; ids: string[] }
   | { type: "uploadedFileRemoved"; id: string }

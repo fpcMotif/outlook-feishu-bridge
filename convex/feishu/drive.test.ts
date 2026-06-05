@@ -31,7 +31,7 @@ const APP_TOKEN = "appToken123";
 type UploadAttachmentsHandler = (
   ctx: ActionCtx,
   args: { sources: { storageId: string; fileName: string }[] },
-) => Promise<{ attachments: { fileToken: string }[] }>;
+) => Promise<{ attachments: { fileToken: string }[]; skipped: string[] }>;
 
 const uploadAttachmentsHandler = (
   uploadAttachmentsToDrive as unknown as { _handler: UploadAttachmentsHandler }
@@ -111,6 +111,7 @@ describe("uploadAttachmentsToDrive action", () => {
       }),
     ).resolves.toEqual({
       attachments: [{ fileToken: "tokenA" }, { fileToken: "tokenB" }],
+      skipped: [],
     });
 
     expect(getStorageBytes).toHaveBeenNthCalledWith(1, ctx, "kg_a");
@@ -150,11 +151,12 @@ describe("uploadAttachmentsToDrive action", () => {
     resolveFirstUpload({ file_token: "tokenA" });
     await expect(pending).resolves.toEqual({
       attachments: [{ fileToken: "tokenA" }, { fileToken: "tokenB" }, { fileToken: "tokenC" }],
+      skipped: [],
     });
     expect(getStorageBytes).toHaveBeenCalledTimes(3);
   });
 
-  it("rejects an oversized staged file BEFORE uploading or deleting", async () => {
+  it("skips an oversized staged file (per-file tolerant) without uploading or deleting it", async () => {
     const oversized = new Uint8Array(MAX_MEDIA_UPLOAD_BYTES + 1).buffer;
     getStorageBytes.mockResolvedValueOnce(oversized);
 
@@ -162,10 +164,36 @@ describe("uploadAttachmentsToDrive action", () => {
       uploadAttachmentsHandler(ctx, {
         sources: [{ storageId: "kg_big", fileName: "huge.pdf" }],
       }),
-    ).rejects.toThrow(/20 MB/);
+    ).resolves.toEqual({ attachments: [], skipped: ["huge.pdf"] });
 
     expect(callFeishu).not.toHaveBeenCalled();
     expect(storageDelete).not.toHaveBeenCalled();
+  });
+
+  it("skips a dead storageId (404) and still mints the healthy file's token", async () => {
+    // First source's bytes are gone (GC'd / already-consumed staged blob — the
+    // common restored-draft case); the second is healthy.
+    getStorageBytes
+      .mockRejectedValueOnce(new Error("Storage file not found"))
+      .mockResolvedValueOnce(new Uint8Array([7, 7]).buffer);
+    callFeishu.mockResolvedValueOnce({ file_token: "tokenLive" });
+
+    await expect(
+      uploadAttachmentsHandler(ctx, {
+        sources: [
+          { storageId: "kg_dead", fileName: "dead.pdf" },
+          { storageId: "kg_live", fileName: "live.pdf" },
+        ],
+      }),
+    ).resolves.toEqual({
+      attachments: [{ fileToken: "tokenLive" }],
+      skipped: ["dead.pdf"],
+    });
+
+    // The dead file never uploads or deletes; the healthy one mints + deletes once.
+    expect(callFeishu).toHaveBeenCalledTimes(1);
+    expect(storageDelete).toHaveBeenCalledTimes(1);
+    expect(storageDelete).toHaveBeenCalledWith("kg_live");
   });
 
   it("throws when FEISHU_BITABLE_APP_TOKEN is unset", async () => {

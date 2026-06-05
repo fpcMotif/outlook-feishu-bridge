@@ -3,6 +3,7 @@ import { useAction, useQuery, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import type { FeishuUser } from "../components/taskpane/feishuUser";
 import { clearAuthSnapshot } from "./feishuAuthSnapshot";
+import { resetUploadDrafts } from "../components/taskpane/uploadDraftCache";
 import {
   useAuthState,
   useProactiveTouch,
@@ -184,6 +185,11 @@ function useAuthActions({
   const logout = useCallback(async () => {
     localStorage.removeItem(FALLBACK_KEY);
     clearAuthSnapshot();
+    // The upload-draft Map is SPA-session lifetime and the pinned pane survives
+    // sign-out without a reload — wipe it so one user's file names + live
+    // storageIds never linger for the next account (defense in depth atop the
+    // openId-scoped key).
+    resetUploadDrafts();
     setFallback(null);
     await logoutMutation({ sessionId });
   }, [logoutMutation, sessionId, setFallback]);

@@ -57,9 +57,9 @@ import {
 import {
   DEV_CUSTOMER_FIXTURES,
   isDevCustomerFixturesEnabled,
-  mergePreferredCustomers,
   searchDevCustomerFixtures,
 } from "./devCustomerFixtures";
+import { mergePreferredCustomers } from "./searchResultMerge";
 
 export { buildSearchBlob } from "./customerMirrorRows";
 

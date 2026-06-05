@@ -1,4 +1,5 @@
 import type { CustomerRecord } from "./customers";
+import { mergePreferredCustomers } from "./searchResultMerge";
 
 // Dirty dev-only Customer fixtures. These are intentionally NOT Feishu
 // Bitable rows: they exist so the dev deployment can exercise the same
@@ -47,27 +48,6 @@ export function isDevCustomerFixturesEnabled(): boolean {
   return (
     process.env.ENABLE_DEV_CUSTOMER_FIXTURES === "true" || deployment.startsWith("dev:")
   );
-}
-
-export function mergePreferredCustomers(
-  preferred: readonly CustomerRecord[],
-  records: readonly CustomerRecord[],
-): CustomerRecord[] {
-  const preferredIds = new Set(preferred.map((customer) => customer.recordId));
-  const preferredDomains = new Set(
-    preferred.flatMap((customer) => {
-      const domain = customer.domain?.trim().toLowerCase();
-      return domain ? [domain] : [];
-    }),
-  );
-  return [
-    ...preferred,
-    ...records.filter((customer) => {
-      if (preferredIds.has(customer.recordId)) return false;
-      const domain = customer.domain?.trim().toLowerCase();
-      return domain === undefined || !preferredDomains.has(domain);
-    }),
-  ];
 }
 
 export function withDevCustomerFixtures(records: readonly CustomerRecord[]): CustomerRecord[] {

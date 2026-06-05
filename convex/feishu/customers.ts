@@ -16,10 +16,10 @@ import { v } from "convex/values";
 import { action, type ActionCtx } from "../_generated/server";
 import { callFeishu } from "./call";
 import {
-  mergePreferredCustomers,
   searchDevCustomerFixtures,
   withDevCustomerFixtures,
 } from "./devCustomerFixtures";
+import { mergePreferredCustomers } from "./searchResultMerge";
 
 // Same Base as the Service table (FEISHU_BITABLE_APP_TOKEN). The customer
 // table id is fixed — see ADR-0012's "Client linkage (domain match)" section.

@@ -15,12 +15,18 @@ import {
   maxReportedTotal,
   nextPageTokenOrStop,
   pageSlotWaitMs,
+  runMirrorRefresh,
   shouldPruneStaleRows,
   stalePageIds,
   stopReasonForPage,
   type AppliedPage,
+  type FeishuRecord,
+  type MirrorRefreshPort,
+  type MirrorStopReason,
   type PrunableRow,
+  type PruneTotals,
   type SearchResponse,
+  type SyncTotals,
 } from "./customerMirrorSync";
 
 beforeEach(() => {
@@ -203,5 +209,159 @@ describe("addPrunePage", () => {
     );
     addPrunePage(totals, [{ _id: "c", recordId: "rec_c" }], []);
     expect(totals).toEqual({ scanned: 3, deleted: 1 });
+  });
+});
+
+// The whole Mirror Refresh driven through an in-memory fake port — no Convex.
+// This is the test surface the deepened engine interface buys: the page-walk,
+// completeness promotion, and the all-or-nothing prune gate are exercised end to
+// end without mocking the Convex action runtime.
+
+type FinishArgs = {
+  totals: SyncTotals;
+  mirroredAt: number;
+  hadMore: boolean;
+  stopReason: MirrorStopReason;
+  prune: PruneTotals;
+};
+
+function rec(id: string): FeishuRecord {
+  return { record_id: id, fields: {} };
+}
+
+function makeFakePort(pages: SearchResponse[], seedOrphans: string[] = []) {
+  const sleeps: number[] = [];
+  const store = new Map<string, number>();
+  for (const id of seedOrphans) store.set(id, 0);
+  let clock = 1000;
+  let pageIdx = 0;
+  let tombstoneCalls = 0;
+  let devFixtureCalls = 0;
+
+  const port: MirrorRefreshPort<FinishArgs> = {
+    clock: {
+      now: () => clock,
+      sleep: async (ms) => {
+        sleeps.push(ms);
+        if (ms > 0) clock += ms;
+      },
+    },
+    fetchPage: async () => pages[pageIdx++] ?? { has_more: false },
+    applyPage: async (items, mirroredAt) => {
+      const recordIds = items.map((i) => i.record_id);
+      let inserted = 0;
+      let unchanged = 0;
+      for (const id of recordIds) {
+        if (store.has(id)) unchanged += 1;
+        else {
+          store.set(id, mirroredAt);
+          inserted += 1;
+        }
+      }
+      return {
+        inserted,
+        updated: 0,
+        unchanged,
+        duplicateRows: 0,
+        rowCount: items.length,
+        firstRecordId: recordIds[0] ?? "(none)",
+        lastRecordId: recordIds.at(-1) ?? "(none)",
+        recordIds,
+      };
+    },
+    applyDevFixtures: async () => {
+      devFixtureCalls += 1;
+    },
+    tombstone: async (seen) => {
+      tombstoneCalls += 1;
+      const scanned = store.size;
+      let deleted = 0;
+      for (const id of [...store.keys()]) {
+        if (!seen.has(id)) {
+          store.delete(id);
+          deleted += 1;
+        }
+      }
+      return { scanned, deleted };
+    },
+    finish: async (args) => args,
+  };
+
+  return {
+    port,
+    store,
+    sleeps,
+    get tombstoneCalls() {
+      return tombstoneCalls;
+    },
+    get devFixtureCalls() {
+      return devFixtureCalls;
+    },
+  };
+}
+
+describe("runMirrorRefresh (engine)", () => {
+  it("pages to completion, tombstones orphans, returns a complete result", async () => {
+    const fake = makeFakePort(
+      [
+        { items: [rec("a"), rec("b")], has_more: true, page_token: "t1", total: 3 },
+        { items: [rec("c")], has_more: false, total: 3 },
+      ],
+      ["orphan"],
+    );
+    const result = await runMirrorRefresh(fake.port, { startedAt: 5000 });
+    expect(result.stopReason).toBe("complete");
+    expect(result.mirroredAt).toBe(5000);
+    expect(result.totals.pages).toBe(2);
+    expect(result.totals.sourceRows).toBe(3);
+    expect(fake.devFixtureCalls).toBe(1);
+    expect(fake.tombstoneCalls).toBe(1);
+    expect(result.prune.deleted).toBe(1);
+    expect(fake.store.has("orphan")).toBe(false);
+    expect([...fake.store.keys()].sort()).toEqual(["a", "b", "c"]);
+  });
+
+  it("promotes a row shortfall to incompleteTotal and SKIPS the prune (safety gate)", async () => {
+    const fake = makeFakePort([{ items: [rec("a")], has_more: false, total: 5 }], ["orphan"]);
+    const result = await runMirrorRefresh(fake.port);
+    expect(result.stopReason).toBe("incompleteTotal");
+    expect(fake.tombstoneCalls).toBe(0);
+    expect(result.prune).toEqual({ scanned: 0, deleted: 0 });
+    expect(fake.store.has("orphan")).toBe(true);
+  });
+
+  it("stops on a missing page token without pruning", async () => {
+    const fake = makeFakePort(
+      [{ items: [rec("a")], has_more: true, page_token: undefined }],
+      ["orphan"],
+    );
+    const result = await runMirrorRefresh(fake.port);
+    expect(result.stopReason).toBe("missingPageToken");
+    expect(fake.tombstoneCalls).toBe(0);
+    expect(fake.store.has("orphan")).toBe(true);
+  });
+
+  it("stops on a duplicate page token (loop guard) without pruning", async () => {
+    const fake = makeFakePort(
+      [
+        { items: [rec("a")], has_more: true, page_token: "dup", total: 99 },
+        { items: [rec("b")], has_more: true, page_token: "dup", total: 99 },
+      ],
+      ["orphan"],
+    );
+    const result = await runMirrorRefresh(fake.port);
+    expect(result.stopReason).toBe("duplicatePageToken");
+    expect(fake.tombstoneCalls).toBe(0);
+    expect(fake.store.has("orphan")).toBe(true);
+  });
+
+  it("paces pages ~60ms apart, with no wait before the first page", async () => {
+    const fake = makeFakePort([
+      { items: [rec("a")], has_more: true, page_token: "t1", total: 2 },
+      { items: [rec("b")], has_more: false, total: 2 },
+    ]);
+    await runMirrorRefresh(fake.port, { startedAt: 1000 });
+    expect(fake.sleeps[0]).toBe(0);
+    expect(fake.sleeps[1]).toBe(60);
   });
 });

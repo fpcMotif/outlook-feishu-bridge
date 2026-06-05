@@ -1,18 +1,18 @@
-// Pure pagination/orchestration state machine for the Customer Mirror full
-// sync (ADR-0016, audit be-customers-2). Everything here is PURE — no ctx, no
-// db, no I/O — so the page-to-page advance, completeness/watermark accounting,
-// and stop-reason logic can be unit-tested in isolation. The Convex action in
-// customersMirror.ts owns the effectful fetch/apply per page and delegates
-// every decision to the helpers below.
-//
-// The Mirror Refresh pages the Customer Table until Feishu reports
-// has_more=false, then stamps the Mirror Watermark. A clean stop is only truly
-// complete when the rows we paged match Feishu's reported `total`; a shortfall
-// or a non-clean stop reason is promoted to a hard, audited failure.
+// The Customer Mirror Refresh engine (ADR-0016). PURE helpers + a port-injected
+// driver (runMirrorRefresh) — no ctx/db/I/O — so the page-walk, completeness,
+// prune gate, and watermark accounting are unit-testable in isolation against an
+// in-memory fake; the Convex adapter (customersMirror.ts) supplies the real port.
+// A clean stop is only truly complete when paged rows match Feishu's `total`.
+
+// One Feishu Base record as the page loop reads it.
+export interface FeishuRecord {
+  record_id: string;
+  fields: Record<string, unknown>;
+}
 
 // One Feishu record/search page response (the fields the loop reads).
 export interface SearchResponse {
-  items?: { record_id: string; fields: Record<string, unknown> }[];
+  items?: FeishuRecord[];
   has_more?: boolean;
   page_token?: string;
   // Feishu records/search returns the table's total record count on every page
@@ -150,14 +150,11 @@ export function logMirrorPage(pageNumber: number, page: AppliedPage, data: Searc
   );
 }
 
-// --- Mirror Prune (tombstone) ----------------------------------------------
-// The mirror upserts keyed by recordId but never deleted rows, so a Customer
-// removed/re-imported in Feishu (which mints a fresh record_id) left an orphan
-// in Convex forever — the mirror drifted to 2-5x the live Customer Table. The
-// Mirror Prune deletes any Convex row whose recordId was NOT observed in the
-// authoritative source during a *complete* sync. Everything here is PURE so the
-// stale-detection and the all-or-nothing safety gate are unit-testable; the
-// effectful pagination + delete fan-out lives in customersMirror.ts (ADR-0021).
+// --- Mirror Prune (tombstone, ADR-0021) ------------------------------------
+// The mirror upserts but never deleted, so a Customer removed/re-imported in
+// Feishu (fresh record_id) left an orphan forever — drifting to 2-5x the live
+// table. Prune tombstones any mirror row whose recordId was NOT observed during
+// a *complete* sync. PURE: stale-detection + the all-or-nothing gate are testable.
 
 // A row read back from the mirror during the prune scan — only its id and its
 // natural key matter for the stale decision.
@@ -204,4 +201,99 @@ export function addPrunePage<TId>(
 ): void {
   totals.scanned += scannedRows.length;
   totals.deleted += deletedIds.length;
+}
+
+// --- Mirror Refresh engine ---------------------------------------------------
+// Port-injected driver for one Mirror Refresh: page-walk → completeness → the
+// all-or-nothing prune gate → finish (ADR-0019 extract-then-test, ADR-0021 prune).
+
+// ~60ms between pages keeps the walk under Feishu's documented 20 req/sec ceiling.
+export const MIRROR_PAGE_REQUEST_INTERVAL_MS = 60;
+
+// One applied page plus the recordIds it wrote (folded into the "seen this sync" set).
+export interface AppliedPageWithIds extends AppliedPage {
+  recordIds: string[];
+}
+
+export interface PageWalkResult {
+  totals: SyncTotals;
+  hadMore: boolean;
+  stopReason: MirrorStopReason;
+}
+
+// The seam: everything effectful the Mirror Refresh needs. The prod adapter wires
+// these to Convex/Feishu; tests pass an in-memory fake (a virtual clock, scripted
+// pages, a Map-backed apply/tombstone) and exercise the whole engine without Convex.
+export interface MirrorRefreshPort<R> {
+  clock: { now: () => number; sleep: (ms: number) => Promise<void> };
+  fetchPage: (pageToken: string | undefined) => Promise<SearchResponse>;
+  applyPage: (items: readonly FeishuRecord[], mirroredAt: number) => Promise<AppliedPageWithIds>;
+  applyDevFixtures: (totals: SyncTotals, mirroredAt: number, seen: Set<string>) => Promise<void>;
+  // Invoked ONLY when the engine's prune gate passes (never on a non-complete sync).
+  tombstone: (seen: Set<string>) => Promise<PruneTotals>;
+  finish: (args: {
+    totals: SyncTotals;
+    mirroredAt: number;
+    hadMore: boolean;
+    stopReason: MirrorStopReason;
+    prune: PruneTotals;
+  }) => Promise<R>;
+}
+
+// Page the source via the port until a stop reason fires, recording every written
+// recordId into `seenRecordIds` (the prune's liveness set) via the tested helpers.
+async function walkMirrorPages<R>(
+  port: MirrorRefreshPort<R>,
+  mirroredAt: number,
+  seenRecordIds: Set<string>,
+): Promise<PageWalkResult> {
+  const seenPageTokens = new Set<string>();
+  const totals = emptyTotals();
+  let hadMore = false;
+  let stopReason: MirrorStopReason = "complete";
+  let pageToken: string | undefined;
+  let previousRequestStartedAt = 0;
+  for (;;) {
+    const waitMs = pageSlotWaitMs(
+      previousRequestStartedAt,
+      MIRROR_PAGE_REQUEST_INTERVAL_MS,
+      port.clock.now(),
+    );
+    await port.clock.sleep(waitMs);
+    previousRequestStartedAt = port.clock.now();
+    const data = await port.fetchPage(pageToken);
+    totals.reportedTotal = maxReportedTotal(totals.reportedTotal, data);
+    const page = await port.applyPage(data.items ?? [], mirroredAt);
+    addPageTotals(totals, page);
+    for (const recordId of page.recordIds) seenRecordIds.add(recordId);
+    hadMore = data.has_more === true;
+    logMirrorPage(totals.pages, page, data);
+    const next = nextPageTokenOrStop(data, seenPageTokens, totals.pages);
+    if (next.stopReason) {
+      stopReason = next.stopReason;
+      break;
+    }
+    pageToken = next.pageToken;
+  }
+  return { totals, hadMore, stopReason };
+}
+
+// Drive one full Mirror Refresh through the injected port — page-walk, completeness,
+// and the prune gate decided here in pure code; only I/O crosses the port. Returns
+// what finish produces (the Convex adapter throws on a non-complete stop).
+export async function runMirrorRefresh<R>(
+  port: MirrorRefreshPort<R>,
+  options: { startedAt?: number } = {},
+): Promise<R> {
+  const mirroredAt = options.startedAt ?? port.clock.now();
+  const seenRecordIds = new Set<string>();
+  const { totals, hadMore, stopReason } = await walkMirrorPages(port, mirroredAt, seenRecordIds);
+  await port.applyDevFixtures(totals, mirroredAt, seenRecordIds);
+  const finalStopReason = completenessStopReason(stopReason, totals);
+  // Prune ONLY on a verified-complete sync — a partial/failed walk leaves the
+  // mirror untouched so a transient Feishu error can never wipe live rows (ADR-0021).
+  const prune = shouldPruneStaleRows(finalStopReason)
+    ? await port.tombstone(seenRecordIds)
+    : emptyPruneTotals();
+  return port.finish({ totals, mirroredAt, hadMore, stopReason: finalStopReason, prune });
 }

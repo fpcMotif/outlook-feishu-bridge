@@ -31,9 +31,17 @@ import { toSearchQueryString } from "./cjkSearch";
 import {
   addPrunePage,
   emptyPruneTotals,
-  shouldPruneStaleRows,
+  runMirrorRefresh,
+  sleep,
   stalePageIds,
+  type AppliedPageWithIds,
+  type FeishuRecord,
+  type MirrorRefreshPort,
+  type MirrorStopReason,
+  type PageWriteStats,
   type PruneTotals,
+  type SearchResponse,
+  type SyncTotals,
 } from "./customerMirrorSync";
 import {
   canonicalCustomerDomain,
@@ -78,7 +86,6 @@ const MIN_CUSTOMER_SEARCH_LENGTH = 2;
 //   docs:
 //     records/search:  /document/server-docs/docs/bitable-v1/app-table-record/search
 //     records/list:    /document/server-docs/docs/bitable-v1/app-table-record/list
-const MIN_PAGE_REQUEST_INTERVAL_MS = 60;
 // Server-side Mirror Kick cooldown (ADR-0016 amendment). Global + authoritative:
 // the frontend module-level cooldown resets on reload/tab, so the on-demand kick
 // is rate-limited here regardless of how many tabs/reloads fire it.
@@ -262,32 +269,6 @@ export const recordSyncCompletion = internalMutation({
   },
 });
 
-interface FeishuRecord {
-  record_id: string;
-  fields: Record<string, unknown>;
-}
-interface SearchResponse {
-  items?: FeishuRecord[];
-  has_more?: boolean;
-  page_token?: string;
-  // Feishu records/search returns the table's total record count on every page
-  // (official field "total" / 总记录数) — the authoritative completeness signal.
-  total?: number;
-}
-
-type MirrorStopReason =
-  | "complete"
-  | "missingPageToken"
-  | "duplicatePageToken"
-  | "incompleteTotal";
-
-interface PageWriteStats {
-  inserted: number;
-  updated: number;
-  unchanged: number;
-  duplicateRows: number;
-}
-
 interface FullSyncResult {
   pages: number;
   rows: number;
@@ -308,22 +289,6 @@ interface FullSyncResult {
   deletedStale: number;
 }
 
-interface SyncTotals extends PageWriteStats {
-  pages: number;
-  rows: number;
-  // sourceRows counts only rows paged from Feishu (excludes dev fixtures);
-  // reportedTotal is the max `total` Feishu reported across pages. A gap
-  // between them means the mirror is silently incomplete.
-  sourceRows: number;
-  reportedTotal: number;
-}
-
-interface AppliedPage extends PageWriteStats {
-  rowCount: number;
-  firstRecordId: string;
-  lastRecordId: string;
-}
-
 function customerRowChanged(
   existing: CustomerUpsertRow,
   next: CustomerUpsertRow,
@@ -339,22 +304,6 @@ function customerRowChanged(
     existing.ownerName !== next.ownerName ||
     existing.searchBlob !== next.searchBlob
   );
-}
-
-function sleep(ms: number): Promise<void> {
-  if (ms <= 0) return Promise.resolve();
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
-
-async function waitForPageSlot(previousRequestStartedAt: number): Promise<number> {
-  const waitMs =
-    previousRequestStartedAt === 0
-      ? 0
-      : MIN_PAGE_REQUEST_INTERVAL_MS - (Date.now() - previousRequestStartedAt);
-  await sleep(waitMs);
-  return Date.now();
 }
 
 async function fetchMirrorPage(
@@ -373,10 +322,6 @@ async function fetchMirrorPage(
     label: "Customers mirror - Bitable page",
   });
 }
-
-// One page applied to the mirror, plus the recordIds it wrote — the prune step
-// folds these into the "seen this sync" set so live rows are never tombstoned.
-type AppliedPageWithIds = AppliedPage & { recordIds: string[] };
 
 async function applyMirrorItems(
   ctx: ActionCtx,
@@ -411,52 +356,6 @@ async function applyMirrorItems(
     lastRecordId,
     recordIds: projected.map((row) => row.recordId),
   };
-}
-
-function addPageTotals(totals: SyncTotals, page: AppliedPage): void {
-  totals.pages += 1;
-  totals.rows += page.rowCount;
-  totals.sourceRows += page.rowCount;
-  totals.inserted += page.inserted;
-  totals.updated += page.updated;
-  totals.unchanged += page.unchanged;
-  totals.duplicateRows += page.duplicateRows;
-}
-
-function stopReasonForPage(
-  data: SearchResponse,
-  seenPageTokens: Set<string>,
-): MirrorStopReason | null {
-  if (data.has_more !== true) return "complete";
-  if (!data.page_token) return "missingPageToken";
-  if (seenPageTokens.has(data.page_token)) return "duplicatePageToken";
-  return null;
-}
-
-function logMirrorPage(pageNumber: number, page: AppliedPage, data: SearchResponse): void {
-  console.log(
-    `[customers-mirror] page=${pageNumber} items=${page.rowCount} inserted=${page.inserted} ` +
-      `updated=${page.updated} unchanged=${page.unchanged} duplicateRows=${page.duplicateRows} ` +
-      `hasMore=${data.has_more === true} nextToken=${Boolean(data.page_token)} ` +
-      `first=${page.firstRecordId} last=${page.lastRecordId}`,
-  );
-}
-
-function nextPageTokenOrStop(
-  data: SearchResponse,
-  seenPageTokens: Set<string>,
-  pageNumber: number,
-): { pageToken?: string; stopReason?: MirrorStopReason } {
-  const stopReason = stopReasonForPage(data, seenPageTokens);
-  if (stopReason === "complete") return { stopReason };
-  if (stopReason !== null) {
-    console.error(`[customers-mirror] stopped early: reason=${stopReason} after page=${pageNumber}`);
-    return { stopReason };
-  }
-  const nextPageToken = data.page_token;
-  if (!nextPageToken) return { stopReason: "missingPageToken" };
-  seenPageTokens.add(nextPageToken);
-  return { pageToken: nextPageToken };
 }
 
 async function applyDevFixtures(
@@ -598,101 +497,37 @@ function warnOnResidualDrift(
   }
 }
 
-// A clean has_more=false stop is only truly complete if we paged at least as
-// many source rows as Feishu's reported `total`. A shortfall means rows went
-// missing silently — promote it to a hard, audited failure (ADR-0016).
-function completenessStopReason(
-  stopReason: MirrorStopReason,
-  totals: SyncTotals,
-): MirrorStopReason {
-  if (stopReason !== "complete") return stopReason;
-  if (totals.reportedTotal > totals.sourceRows) {
-    console.error(
-      `[customers-mirror] incompleteTotal: reportedTotal=${totals.reportedTotal} ` +
-        `sourceRows=${totals.sourceRows}`,
-    );
-    return "incompleteTotal";
-  }
-  return stopReason;
-}
-
-// Page through the live Customer Table → upsert into the Convex mirror.
-// Tenant-token; runs on the Convex action runtime; called from the cron and
-// (optionally) from `kick` for an on-demand refresh.
-interface PageWalkResult {
-  totals: SyncTotals;
-  hadMore: boolean;
-  stopReason: MirrorStopReason;
-}
-
-// Page the live Customer Table → upsert each page into the mirror, recording
-// every written recordId into `seenRecordIds` (the prune's liveness set).
-async function walkMirrorPages(
+// The real Mirror Refresh port: pace via Date.now/sleep, fetch via Feishu, and
+// apply/tombstone/finish via Convex. The engine (customerMirrorSync.runMirrorRefresh)
+// owns the page-walk, completeness promotion, and the all-or-nothing prune gate;
+// this adapter only supplies the I/O — and finishFullSync escalates a non-complete
+// stop into a thrown error (ADR-0021), which keeps the engine itself non-throwing.
+function makeMirrorRefreshPort(
   ctx: ActionCtx,
   appToken: string,
-  mirroredAt: number,
-  seenRecordIds: Set<string>,
-): Promise<PageWalkResult> {
-  const seenPageTokens = new Set<string>();
-  const totals: SyncTotals = {
-    pages: 0,
-    rows: 0,
-    inserted: 0,
-    updated: 0,
-    unchanged: 0,
-    duplicateRows: 0,
-    sourceRows: 0,
-    reportedTotal: 0,
+): MirrorRefreshPort<FullSyncResult> {
+  return {
+    clock: { now: () => Date.now(), sleep },
+    fetchPage: (pageToken) => fetchMirrorPage(ctx, appToken, pageToken),
+    applyPage: (items, mirroredAt) => applyMirrorItems(ctx, items, mirroredAt),
+    applyDevFixtures: (totals, mirroredAt, seen) =>
+      applyDevFixtures(ctx, totals, mirroredAt, seen),
+    tombstone: (seen) => pruneStaleRows(ctx, seen),
+    finish: ({ totals, mirroredAt, hadMore, stopReason, prune }) =>
+      finishFullSync(ctx, totals, mirroredAt, hadMore, stopReason, prune),
   };
-  let hadMore = false;
-  let stopReason: MirrorStopReason = "complete";
-  let pageToken: string | undefined;
-  let previousRequestStartedAt = 0;
-  for (;;) {
-    previousRequestStartedAt = await waitForPageSlot(previousRequestStartedAt);
-    const data = await fetchMirrorPage(ctx, appToken, pageToken);
-    totals.reportedTotal = Math.max(totals.reportedTotal, data.total ?? 0);
-    const page = await applyMirrorItems(ctx, data.items ?? [], mirroredAt);
-    addPageTotals(totals, page);
-    for (const recordId of page.recordIds) seenRecordIds.add(recordId);
-    hadMore = data.has_more === true;
-    logMirrorPage(totals.pages, page, data);
-    const next = nextPageTokenOrStop(data, seenPageTokens, totals.pages);
-    if (next.stopReason) {
-      stopReason = next.stopReason;
-      break;
-    }
-    pageToken = next.pageToken;
-  }
-  return { totals, hadMore, stopReason };
 }
 
 async function runFullSync(
   ctx: ActionCtx,
   options: { startedAt?: number } = {},
 ): Promise<FullSyncResult> {
-  const appToken = requireAppToken();
   // The caller (kick / fullSync) has already acquired the refresh start lease via
-  // startRefreshIfAllowed, which stamps lastRefreshStartedAt — so this run does no
-  // extra start-stamping (ADR-0021 single-flight).
-  const mirroredAt = options.startedAt ?? Date.now();
-  // Every recordId written to the mirror this run (source pages + dev fixtures).
-  // The prune tombstones any mirror row NOT in this set after a complete sync.
-  const seenRecordIds = new Set<string>();
-  const { totals, hadMore, stopReason } = await walkMirrorPages(
-    ctx,
-    appToken,
-    mirroredAt,
-    seenRecordIds,
-  );
-  await applyDevFixtures(ctx, totals, mirroredAt, seenRecordIds);
-  const finalStopReason = completenessStopReason(stopReason, totals);
-  // Prune is gated on a verified-complete sync: a partial/failed walk leaves the
-  // mirror untouched so a transient Feishu error can never wipe live rows.
-  const prune = shouldPruneStaleRows(finalStopReason)
-    ? await pruneStaleRows(ctx, seenRecordIds)
-    : emptyPruneTotals();
-  return await finishFullSync(ctx, totals, mirroredAt, hadMore, finalStopReason, prune);
+  // startRefreshIfAllowed (ADR-0021 single-flight); the engine does no start-stamping.
+  const appToken = requireAppToken();
+  return await runMirrorRefresh(makeMirrorRefreshPort(ctx, appToken), {
+    startedAt: options.startedAt,
+  });
 }
 
 export const fullSync = internalAction({

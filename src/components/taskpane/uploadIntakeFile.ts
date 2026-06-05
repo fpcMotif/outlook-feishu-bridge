@@ -30,6 +30,15 @@ export function clearIntakeUploadCache(id: string): void {
   inFlight.delete(id);
 }
 
+// Explicit bulk-clear for tests or future teardown. Pinned-pane page switches do
+// not call this now that drafts restore per mailbox/conversation: random upload
+// ids already prevent cross-page collisions, while preserving this bookkeeping
+// lets a returned page reuse completed or still-in-flight uploads.
+export function resetIntakeUploadCaches(): void {
+  inFlight.clear();
+  completedStorage.clear();
+}
+
 export function intakeUploadInFlight(id: string): Promise<void> | undefined {
   return inFlight.get(id);
 }

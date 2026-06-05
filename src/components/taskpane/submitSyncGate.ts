@@ -57,6 +57,13 @@ export type SubmitSyncGateInput = {
   fulfilledRequestCount: number;
   /** True while selected user-uploaded files are still staging to Convex. */
   hasPendingSelectedUploads?: boolean;
+  /**
+   * True while the open Mail Item's body is still being read in the background
+   * (useMailItem publishes metadata first, body after). Blocks Sync so an
+   * in-flight body read can never persist an empty `body` to the Base row — the
+   * row is the only home of the full email body (ADR-0022).
+   */
+  bodyPending?: boolean;
   /** Browser dev host (TaskPane devPreview) — blocks preview fixture coworkers. */
   devPreview?: boolean;
   selectedCoworkerOpenId?: string | null;
@@ -67,6 +74,7 @@ export function canSubmitSync({
   hasCoworker,
   fulfilledRequestCount,
   hasPendingSelectedUploads = false,
+  bodyPending = false,
   devPreview = false,
   selectedCoworkerOpenId,
 }: SubmitSyncGateInput): boolean {
@@ -77,7 +85,8 @@ export function canSubmitSync({
     hasCustomer &&
     hasCoworker &&
     fulfilledRequestCount > 0 &&
-    !hasPendingSelectedUploads
+    !hasPendingSelectedUploads &&
+    !bodyPending
   );
 }
 
@@ -97,6 +106,9 @@ export function submitSyncHint(input: SubmitSyncGateInput): string {
   }
   if (inputHasPendingUploads(input)) {
     return "Wait for file uploads";
+  }
+  if (input.bodyPending === true) {
+    return "Wait for the email to load";
   }
   return "Ready to sync";
 }

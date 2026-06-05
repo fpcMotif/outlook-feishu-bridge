@@ -63,6 +63,20 @@ const cases: { name: string; input: SubmitSyncGateInput; can: boolean; hint: str
     hint: "Wait for file uploads",
   },
   {
+    // Guards the empty-body-to-Base gap: even with every other requirement met,
+    // Sync must stay disabled while the mail body is still being read in the
+    // background, so an empty `body` can never reach the Base row (ADR-0022).
+    name: "email body still loading",
+    input: {
+      hasCustomer: true,
+      hasCoworker: true,
+      fulfilledRequestCount: 1,
+      bodyPending: true,
+    },
+    can: false,
+    hint: "Wait for the email to load",
+  },
+  {
     name: "dev preview fixture coworker",
     input: {
       hasCustomer: true,

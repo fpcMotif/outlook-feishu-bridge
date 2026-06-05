@@ -30,6 +30,16 @@ const STOCKMEIER = {
   owner: null,
 };
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 afterEach(() => {
   vi.useRealTimers();
 });
@@ -190,6 +200,29 @@ describe("CustomerPicker server fallback", () => {
     expect(screen.getByRole("button", { name: /Bayer Pharma/i })).toBeInTheDocument();
   });
 
+  it("renders a customer result without secondary metadata", () => {
+    render(
+      <CustomerPicker
+        directory={{
+          status: "ready",
+          records: [{ recordId: "rec_plain", name: "Plain Customer", owner: null }],
+        }}
+        searchCustomers={vi.fn()}
+        emailDomain="unknown.io"
+        selectedCustomer={null}
+        onChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByRole("combobox", { name: /search customers/i }), {
+      target: { value: "plain" },
+    });
+
+    const result = screen.getByRole("button", { name: /Plain Customer/i });
+    expect(result).toBeInTheDocument();
+    expect(result).not.toHaveTextContent(/owned by|\/|\./i);
+  });
+
   it("skips server search while the local Customer Directory still has matches", () => {
     const searchCustomers = vi.fn(() => Promise.resolve([NOVO]));
     render(
@@ -249,6 +282,72 @@ describe("CustomerPicker server fallback", () => {
 
     expect(await screen.findByRole("button", { name: /Novo Nordisk/i })).toBeInTheDocument();
     expect(searchCustomers).toHaveBeenCalledWith("novo", undefined);
+  });
+
+  it("drops a stale server search result after the query returns to local matches", async () => {
+    const remote = deferred<typeof NOVO[]>();
+    const searchCustomers = vi.fn(() => remote.promise);
+    render(
+      <CustomerPicker
+        directory={{ status: "ready", records: [BAYER] }}
+        searchCustomers={searchCustomers}
+        emailDomain="unknown.io"
+        selectedCustomer={null}
+        onChange={vi.fn()}
+      />,
+    );
+
+    const search = screen.getByRole("combobox", { name: /search customers/i });
+    fireEvent.change(search, { target: { value: "novo" } });
+    fireEvent.change(search, { target: { value: "bayer" } });
+    remote.resolve([NOVO]);
+
+    await waitFor(() => expect(searchCustomers).toHaveBeenCalledWith("novo", undefined));
+    expect(screen.getByRole("button", { name: /Bayer Pharma/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Novo Nordisk/i })).not.toBeInTheDocument();
+  });
+
+  it("keeps the create-customer path available when server search rejects", async () => {
+    const searchCustomers = vi.fn(() => Promise.reject(new Error("offline")));
+    render(
+      <CustomerPicker
+        directory={{ status: "ready", records: [] }}
+        searchCustomers={searchCustomers}
+        emailDomain="unknown.io"
+        selectedCustomer={null}
+        onChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByRole("combobox", { name: /search customers/i }), {
+      target: { value: "missingco" },
+    });
+
+    expect(await screen.findByRole("button", { name: /create customer task "missingco"/i }))
+      .toBeEnabled();
+  });
+
+  it("ignores a stale rejected server search after the query is cleared", async () => {
+    const remote = deferred<typeof NOVO[]>();
+    const searchCustomers = vi.fn(() => remote.promise);
+    render(
+      <CustomerPicker
+        directory={{ status: "ready", records: [] }}
+        searchCustomers={searchCustomers}
+        emailDomain="unknown.io"
+        selectedCustomer={null}
+        onChange={vi.fn()}
+      />,
+    );
+
+    const search = screen.getByRole("combobox", { name: /search customers/i });
+    fireEvent.change(search, { target: { value: "novo" } });
+    fireEvent.change(search, { target: { value: "" } });
+    remote.reject(new Error("late failure"));
+
+    await waitFor(() => expect(searchCustomers).toHaveBeenCalledWith("novo", undefined));
+    expect(screen.queryByRole("button", { name: /Novo Nordisk/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /create customer task/i })).not.toBeInTheDocument();
   });
 
   it("offers a create-customer task action when search has no customer matches", () => {

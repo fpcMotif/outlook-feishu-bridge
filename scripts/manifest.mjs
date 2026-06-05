@@ -70,6 +70,33 @@ export function renderManifest(template, target) {
     .replaceAll("__ADDIN_BASE__", target.base);
 }
 
+// Office rejects any re-sideload/update whose <Version> is not STRICTLY greater
+// than the installed one ("Please update the version number in the manifest file
+// and try again"). So every generated manifest gets an auto-incrementing build
+// number, leaving MAJOR.MINOR (the first two octets of the template's <Version>)
+// as the human-controlled release line. Build = MAJOR.MINOR.<days>.<minuteOfDay>:
+//   octet3 = whole UTC days since 2024-01-01 (grows by 1 each day)
+//   octet4 = minute of the UTC day, 0..1439 (grows within a day)
+// Each Office octet is a 16-bit int (0..65535); both fields stay well inside that
+// (octet3 doesn't overflow until ~year 2203). Versions are compared left-to-right,
+// so this is strictly monotonic across deploys, including over midnight.
+export const VERSION_EPOCH_DAYS = 19723; // 1970-01-01 -> 2024-01-01, in whole days
+
+export function computeBuildVersion(template, now) {
+  const match = template.match(/<Version>\s*(\d+)\.(\d+)/);
+  const major = match ? match[1] : "1";
+  const minor = match ? match[2] : "0";
+  const days = Math.floor(now.getTime() / 86_400_000) - VERSION_EPOCH_DAYS;
+  const minuteOfDay = now.getUTCHours() * 60 + now.getUTCMinutes();
+  return `${major}.${minor}.${days}.${minuteOfDay}`;
+}
+
+export function applyVersion(template, version) {
+  // Only the top-level <Version> is a bare number; the VersionOverrides block
+  // has no <Version> tag, so a single (non-global) replace is exactly right.
+  return template.replace(/<Version>[^<]*<\/Version>/, `<Version>${version}</Version>`);
+}
+
 async function main(argv) {
   if (argv[0] === "-h" || argv[0] === "--help") {
     console.log(usage());
@@ -80,7 +107,8 @@ async function main(argv) {
   const scriptDir = dirname(fileURLToPath(import.meta.url));
   const templatePath = resolve(scriptDir, "../public/manifest.xml");
   const template = readFileSync(templatePath, "utf8");
-  process.stdout.write(renderManifest(template, target));
+  const versioned = applyVersion(template, computeBuildVersion(template, new Date()));
+  process.stdout.write(renderManifest(versioned, target));
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {

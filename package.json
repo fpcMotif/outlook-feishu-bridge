@@ -58,6 +58,7 @@
     "@typescript/native-preview": "^7.0.0-dev.20260603.1",
     "@vitejs/plugin-basic-ssl": "^2.3.0",
     "@vitejs/plugin-react": "^6.0.2",
+    "@vitest/coverage-v8": "4.1.8",
     "concurrently": "^10.0.3",
     "jsdom": "^29.1.1",
     "oxlint": "^1.68.0",

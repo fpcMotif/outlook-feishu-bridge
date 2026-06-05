@@ -113,4 +113,13 @@ describe('App debug-panel hotkey gate', () => {
     fireEvent.keyDown(window, { key: 'd', ctrlKey: true, altKey: true })
     expect(screen.queryByTestId('debug-panel')).not.toBeInTheDocument()
   })
+
+  it('also accepts uppercase Ctrl+Alt+D from hosts that preserve Shift state', () => {
+    mockUseOffice.mockReturnValue({ isReady: true, host: 'Outlook', error: null })
+    render(<App />)
+
+    fireEvent.keyDown(window, { key: 'D', ctrlKey: true, altKey: true })
+
+    expect(screen.getByTestId('debug-panel')).toBeInTheDocument()
+  })
 })

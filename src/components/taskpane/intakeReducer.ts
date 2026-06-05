@@ -73,7 +73,14 @@ export function intakeReducer(
     case "salesSelected":
       return { ...state, selectedSales: action.sales, salesTouched: true };
     case "salesDefaulted":
-      if (state.salesTouched || state.selectedSales) return state;
+      if (state.salesTouched) return state;
+      if (
+        state.selectedSales?.openId === action.sales.openId &&
+        state.selectedSales.name === action.sales.name &&
+        state.selectedSales.avatarUrl === action.sales.avatarUrl
+      ) {
+        return state;
+      }
       return { ...state, selectedSales: action.sales };
     case "customerAutoMatched":
       if (state.customerTouched) return state;

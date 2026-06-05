@@ -101,6 +101,9 @@ describe("useMailItem", () => {
     });
     expect(result.current.loading).toBe(false);
     expect(result.current.error).toBeNull();
+    // The body placeholder must be flagged pending so the submit gate can block
+    // Sync until the real body lands (prevents an empty body reaching the Base row).
+    expect(result.current.mailItem?.bodyPending).toBe(true);
     expect(bodyCallback).not.toBeNull();
 
     await act(async () => {
@@ -111,6 +114,7 @@ describe("useMailItem", () => {
     await waitFor(() => {
       expect(result.current.mailItem?.body).toBe("Full body text");
     });
+    expect(result.current.mailItem?.bodyPending).toBe(false);
   });
 
   it("keeps metadata available when the background body read fails", async () => {
@@ -133,6 +137,8 @@ describe("useMailItem", () => {
     expect(result.current.mailItem?.body).toBe("");
     expect(result.current.error).toBeNull();
     expect(result.current.loading).toBe(false);
+    // A failed body read must still clear bodyPending so Sync is not blocked forever.
+    expect(result.current.mailItem?.bodyPending).toBe(false);
   });
 
   it("re-reads the selected message when a pinned Outlook task pane gets ItemChanged", async () => {
@@ -151,7 +157,11 @@ describe("useMailItem", () => {
     await waitFor(() => {
       expect(result.current.mailItem?.subject).toBe("Inquiry");
     });
-    expect(addHandlerAsync).toHaveBeenCalledWith("ItemChanged", expect.any(Function));
+    expect(addHandlerAsync).toHaveBeenCalledWith(
+      "ItemChanged",
+      expect.any(Function),
+      expect.any(Function),
+    );
 
     await act(async () => {
       mailbox.item = mailItem(getBody, {

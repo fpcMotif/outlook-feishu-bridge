@@ -38,7 +38,9 @@ function resolveExistingSyncOverlay({
   return null;
 }
 
-export function RequestIntakeScreenCore(props: RequestIntakeScreenProps & { syncApi: RequestIntakeSyncApi }) {
+export function RequestIntakeScreenCore(
+  props: RequestIntakeScreenProps & { mailKey: string; syncApi: RequestIntakeSyncApi },
+) {
   const vm = useRequestIntakeScreen(props);
   const {
     props: screenProps,

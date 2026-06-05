@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 
 import type { Id } from "../../../convex/_generated/dataModel";
 import type { Coworker } from "./coworkers";
-import { initialIntakeState, intakeReducer } from "./intakeReducer";
+import { intakeReducer } from "./intakeReducer";
+import { loadIntakeDraft, rememberIntakeDraft } from "./intakeDraftCache";
 import { useCustomerAutoMatch } from "../../hooks/useCustomerAutoMatch";
 import { useCustomerSearch } from "../../hooks/useCustomerSearch";
 import { useSelfForward, type SelfForwardResult } from "../../hooks/useSelfForward";
@@ -31,7 +32,7 @@ function hasPendingSelectedUploads(uploadedFiles: UploadedFile[]): boolean {
 }
 
 export function useRequestIntakeScreen(
-  props: RequestIntakeScreenProps & { syncApi: RequestIntakeSyncApi },
+  props: RequestIntakeScreenProps & { mailKey: string; syncApi: RequestIntakeSyncApi },
 ) {
   const {
     isLoggedIn,
@@ -41,12 +42,17 @@ export function useRequestIntakeScreen(
     userAccessToken,
     usePreviewCoworkers = false,
     devPreview = false,
+    mailKey,
     syncApi,
   } = props;
   const { sync, existingSync } = syncApi;
   const existingSyncStatus = existingSync?.status ?? null;
   const { sendNote: sendSelfForwardNote } = useSelfForward();
-  const [state, dispatch] = useReducer(intakeReducer, mailItem.from, initialIntakeState);
+  const [state, dispatch] = useReducer(
+    intakeReducer,
+    { mailKey, mailFrom: mailItem.from },
+    ({ mailKey: key, mailFrom }) => loadIntakeDraft(key, mailFrom),
+  );
   const generationRef = useRef(0);
   const activeSyncGenerationRef = useRef<number | null>(null);
   const submitToReceivedStartedRef = useRef<number | null>(null);
@@ -54,6 +60,10 @@ export function useRequestIntakeScreen(
   if (state.mailFrom !== mailItem.from) {
     dispatch({ type: "mailFromChanged", mailFrom: mailItem.from });
   }
+
+  useEffect(() => {
+    rememberIntakeDraft(mailKey, state);
+  }, [mailKey, state]);
 
   const {
     directory: customerDirectory,
@@ -103,6 +113,7 @@ export function useRequestIntakeScreen(
     hasCoworker: state.selectedCoworker !== null,
     fulfilledRequestCount: filledCount,
     hasPendingSelectedUploads: hasPendingSelectedUploads(state.uploadedFiles),
+    bodyPending: mailItem.bodyPending === true,
     devPreview,
     selectedCoworkerOpenId: state.selectedCoworker?.openId ?? null,
   };
@@ -185,9 +196,8 @@ export function useRequestIntakeScreen(
     const baseWrite = stageSelected()
       .then((staged) => {
         if (staged.failed.length > 0) {
-          console.warn(
-            `[intake] skipped ${staged.failed.length} attachment(s): ${staged.failed.map((f) => f.name).join(", ")}`,
-          );
+          // Count only — names would leak to Sentry breadcrumbs (debug.ts → sentry.ts).
+          console.warn(`[intake] skipped ${staged.failed.length} attachment(s) that failed to stage`);
         }
         // Hand the staged Convex storageIds straight to syncRequest; the deferred
         // Base-write worker runs the Drive upload_all end-to-end (ADR-0022), so the

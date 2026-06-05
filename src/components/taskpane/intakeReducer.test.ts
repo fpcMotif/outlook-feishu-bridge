@@ -46,7 +46,7 @@ describe("initialIntakeState", () => {
 describe("intakeReducer sales selection", () => {
   const base = initialIntakeState("a@b.com");
 
-  it("salesDefaulted sets self only when untouched", () => {
+  it("salesDefaulted follows the signed-in user while untouched", () => {
     const once = intakeReducer(base, {
       type: "salesDefaulted",
       sales: { openId: "ou_self", name: "You" },
@@ -56,7 +56,8 @@ describe("intakeReducer sales selection", () => {
       type: "salesDefaulted",
       sales: { openId: "ou_other", name: "Other" },
     });
-    expect(again.selectedSales?.openId).toBe("ou_self");
+    expect(again.selectedSales?.openId).toBe("ou_other");
+    expect(again.salesTouched).toBe(false);
   });
 
   it("salesSelected overrides and blocks later defaults", () => {

@@ -17,6 +17,15 @@ export interface MailItemData {
   cc: string[];
   /** Plain-text body via `body.getAsync(CoercionType.Text)`. */
   body: string;
+  /**
+   * True between the synchronous metadata publish and the background body read
+   * completing (see useMailItem). The submit gate blocks Base Sync while this is
+   * true so a fast Sync tap inside the read window can never persist an empty
+   * `body` to the Base row — the row is the only home of the full email body
+   * (ADR-0022; the Email Record keeps only a ≤500-char preview). Absent on
+   * non-Outlook hosts / test fixtures, where it is treated as "ready".
+   */
+  bodyPending?: boolean;
   dateTimeCreated: Date | null;
   internetMessageId: string;
   /** REST/Graph id converted from the Office.js EWS item id. */

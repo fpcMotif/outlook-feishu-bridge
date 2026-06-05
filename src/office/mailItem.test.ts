@@ -152,4 +152,18 @@ describe("extractMailData", () => {
       attachments: [],
     });
   });
+
+  it("falls back to an empty user email when Office omits the mailbox profile", () => {
+    const office = {
+      MailboxEnums: { RestVersion: { v2_0: "v2.0" } },
+      context: {
+        requirements: { isSetSupported: () => false },
+        mailbox: {
+          convertToRestId: (id: string) => id,
+        },
+      },
+    } as unknown as OfficeLike;
+
+    expect(extractMailData(office, {} as ReadItem, "").userEmail).toBe("");
+  });
 });

@@ -108,8 +108,23 @@ The Convex-persisted copy of a synced request — a recoverable backup / workflo
 _Avoid_: "the email" (it's a derived record, not the original mail), "the PDF" (no PDF is produced anymore).
 
 **Mail Item**:
-The Outlook message the salesperson has open in the reading pane, accessed inside the **SPA** through Office.js as `Office.context.mailbox.item` (typed as `Office.MessageRead & Office.ItemRead`). The taskpane reads `subject`, `from`, `to`, `cc`, `dateTimeCreated`, `internetMessageId`, `itemId`, `conversationId`, and the **plain-text body** via `body.getAsync(Office.CoercionType.Text)`. It also enumerates the message's **file attachments** (`item.attachments`) and downloads selected bytes on demand (`getAttachmentContentAsync`) for the **Attachment** picker (ADR-0022); inline images are excluded. For **Self-Forward**, the Office item id is converted to the REST/Graph id used by Microsoft Graph's native forward action. Compose/reply mail items (which expose `subject` as a `Subject` object with `.getAsync`) are detected and rejected - this add-in only syncs received mail.
+The Outlook message the salesperson has open in the reading pane, accessed inside the **SPA** through Office.js as `Office.context.mailbox.item` (typed as `Office.MessageRead & Office.ItemRead`). The taskpane reads `subject`, `from`, `to`, `cc`, `dateTimeCreated`, `internetMessageId`, `itemId`, `conversationId`, and the **plain-text body** via `body.getAsync(Office.CoercionType.Text)`. The body is read in the **background** after the metadata publishes (so a **Pinned Task Pane** message switch renders instantly); **Base Sync** stays gated until the body lands, so an in-flight read can never write an empty body to the **Base** row ([pinned-pane doc](docs/pinned-pane-review-and-deferred-work.md)). It also enumerates the message's **file attachments** (`item.attachments`) and downloads selected bytes on demand (`getAttachmentContentAsync`) for the **Attachment** picker (ADR-0022); inline images are excluded. For **Self-Forward**, the Office item id is converted to the REST/Graph id used by Microsoft Graph's native forward action. Compose/reply mail items (which expose `subject` as a `Subject` object with `.getAsync`) are detected and rejected - this add-in only syncs received mail.
 _Avoid_: "the mail", "the message" (overloaded), "the email" (the **Email Record** is the *persisted* derivative, the Mail Item is the *live* Office.js handle).
+
+**Pinned Task Pane**:
+The Outlook "pin" affordance (`SupportsPinning` in the **Outlook Manifest**) that
+keeps the **SPA** taskpane open as the user moves between messages, instead of
+closing on each selection. While pinned, Outlook keeps one **SPA** tree alive and
+fires Office.js `ItemChanged`; [useMailItem.ts](src/office/useMailItem.ts)
+re-reads the new **Mail Item** on that event. Because the tree is not torn down,
+the intake state must be reset deliberately: the intake subtree is keyed by a
+conversation-scoped **mailKey** ([mailKey.ts](src/components/taskpane/mailKey.ts)),
+so a *different* conversation starts a clean slate while *sibling messages in the
+same thread* preserve the in-progress **Request** (one conversation = one request,
+[ADR-0012](docs/adr/0012-bitable-record-api.md)). Review, fixes, and the deferred
+backlog live in [docs/pinned-pane-review-and-deferred-work.md](docs/pinned-pane-review-and-deferred-work.md).
+_Avoid_: assuming an email switch tears down and rebuilds the taskpane (it does
+**not** when pinned — state survives unless the **mailKey** changes); "tab".
 
 **User-identity call / tenant-identity call**:
 The two Feishu token types. A **user-identity call** uses the signed-in person's user access token and is now used for exactly one thing — **searching the directory for Coworkers** (`/search/v1/user`). A **tenant-identity call** uses the app token and does the **Base** write.

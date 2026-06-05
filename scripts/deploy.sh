@@ -76,6 +76,15 @@ deploy_frontend() {
     '
 
   echo "OK frontend -> https://$DEPLOY_HOST/addin/"
+
+  # Regenerate the sideload manifest for THIS host. manifest.mjs auto-bumps
+  # <Version> on every run, so the output is always strictly newer than the
+  # installed one — otherwise Outlook rejects the update with "Please update the
+  # version number in the manifest file and try again". Output is gitignored
+  # (/manifest-*.xml). You still have to re-upload it; Office has no push API.
+  bun scripts/manifest.mjs "$DEPLOY_HOST" addin/ > manifest-sideload.xml
+  echo "OK manifest -> manifest-sideload.xml ($(grep -oE '<Version>[^<]+' manifest-sideload.xml | head -1 | sed 's|<Version>||'))"
+  echo "   Re-upload it in Outlook (My add-ins -> Custom Add-ins) to apply changes."
 }
 
 deploy_backend() {
@@ -165,6 +174,12 @@ deploy_cloudflare() {
   echo "==> wrangler pages deploy dist (project: outlook-feishu-bridge)"
   bunx wrangler pages deploy dist
   echo "OK Global Host -> https://outlook-feishu-bridge.pages.dev/"
+
+  # Regenerate the Global Host sideload manifest with a freshly auto-bumped
+  # <Version> (see deploy_frontend for why). Output is gitignored (/manifest-*.xml).
+  bun scripts/manifest.mjs --global > manifest-sideload-global.xml
+  echo "OK manifest -> manifest-sideload-global.xml ($(grep -oE '<Version>[^<]+' manifest-sideload-global.xml | head -1 | sed 's|<Version>||'))"
+  echo "   Re-upload it in Outlook (My add-ins -> Custom Add-ins) to apply changes."
 }
 
 case "$cmd" in

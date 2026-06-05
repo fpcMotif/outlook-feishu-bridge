@@ -276,7 +276,7 @@ function makeFakePort(pages: SearchResponse[], seedOrphans: string[] = []) {
       tombstoneCalls += 1;
       const scanned = store.size;
       let deleted = 0;
-      for (const id of [...store.keys()]) {
+      for (const id of store.keys()) {
         if (!seen.has(id)) {
           store.delete(id);
           deleted += 1;

@@ -79,9 +79,25 @@ export function useMailItem(autoRead = false) {
   }, []);
 
   useEffect(() => {
-    if (!autoRead || didAutoRead.current) return;
-    didAutoRead.current = true;
-    void readCurrentItem();
+    if (!autoRead) return;
+    if (!didAutoRead.current) {
+      didAutoRead.current = true;
+      void readCurrentItem();
+    }
+
+    // When the task pane is pinned, Outlook keeps this same pane alive while
+    // the user moves between messages. Re-read on ItemChanged so the pane does
+    // not show metadata/body from the previously selected email.
+    const mailbox = Office.context?.mailbox;
+    if (!mailbox?.addHandlerAsync || !Office.EventType?.ItemChanged) return;
+    const onItemChanged = () => {
+      dlog("ItemChanged: re-reading current item (pinned pane)");
+      void readCurrentItem();
+    };
+    mailbox.addHandlerAsync(Office.EventType.ItemChanged, onItemChanged);
+    return () => {
+      mailbox.removeHandlerAsync?.(Office.EventType.ItemChanged);
+    };
   }, [autoRead, readCurrentItem]);
 
   return { mailItem, loading, error, readCurrentItem };

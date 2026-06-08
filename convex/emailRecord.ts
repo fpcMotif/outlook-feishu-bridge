@@ -57,7 +57,36 @@ export const bitableSyncStatusValidator = v.union(
   v.literal("pending"),
   v.literal("synced"),
   v.literal("failed"),
+  // Terminal: retries exhausted (MAX attempts) or a permanent/poison error. A
+  // distinct status — not `failed` + an undefined next-retry — so termination is
+  // enforced by status, never by the fragile "undefined sorts lowest" index trick.
+  v.literal("abandoned"),
 );
+
+// ADR-0022 (deferred attachment fill): a staged Convex blob handed to the server
+// to mint a Feishu Drive token from, AFTER the row is created. storageId is an
+// OPAQUE string, not v.id('_storage') — the staged blob is deleted once minted /
+// GC'd, so a real FK on this long-lived row would dangle (dead-source = skipped).
+export const attachmentSourceValidator = v.object({
+  storageId: v.string(),
+  fileName: v.string(),
+});
+
+export type AttachmentSource = Infer<typeof attachmentSourceValidator>;
+
+// Lifecycle of the deferred attachment fill — INDEPENDENT of bitableSyncStatus.
+// The row exists (synced) the moment it is created with an empty Sales Files
+// cell; attachments are then filled in the background. pending → filling →
+// filled, or failed (retryable until exhausted, then terminal via undefined
+// attachmentNextRetryAt).
+export const bitableAttachmentStatusValidator = v.union(
+  v.literal("pending"),
+  v.literal("filling"),
+  v.literal("filled"),
+  v.literal("failed"),
+);
+
+export type BitableAttachmentStatus = Infer<typeof bitableAttachmentStatusValidator>;
 
 export type BitableSyncStatus = Infer<typeof bitableSyncStatusValidator>;
 
@@ -112,6 +141,23 @@ export const emailRecordFields = {
   bitableLastAttemptAt: v.optional(v.number()),
   bitableAttemptCount: v.optional(v.number()),
   bitableNextRetryAt: v.optional(v.number()),
+  // When THIS flow minted the Bitable row (set on first create success). The
+  // freshness clock for mayUpdateOwnedBitableRow — bounds the deferred
+  // attachment patch so it can never touch an ancient/historical row.
+  bitableRowMintedAt: v.optional(v.number()),
+  // Deferred attachment fill (ADR-0022 amendment). Its own lifecycle, separate
+  // from bitableSyncStatus, so a stuck fill on an already-created row is still
+  // recoverable (the create-side rearm short-circuits once bitableRecordId is set).
+  bitableAttachmentSources: v.optional(v.array(attachmentSourceValidator)),
+  bitableAttachmentStatus: v.optional(bitableAttachmentStatusValidator),
+  // Cumulative file_tokens minted so far — persisted BEFORE the PUT so a mid-fill
+  // crash replays the same tokens (Drive upload_all is NOT idempotent) and the
+  // "partial insert" PUT re-writes the same cumulative cell.
+  bitableAttachmentFileTokens: v.optional(v.array(v.string())),
+  // fileNames that could not be attached (dead/GC'd source, >20MB, exhausted).
+  bitableAttachmentSkipped: v.optional(v.array(v.string())),
+  attachmentAttemptCount: v.optional(v.number()),
+  attachmentNextRetryAt: v.optional(v.number()),
 };
 
 export const emailRecordValidator = v.object(emailRecordFields);

@@ -2,8 +2,16 @@
 // `crons.cron` (not the dropped hourly/daily/weekly helpers), and the called
 // function is passed by FunctionReference (`internal.<file>.<fn>`).
 //
-// Today: only the Customer Mirror refresh (ADR-0016). Add other crons here as
-// they appear — keep this file the single registry.
+// Scheduled work is INTENTIONALLY limited to the two directory dual-syncs:
+// the Customer Mirror (weekly, ADR-0016) and the Feishu Contacts Mirror
+// (biweekly, ADR-0023). Everything else is on-demand:
+//   - Request→Bitable outbox retry is a per-task bounded self-scheduling chain
+//     (max 5 attempts, see feishu/requestSync.ts), NOT a periodic sweep. The
+//     rare stranded row self-heals when the taskpane reopens that conversation
+//     (emails.ts getBitableSyncByConversation `rearmable`); reconcilePending-
+//     BitableSync remains runnable via `bunx convex run` as a manual backstop.
+//   - coworkerSearchCache TTL is enforced lazily on read; no cleanup cron.
+// Keep this file the single registry — do not add a cron without a clear reason.
 
 import { cronJobs } from "convex/server";
 
@@ -24,13 +32,6 @@ crons.interval(
   {},
 );
 
-crons.interval(
-  "coworker search cache cleanup",
-  { hours: 6 },
-  internal.feishu.coworkers.cleanupExpiredCoworkerSearchCache,
-  {},
-);
-
 // Biweekly Feishu Contacts (org directory) mirror refresh (ADR-0023). The
 // directory is slow-moving, so every two weeks is enough background freshness
 // for the server-indexed colleague search. 14 days × 24 h = 336 hours.
@@ -38,16 +39,6 @@ crons.interval(
   "feishu contacts mirror refresh (biweekly)",
   { hours: 336 },
   internal.feishu.contactsMirror.fullSync,
-  {},
-);
-
-// Request intake outbox reconcile. The UI writes a pending Convex Email Record
-// before calling Feishu Base; this cron catches transient Base/create or
-// post-create marking failures and replays with the stored Feishu client_token.
-crons.interval(
-  "request bitable sync reconcile",
-  { minutes: 15 },
-  internal.feishu.requestSync.reconcilePendingBitableSync,
   {},
 );
 

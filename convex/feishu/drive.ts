@@ -41,6 +41,46 @@ const sleep = (ms: number): Promise<void> =>
     setTimeout(resolve, ms);
   });
 
+// Drive upload concurrency (ADR-0027). `medias/upload_all` is 5 QPS, NOT
+// concurrency-of-one, so a small pool cuts the serial ~14s/10-files to ~3s. The
+// cap is configurable (never an inline literal) and hard-bounded ≤5 to stay
+// under the 5 QPS budget; overlap with another fill self-corrects via the
+// 99991400 + reset-header retry. Read at call time (Convex env is live).
+export const DEFAULT_DRIVE_UPLOAD_CONCURRENCY = 4;
+const MAX_DRIVE_UPLOAD_CONCURRENCY = 5;
+
+export function driveUploadConcurrency(): number {
+  const raw = process.env.FEISHU_DRIVE_UPLOAD_CONCURRENCY;
+  const parsed = raw ? Number(raw) : NaN;
+  const wanted = Number.isFinite(parsed) && parsed >= 1 ? Math.floor(parsed) : DEFAULT_DRIVE_UPLOAD_CONCURRENCY;
+  return Math.min(wanted, MAX_DRIVE_UPLOAD_CONCURRENCY);
+}
+
+/**
+ * Run `fn` over `items` with at most `limit` in flight at once, returning results
+ * in input order. Pure orchestration (no Drive/Feishu coupling) so the latency
+ * core is unit-tested without real uploads (ADR-0019 seam).
+ */
+export async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  if (items.length === 0) return [];
+  const results = new Array<R>(items.length);
+  const width = Math.max(1, Math.min(limit, items.length));
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < items.length) {
+      const index = next;
+      next += 1;
+      results[index] = await fn(items[index], index);
+    }
+  };
+  await Promise.all(Array.from({ length: width }, () => worker()));
+  return results;
+}
+
 /**
  * Run a Drive upload, retrying ONLY Feishu's 99991400 frequency-limit with
  * exponential backoff (500ms · 1s · 2s …). Any other error — or exhausting
@@ -66,7 +106,9 @@ export async function withDriveRateLimitRetry<T>(
       const rateLimited =
         e instanceof FeishuError && e.code === FEISHU_RATE_LIMIT_CODE;
       if (!rateLimited || attempt >= maxAttempts - 1) throw e;
-      await doSleep(backoffMs(attempt));
+      // Honor the server's reset hint when present (ADR-0027); else exp backoff.
+      const hinted = e instanceof FeishuError ? e.retryAfterMs : undefined;
+      await doSleep(hinted ?? backoffMs(attempt));
     }
   }
 }

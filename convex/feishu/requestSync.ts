@@ -1,5 +1,6 @@
 import { action, internalAction, type ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
+import type { Doc } from "../_generated/dataModel";
 import { v } from "convex/values";
 import { initiatorValidator, selectedCoworkerValidator, selectedCustomerValidator, toEmailRecord, type SelectedCoworker } from "../emailRecord";
 import { assertRealCoworkerOpenIds, poisonedOutboxReason } from "./previewFixtures";
@@ -95,12 +96,14 @@ function resolveSyncSales(args: RequestSyncArgs): RequestSyncArgs["selectedSales
   return args.selectedSales ?? args.initiator;
 }
 
+type BitableSyncFailureOutcome = { status: "failed" | "abandoned"; retryDelayMs: number | null };
+
 async function markFailure(
   ctx: ActionCtx,
   lookup: { internetMessageId: string; requestSyncKey?: string },
   e: unknown,
-) {
-  await ctx.runMutation(internal.emails.markBitableSyncFailed, {
+): Promise<BitableSyncFailureOutcome | null> {
+  return await ctx.runMutation(internal.emails.markBitableSyncFailed, {
     internetMessageId: lookup.internetMessageId,
     requestSyncKey: lookup.requestSyncKey,
     error: errorMessage(e),
@@ -160,9 +163,12 @@ async function markSuccess(
     });
     detailUrl = result.detailUrl;
   } catch (e: unknown) {
+    // Case 2: the Base row exists but marking it synced failed, so the backup
+    // stays `pending`. It self-heals on reopen (rearmable) — the replay re-runs
+    // create under this same client_token, which dedups, then re-marks.
     console.error(
       `[requestSync] markBitableSyncSucceeded failed; Bitable row ${bitableRecordId} ` +
-        `will be reconciled with client_token ${clientToken}: ${errorMessage(e)}`,
+        `stays pending and re-arms on reopen with client_token ${clientToken}: ${errorMessage(e)}`,
     );
   }
   return detailUrl;
@@ -176,7 +182,18 @@ export const processPendingBitableSync = internalAction({
       return await syncBitableRequest(ctx, args, selectedCoworkers, args.clientToken);
     } catch (e: unknown) {
       const backup = buildEmailRecordBackup({ ...args, selectedCoworkers }, false);
-      await markFailure(ctx, backup, e);
+      const outcome = await markFailure(ctx, backup, e);
+      // Per-task bounded retry (replaces the 15-min reconcile sweep): re-enqueue
+      // ourselves at the planner's backoff under the SAME idempotency token, so
+      // the Feishu create dedups on replay. A null delay means terminal — the
+      // chain stops here, capped at MAX_BITABLE_SYNC_ATTEMPTS.
+      if (typeof outcome?.retryDelayMs === "number") {
+        await ctx.scheduler.runAfter(
+          outcome.retryDelayMs,
+          internal.feishu.requestSync.processPendingBitableSync,
+          args,
+        );
+      }
       throw e;
     }
   },
@@ -230,61 +247,81 @@ export const syncRequest = action({
   },
 });
 
+// Rebuild the sync action args from a stored backup. The full body is never
+// persisted, so the ≤500-char preview rides as the body (ADR-0022); the stored
+// initiator drives both Sales and initiator on the replayed Base row.
+function storedRecordToSyncArgs(
+  record: Doc<"emailRecords">,
+  selectedCoworkers: SelectedCoworker[],
+): RequestSyncArgs {
+  return {
+    subject: record.subject,
+    from: record.from,
+    to: record.to,
+    cc: record.cc,
+    body: record.bodyPreview,
+    internetMessageId: record.internetMessageId,
+    itemId: record.itemId,
+    conversationId: record.conversationId,
+    userEmail: record.userEmail,
+    dateTimeCreated: record.dateTimeCreated,
+    clientEmail: record.clientEmail,
+    selectedCustomer: record.selectedCustomer,
+    selectedSales: record.initiator,
+    initiator: record.initiator,
+    requestNote: record.requestNote,
+    selectedCoworkers,
+  };
+}
+
+// Replay one stored outbox backup against Feishu Base under its persisted
+// idempotency token (create dedups on client_token). Poisoned rows are abandoned
+// without a Base call. Shared by the manual reconcile backstop and the per-task
+// rearm-on-reopen self-heal, so both recover a stranded row identically.
+async function replayStoredOutboxRecord(
+  ctx: ActionCtx,
+  record: Doc<"emailRecords">,
+): Promise<"synced" | "failed"> {
+  const poisonReason = poisonedOutboxReason({
+    internetMessageId: record.internetMessageId,
+    conversationId: record.conversationId,
+    selectedCoworkers: record.selectedCoworkers,
+  });
+  if (poisonReason) {
+    await ctx.runMutation(internal.emails.abandonBitableSync, {
+      internetMessageId: record.internetMessageId,
+      requestSyncKey: record.requestSyncKey,
+      error: poisonReason,
+      attemptedAt: Date.now(),
+    });
+    return "failed";
+  }
+  try {
+    const selectedCoworkers = requireExactlyOneCoworker(record.selectedCoworkers);
+    if (!record.bitableClientToken) {
+      throw new Error(`Missing bitableClientToken for ${record.internetMessageId}`);
+    }
+    const result = await syncBitableRequest(
+      ctx,
+      storedRecordToSyncArgs(record, selectedCoworkers),
+      selectedCoworkers,
+      record.bitableClientToken,
+    );
+    return result.status;
+  } catch (e: unknown) {
+    await markFailure(ctx, record, e);
+    return "failed";
+  }
+}
+
+// Manual backstop only — NO LONGER on a cron. Run via `bunx convex run
+// feishu/requestSync:reconcilePendingBitableSync` to sweep any rows the per-task
+// chain + rearm-on-reopen somehow missed. Day-to-day recovery is per-task.
 export const reconcilePendingBitableSync = internalAction({
   args: {},
   handler: async (ctx): Promise<{ checked: number; synced: number; failed: number }> => {
     const due = await ctx.runQuery(internal.emails.listDueBitableSyncRecords, { now: Date.now(), limit: RECONCILE_LIMIT });
-    const outcomes = await Promise.all(
-      due.map(async (record) => {
-        const poisonReason = poisonedOutboxReason({
-          internetMessageId: record.internetMessageId,
-          conversationId: record.conversationId,
-          selectedCoworkers: record.selectedCoworkers,
-        });
-        if (poisonReason) {
-          await ctx.runMutation(internal.emails.abandonBitableSync, {
-            internetMessageId: record.internetMessageId,
-            requestSyncKey: record.requestSyncKey,
-            error: poisonReason,
-            attemptedAt: Date.now(),
-          });
-          return "failed" as const;
-        }
-        try {
-          const selectedCoworkers = requireExactlyOneCoworker(record.selectedCoworkers);
-          if (!record.bitableClientToken) {
-            throw new Error(`Missing bitableClientToken for ${record.internetMessageId}`);
-          }
-          const result = await syncBitableRequest(
-            ctx,
-            {
-              subject: record.subject,
-              from: record.from,
-              to: record.to,
-              cc: record.cc,
-              body: record.bodyPreview,
-              internetMessageId: record.internetMessageId,
-              itemId: record.itemId,
-              conversationId: record.conversationId,
-              userEmail: record.userEmail,
-              dateTimeCreated: record.dateTimeCreated,
-              clientEmail: record.clientEmail,
-              selectedCustomer: record.selectedCustomer,
-              selectedSales: record.initiator,
-              initiator: record.initiator,
-              requestNote: record.requestNote,
-              selectedCoworkers,
-            },
-            selectedCoworkers,
-            record.bitableClientToken,
-          );
-          return result.status;
-        } catch (e: unknown) {
-          await markFailure(ctx, record, e);
-          return "failed" as const;
-        }
-      }),
-    );
+    const outcomes = await Promise.all(due.map((record) => replayStoredOutboxRecord(ctx, record)));
     const synced = outcomes.filter((o) => o === "synced").length;
     const failed = outcomes.filter((o) => o === "failed").length;
     if (due.length > 0) {
@@ -293,6 +330,24 @@ export const reconcilePendingBitableSync = internalAction({
       );
     }
     return { checked: due.length, synced, failed };
+  },
+});
+
+// Per-task self-heal (cron-free backstop). The taskpane calls this when it
+// reopens a conversation whose outbox row is stranded (`rearmable`, see
+// emails.getBitableSyncByConversation). The query re-checks staleness server-
+// side, so this can only re-drive a genuinely stuck row, idempotently.
+export const rearmConversationSync = action({
+  args: { userEmail: v.string(), conversationId: v.string() },
+  handler: async (ctx, args): Promise<{ rearmed: boolean }> => {
+    const record = await ctx.runQuery(internal.emails.getRearmableOutboxRecord, {
+      userEmail: args.userEmail,
+      conversationId: args.conversationId,
+      now: Date.now(),
+    });
+    if (!record) return { rearmed: false };
+    await replayStoredOutboxRecord(ctx, record);
+    return { rearmed: true };
   },
 });
 

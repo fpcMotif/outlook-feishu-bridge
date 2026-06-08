@@ -34,6 +34,13 @@ export default defineSchema({
     .index("by_bitableSyncStatus_and_bitableNextRetryAt", [
       "bitableSyncStatus",
       "bitableNextRetryAt",
+    ])
+    // Deferred attachment fill sweep (ADR-0022). Separate from the create-sync
+    // index because an attachment-stuck row is bitableSyncStatus='synced' (the
+    // row exists) — only its attachment lifecycle is unfinished.
+    .index("by_attachmentStatus_and_attachmentNextRetryAt", [
+      "bitableAttachmentStatus",
+      "attachmentNextRetryAt",
     ]),
 
   // Short-lived, per-session Feishu Search Users results. This keeps repeated

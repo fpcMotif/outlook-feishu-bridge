@@ -160,6 +160,9 @@ type ProcessPendingHandler = (
   ctx: {
     runMutation: (fn: unknown, args: Record<string, unknown>) => Promise<unknown>;
     runAction: (fn: unknown, args: Record<string, unknown>) => Promise<{ recordId: string }>;
+    scheduler: {
+      runAfter: (delayMs: number, fn: unknown, args: Record<string, unknown>) => Promise<string>;
+    };
   },
   args: typeof baseArgs & { clientToken: string },
 ) => Promise<{ status: "synced"; recordId: string; detailUrl: string | null }>;
@@ -174,9 +177,13 @@ describe("processPendingBitableSync", () => {
     const runMutation = vi
       .fn()
       .mockResolvedValueOnce({ detailUrl: "https://feishu.cn/base/app?table=tbl&record=rec_service_1" });
+    const scheduler = { runAfter: vi.fn() };
 
     await expect(
-      processPendingHandler({ runMutation, runAction }, { ...baseArgs, clientToken: "client-token-1" }),
+      processPendingHandler(
+        { runMutation, runAction, scheduler },
+        { ...baseArgs, clientToken: "client-token-1" },
+      ),
     ).resolves.toEqual({
       status: "synced",
       recordId: "rec_service_1",
@@ -195,21 +202,53 @@ describe("processPendingBitableSync", () => {
       internetMessageId: "<msg-1@example.com>",
       bitableRecordId: "rec_service_1",
     });
+    // Happy path never schedules a retry.
+    expect(scheduler.runAfter).not.toHaveBeenCalled();
   });
 
-  it("records a retryable failure when the Feishu Base create fails", async () => {
-    const runMutation = vi.fn().mockResolvedValueOnce({ detailUrl: null });
+  it("self-schedules the next attempt under the stored token when a transient create fails", async () => {
+    // Replaces the 15-min reconcile sweep: the per-task chain re-enqueues itself
+    // with the planner's backoff delay, carrying the same idempotency token.
     const runAction = vi.fn().mockRejectedValueOnce(new Error("Feishu unavailable"));
+    const runMutation = vi
+      .fn()
+      .mockResolvedValueOnce({ status: "failed", nextRetryAt: 9_999, retryDelayMs: 5 * 60_000 });
+    const scheduler = { runAfter: vi.fn().mockResolvedValueOnce("scheduled-retry-1") };
 
     await expect(
-      processPendingHandler({ runMutation, runAction }, { ...baseArgs, clientToken: "client-token-1" }),
+      processPendingHandler(
+        { runMutation, runAction, scheduler },
+        { ...baseArgs, clientToken: "client-token-1" },
+      ),
     ).rejects.toThrow("Feishu unavailable");
 
-    expect(runMutation).toHaveBeenCalledTimes(1);
     expect(runMutation.mock.calls[0][1]).toMatchObject({
       internetMessageId: "<msg-1@example.com>",
       error: "Feishu unavailable",
     });
+    expect(scheduler.runAfter).toHaveBeenCalledTimes(1);
+    expect(scheduler.runAfter.mock.calls[0][0]).toBe(5 * 60_000);
+    expect(scheduler.runAfter.mock.calls[0][2]).toMatchObject({
+      clientToken: "client-token-1",
+      internetMessageId: "<msg-1@example.com>",
+    });
+  });
+
+  it("stops the chain when the failure is terminal (no further retry scheduled)", async () => {
+    const runAction = vi.fn().mockRejectedValueOnce(new Error("UserFieldConvFail"));
+    const runMutation = vi
+      .fn()
+      .mockResolvedValueOnce({ status: "abandoned", nextRetryAt: undefined, retryDelayMs: undefined });
+    const scheduler = { runAfter: vi.fn() };
+
+    await expect(
+      processPendingHandler(
+        { runMutation, runAction, scheduler },
+        { ...baseArgs, clientToken: "client-token-1" },
+      ),
+    ).rejects.toThrow("UserFieldConvFail");
+
+    expect(scheduler.runAfter).not.toHaveBeenCalled();
   });
 });
 

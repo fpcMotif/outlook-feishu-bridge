@@ -7,6 +7,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildServiceAttachmentFields,
   buildServiceCreateFields,
   buildServiceFields,
   buildServiceSalesFields,
@@ -17,6 +18,18 @@ const BASE: ServiceRowInput = {
   subject: "Inquiry: bulk L-Carnitine",
   selectedCoworkers: [{ openId: "ou_jenny", name: "Jenny Xu" }],
 };
+
+describe("buildServiceAttachmentFields", () => {
+  it("writes only the Sales Files cell as [{ file_token }] in order", () => {
+    expect(
+      buildServiceAttachmentFields([{ fileToken: "boxA" }, { fileToken: "boxB" }]),
+    ).toEqual({ "Sales Files": [{ file_token: "boxA" }, { file_token: "boxB" }] });
+  });
+
+  it("writes nothing for an empty token list (never clears the cell)", () => {
+    expect(buildServiceAttachmentFields([])).toEqual({});
+  });
+});
 
 describe("buildServiceFields", () => {
   // ADR-0014: the email Subject is mirrored to the Service row's

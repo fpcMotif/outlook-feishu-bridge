@@ -149,6 +149,22 @@ export function buildServiceCreateFields(
   return fields;
 }
 
+/**
+ * Phase-3 patch: the `Sales Files` Attachment column only (ADR-0027). Deferred
+ * **Attachment Fill** PUTs the cumulative `file_token`s onto the just-created row
+ * after the create — modeled on the phase-2 Sales patch. An empty list writes
+ * nothing (never clears the cell). The DIAG skip switch suppresses it like the
+ * create path.
+ */
+export function buildServiceAttachmentFields(
+  attachments: { fileToken: string }[],
+): Record<string, unknown> {
+  if (attachments.length === 0) return {};
+  const skip = readSkipSet();
+  if (skip.has(ATTACHMENTS_COLUMN)) return {};
+  return { [ATTACHMENTS_COLUMN]: attachments.map((a) => ({ file_token: a.fileToken })) };
+}
+
 /** Phase-2 patch: `Sales` User column only (after `Data From` on create). */
 export function buildServiceSalesFields(input: ServiceRowInput): Record<string, unknown> {
   if (!shouldPatchSalesAfterCreate(input)) return {};

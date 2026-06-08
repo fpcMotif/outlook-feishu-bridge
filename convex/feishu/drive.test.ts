@@ -14,7 +14,9 @@ vi.mock("../storage", () => ({
 }));
 
 import {
+  driveUploadConcurrency,
   FEISHU_RATE_LIMIT_CODE,
+  mapWithConcurrency,
   MAX_MEDIA_UPLOAD_BYTES,
   uploadAttachmentsToDrive,
   uploadMediaToDrive,
@@ -210,6 +212,55 @@ describe("uploadAttachmentsToDrive action", () => {
   });
 });
 
+describe("mapWithConcurrency", () => {
+  it("runs at most `limit` tasks at once and preserves input order", async () => {
+    let active = 0;
+    let peak = 0;
+    const fn = async (n: number): Promise<number> => {
+      active += 1;
+      peak = Math.max(peak, active);
+      await new Promise((r) => setTimeout(r, 5));
+      active -= 1;
+      return n * 2;
+    };
+    await expect(mapWithConcurrency([1, 2, 3, 4, 5], 2, fn)).resolves.toEqual([2, 4, 6, 8, 10]);
+    expect(peak).toBeLessThanOrEqual(2);
+    expect(peak).toBeGreaterThan(1); // it actually parallelized
+  });
+
+  it("returns [] for no items and never exceeds the item count", async () => {
+    expect(await mapWithConcurrency([], 4, async () => 1)).toEqual([]);
+    let peak = 0;
+    let active = 0;
+    await mapWithConcurrency([1, 2], 10, async (n) => {
+      active += 1;
+      peak = Math.max(peak, active);
+      await new Promise((r) => setTimeout(r, 1));
+      active -= 1;
+      return n;
+    });
+    expect(peak).toBeLessThanOrEqual(2);
+  });
+});
+
+describe("driveUploadConcurrency", () => {
+  const original = process.env.FEISHU_DRIVE_UPLOAD_CONCURRENCY;
+  afterEach(() => {
+    if (original === undefined) delete process.env.FEISHU_DRIVE_UPLOAD_CONCURRENCY;
+    else process.env.FEISHU_DRIVE_UPLOAD_CONCURRENCY = original;
+  });
+  it("defaults to 4 and hard-caps at 5", () => {
+    delete process.env.FEISHU_DRIVE_UPLOAD_CONCURRENCY;
+    expect(driveUploadConcurrency()).toBe(4);
+    process.env.FEISHU_DRIVE_UPLOAD_CONCURRENCY = "2";
+    expect(driveUploadConcurrency()).toBe(2);
+    process.env.FEISHU_DRIVE_UPLOAD_CONCURRENCY = "99";
+    expect(driveUploadConcurrency()).toBe(5);
+    process.env.FEISHU_DRIVE_UPLOAD_CONCURRENCY = "garbage";
+    expect(driveUploadConcurrency()).toBe(4);
+  });
+});
+
 describe("withDriveRateLimitRetry", () => {
   const noSleep = (): Promise<void> => Promise.resolve();
 
@@ -258,6 +309,19 @@ describe("withDriveRateLimitRetry", () => {
       withDriveRateLimitRetry(upload, { sleep: noSleep }),
     ).rejects.toBe(err);
     expect(upload).toHaveBeenCalledTimes(1);
+  });
+
+  it("honors the server reset hint over the blind backoff when present", async () => {
+    const sleeps: number[] = [];
+    const err = new FeishuError(FEISHU_RATE_LIMIT_CODE, "rate", "Drive", 1234);
+    const upload = vi.fn().mockRejectedValueOnce(err).mockResolvedValue("ok");
+    await withDriveRateLimitRetry(upload, {
+      sleep: async (ms) => {
+        sleeps.push(ms);
+      },
+      backoffMs: () => 9999,
+    });
+    expect(sleeps).toEqual([1234]);
   });
 
   it("feeds the attempt index to backoffMs", async () => {

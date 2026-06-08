@@ -9,12 +9,31 @@ export const FEISHU_BASE = "https://open.feishu.cn/open-apis";
 export class FeishuError extends Error {
   readonly code: number;
   readonly feishuMsg: string;
-  constructor(code: number, feishuMsg: string, label: string) {
+  /** Server's "wait this long" hint (ms) from a 429, when present (ADR-0027). */
+  readonly retryAfterMs?: number;
+  constructor(code: number, feishuMsg: string, label: string, retryAfterMs?: number) {
     super(`${label} failed (code ${code}): ${feishuMsg}`);
     this.name = "FeishuError";
     this.code = code;
     this.feishuMsg = feishuMsg;
+    this.retryAfterMs = retryAfterMs;
   }
+}
+
+/**
+ * The server's rate-limit recovery hint in ms, read from a 429 response. Feishu
+ * docs call `x-ogw-ratelimit-reset` (seconds until reset) the best signal for
+ * when to retry; we fall back to the standard `Retry-After` (also seconds).
+ * Honoring it beats blind exponential backoff (ADR-0027). Returns undefined when
+ * neither header is a non-negative number.
+ */
+export function rateLimitResetMs(
+  getHeader: (name: string) => string | null,
+): number | undefined {
+  const raw = getHeader("x-ogw-ratelimit-reset") ?? getHeader("Retry-After");
+  if (!raw) return undefined;
+  const seconds = Number(raw);
+  return Number.isFinite(seconds) && seconds >= 0 ? seconds * 1_000 : undefined;
 }
 
 interface FeishuEnvelope {
@@ -90,7 +109,12 @@ export async function feishuFetch<T = unknown>(
     console.error(
       `[feishu] ${opts.label ?? "call"} FAILED code=${parsed.code} msg=${parsed.msg} logId=${logId} body=${rawText.slice(0, 1000)}`,
     );
-    throw new FeishuError(parsed.code, parsed.msg, opts.label ?? "Feishu API");
+    throw new FeishuError(
+      parsed.code,
+      parsed.msg,
+      opts.label ?? "Feishu API",
+      rateLimitResetMs((name) => response.headers.get(name)),
+    );
   }
   return parsed as T;
 }

@@ -9,7 +9,12 @@ import { v } from "convex/values";
 
 import { buildRequestSyncKey, emailRecordFields } from "./emailRecord";
 import type { Doc } from "./_generated/dataModel";
-import { resolveBitableNextRetryAt } from "./feishu/bitableSyncRetry";
+import {
+  BITABLE_NEXT_RETRY_MIN,
+  isBitableSyncDue,
+  planBitableSyncFailure,
+  shouldRearmStaleSync,
+} from "./feishu/bitableSyncRetry";
 import { buildConfiguredBitableRecordDetailUrl } from "./feishu/bitableUrl";
 import { poisonedOutboxReason } from "./feishu/previewFixtures";
 
@@ -69,8 +74,10 @@ async function patchAbandonedBitableSync(
   if (!existing) return;
   if (existing.bitableRecordId || existing.bitableSyncStatus === "synced") return;
   const attemptCount = (existing.bitableAttemptCount ?? 0) + 1;
+  // Poison/abandon is terminal: a distinct `abandoned` status (not `failed` + an
+  // undefined next-retry) so the row can never be re-selected as "due".
   await ctx.db.patch(existing._id, {
-    bitableSyncStatus: "failed",
+    bitableSyncStatus: "abandoned",
     bitableLastAttemptAt: attemptedAt,
     bitableLastError: error.slice(0, ERROR_PREVIEW_MAX),
     bitableAttemptCount: attemptCount,
@@ -190,16 +197,22 @@ export const markBitableSyncFailed = internalMutation({
   },
   handler: async (ctx, args) => {
     const existing = await findExistingEmailRecord(ctx, args);
-    if (!existing) return;
-    if (existing.bitableRecordId || existing.bitableSyncStatus === "synced") return;
+    if (!existing) return null;
+    if (existing.bitableRecordId || existing.bitableSyncStatus === "synced") return null;
     const attemptCount = (existing.bitableAttemptCount ?? 0) + 1;
+    // The planner decides retry-vs-retire: `failed` + a future next-retry while
+    // attempts remain, or terminal `abandoned` at MAX / on a permanent error.
+    const plan = planBitableSyncFailure(attemptCount, args.attemptedAt, args.error);
     await ctx.db.patch(existing._id, {
-      bitableSyncStatus: "failed",
+      bitableSyncStatus: plan.status,
       bitableLastAttemptAt: args.attemptedAt,
       bitableLastError: args.error.slice(0, ERROR_PREVIEW_MAX),
       bitableAttemptCount: attemptCount,
-      bitableNextRetryAt: resolveBitableNextRetryAt(attemptCount, args.attemptedAt, args.error),
+      bitableNextRetryAt: plan.nextRetryAt,
     });
+    // Convex values can't hold `undefined`; null tells the action the chain is
+    // terminal. A numeric delay is the action's cue to self-schedule the next try.
+    return { status: plan.status, retryDelayMs: plan.retryDelayMs ?? null };
   },
 });
 
@@ -213,17 +226,51 @@ export const listDueBitableSyncRecords = internalQuery({
       Math.max(args.limit ?? RECONCILE_BATCH_LIMIT, 1),
       RECONCILE_BATCH_LIMIT,
     );
-    const takeForStatus = async (status: "pending" | "failed") =>
-      await ctx.db
+    // Lower-bound the range by BITABLE_NEXT_RETRY_MIN so the undefined "never
+    // retry again" sentinel (which sorts below all numbers in a Convex index) is
+    // excluded — otherwise exhausted / permanent-error rows stay forever "due"
+    // and the reconcile cron retries them past MAX_BITABLE_SYNC_ATTEMPTS. The
+    // index narrows; isBitableSyncDue is the authoritative (unit-tested) check.
+    const takeForStatus = async (status: "pending" | "failed") => {
+      const candidates = await ctx.db
         .query("emailRecords")
         .withIndex("by_bitableSyncStatus_and_bitableNextRetryAt", (q) =>
-          q.eq("bitableSyncStatus", status).lte("bitableNextRetryAt", args.now),
+          q
+            .eq("bitableSyncStatus", status)
+            .gte("bitableNextRetryAt", BITABLE_NEXT_RETRY_MIN)
+            .lte("bitableNextRetryAt", args.now),
         )
         .take(limit);
+      return candidates.filter((record) =>
+        isBitableSyncDue(record.bitableNextRetryAt, args.now),
+      );
+    };
     const pending = await takeForStatus("pending");
     if (pending.length >= limit) return pending.slice(0, limit);
     const failed = await takeForStatus("failed");
     return [...pending, ...failed].slice(0, limit);
+  },
+});
+
+// Server-side re-check for the rearm-on-reopen self-heal: returns the stored
+// backup ONLY when it is genuinely stranded (shouldRearmStaleSync), so the
+// public rearm action can never be coaxed into re-driving a live/terminal row.
+export const getRearmableOutboxRecord = internalQuery({
+  args: {
+    userEmail: v.string(),
+    conversationId: v.string(),
+    now: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const requestSyncKey = buildRequestSyncKey(args.userEmail, args.conversationId);
+    const existing = await findExistingEmailRecord(ctx, {
+      requestSyncKey: requestSyncKey ?? undefined,
+      userEmail: args.userEmail,
+      conversationId: args.conversationId,
+    });
+    if (!existing) return null;
+    if (!shouldRearmStaleSync(existing, args.now)) return null;
+    return existing;
   },
 });
 
@@ -254,13 +301,20 @@ export const getBitableSyncByConversation = query({
     });
     if (!existing) return null;
     if (!existing.bitableRecordId) {
+      // `abandoned` (terminal) collapses to the `failed` UI shape — both show a
+      // terminal error, not a perpetual spinner. `rearmable` is the cron-free
+      // self-heal cue: reopening a stranded task (action died / mark threw) lets
+      // the taskpane re-arm its retry without any scheduled sweep.
+      const terminalOrFailed =
+        existing.bitableSyncStatus === "failed" || existing.bitableSyncStatus === "abandoned";
       return {
-        status: existing.bitableSyncStatus === "failed" ? ("failed" as const) : ("pending" as const),
+        status: terminalOrFailed ? ("failed" as const) : ("pending" as const),
         recordId: null,
         detailUrl: null,
         coworkerCount: existing.selectedCoworkers?.length ?? 0,
         syncedAt: existing.bitableLastAttemptAt ?? existing.createdAt,
         error: existing.bitableLastError ?? null,
+        rearmable: shouldRearmStaleSync(existing, Date.now()),
       };
     }
     return {
@@ -270,6 +324,7 @@ export const getBitableSyncByConversation = query({
       coworkerCount: existing.selectedCoworkers?.length ?? 0,
       syncedAt: existing.bitableLastAttemptAt ?? existing.createdAt,
       error: null,
+      rearmable: false as const,
     };
   },
 });

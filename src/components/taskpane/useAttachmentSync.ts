@@ -1,9 +1,10 @@
-// Submit-time attachment pipeline (ADR-0022): the one seam RequestIntakeScreen
+// Submit-time attachment pipeline (ADR-0027): the one seam RequestIntakeScreen
 // calls. Downloads checked mail attachments (Office.js getAttachmentContentAsync)
-// + collects valid uploads, stages the bytes to Convex File Storage, and mints
-// Feishu Drive file_tokens via uploadAttachmentsToDrive. Best-effort — a failed
-// mail download is reported, never fatal. Returns the { fileToken }[] the
-// syncRequest payload carries.
+// + collects valid uploads and stages the bytes to Convex File Storage. The
+// Feishu Drive upload_all that mints `file_token`s runs LATER, server-side in the
+// deferred Attachment Fill — the submit path no longer blocks on it. Best-effort:
+// a failed mail download is reported, never fatal. Returns the staged
+// { storageId, fileName }[] the syncRequest payload carries as `attachmentSources`.
 
 import { useCallback } from "react";
 
@@ -12,8 +13,9 @@ import {
   type AttachmentContentReader,
 } from "../../office/attachmentDownload";
 import {
-  stageAndUploadAttachments,
+  stageAttachmentSources,
   type AttachmentSource,
+  type StagedAttachmentSource,
 } from "../../office/attachmentUpload";
 import { dlog, dtime } from "../../debug";
 import type { OfficeLike } from "../../office/mailItem";
@@ -25,7 +27,7 @@ import {
 import type { UploadedFile } from "./intakeReducer";
 
 export interface AttachmentSyncResult {
-  attachments: { fileToken: string }[];
+  sources: StagedAttachmentSource[];
   failed: AttachmentFailure[];
 }
 
@@ -58,38 +60,28 @@ export function useAttachmentSync(): (
             );
 
       const gatherStarted = performance.now();
-      const { sources, failed } = await gatherAttachmentSources(
+      const { sources: gathered, failed } = await gatherAttachmentSources(
         downloadMail,
         selectedMail,
         uploads,
       );
       dtime(
-        `attachment source gather (${sources.length} ready, ${failed.length} failed)`,
+        `attachment source gather (${gathered.length} ready, ${failed.length} failed)`,
         gatherStarted,
       );
-      const tokenStarted = performance.now();
-      const drive =
-        sources.length > 0
-          ? await stageAndUploadAttachments(stagingDeps, sources)
-          : { attachments: [], skipped: [] };
-      // A Drive-skipped file (dead/GC'd storageId) is surfaced as a soft failure,
-      // never fatal — the Base row is still created with the tokens that minted.
-      const allFailed: AttachmentFailure[] = [
-        ...failed,
-        ...drive.skipped.map((name) => ({
-          name,
-          reason: "Attachment file was unavailable and was skipped",
-        })),
-      ];
+      // Stage the bytes to Convex — the only wait before the row exists, and the
+      // hard deadline (Office.js bytes die once the pane closes). The Drive mint +
+      // any per-file skip now happen server-side in the Attachment Fill, surfaced
+      // via getBitableSyncByConversation.attachmentStatus (ADR-0027).
+      const stageStarted = performance.now();
+      const sources =
+        gathered.length > 0 ? await stageAttachmentSources(stagingDeps, gathered) : [];
+      dtime(`attachment stage (${sources.length} staged)`, stageStarted);
       dtime(
-        `attachment token pipeline (${drive.attachments.length} tokens, ${drive.skipped.length} skipped)`,
-        tokenStarted,
-      );
-      dtime(
-        `attachment sync total (${drive.attachments.length} tokens, ${allFailed.length} failed)`,
+        `attachment sync total (${sources.length} staged, ${failed.length} failed)`,
         started,
       );
-      return { attachments: drive.attachments, failed: allFailed };
+      return { sources, failed };
     },
     [stagingDeps],
   );

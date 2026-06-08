@@ -18,7 +18,6 @@ vi.mock("../../hooks/useAttachmentStaging", () => ({
   useAttachmentStaging: () => ({
     generateUploadUrl: vi.fn().mockResolvedValue("https://up/test"),
     uploadBytes: vi.fn().mockResolvedValue({ storageId: "st_test" }),
-    uploadToDrive: vi.fn().mockResolvedValue({ attachments: [] }),
   }),
 }));
 

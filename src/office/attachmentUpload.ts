@@ -1,9 +1,11 @@
-// SPA attachment pipeline (ADR-0022): turn picker selections — existing mail
-// attachments downloaded as Base64 plus user-uploaded DOM Files — into Feishu
-// Drive file_tokens for the Base row. Bytes are staged through Convex File
-// Storage, then minted into tokens by the uploadAttachmentsToDrive action; the
-// SPA never touches Feishu Drive directly (no Drive-scoped token / CORS path,
-// and a 20 MB file would exceed the Convex action-arg cap — see ADR-0022).
+// SPA attachment pipeline (ADR-0022 / ADR-0027): turn picker selections —
+// existing mail attachments downloaded as Base64 plus user-uploaded DOM Files —
+// into STAGED Convex File-Storage refs for the Base row. The SPA only stages
+// bytes here (the one wait, and it's the fast/local leg). The Feishu Drive
+// upload_all that mints `file_token`s now runs server-side in the deferred
+// Attachment Fill (off the submit critical path — ADR-0027), so submit never
+// blocks on the serial 5 QPS Drive uploads. The SPA never touches Feishu Drive
+// directly (no Drive-scoped token / CORS path, 20 MB > Convex action-arg cap).
 
 import { fileExtension } from "./attachments";
 import { dtime } from "../debug";
@@ -46,23 +48,35 @@ export interface AttachmentSource {
 }
 
 // Injected so the orchestration stays pure and testable: the Convex storage
-// upload-URL mint, the raw byte POST, and the Drive token-minting action.
+// upload-URL mint and the raw byte POST. (The Drive token-minting action is no
+// longer a submit-path dependency — upload_all moved into the deferred
+// Attachment Fill worker, ADR-0027.)
 export interface AttachmentStagingDeps {
   generateUploadUrl: () => Promise<string>;
   uploadBytes: (url: string, blob: Blob) => Promise<{ storageId: string }>;
-  uploadToDrive: (
-    sources: { storageId: string; fileName: string }[],
-  ) => Promise<{ attachments: { fileToken: string }[]; skipped: string[] }>;
 }
 
-// Stage each blob to Convex File Storage, then mint Feishu Drive file_tokens in
-// one backend call. Returns the [{ fileToken }] shape syncRequest consumes, in
-// input order. Empty input short-circuits with no network calls.
-export async function stageAndUploadAttachments(
+// A staged file ready for the backend Attachment Fill to upload to Drive: the
+// Convex storage id plus the display name — exactly the `attachmentSources`
+// shape syncRequest takes.
+export interface StagedAttachmentSource {
+  storageId: string;
+  fileName: string;
+}
+
+// Stage each blob to Convex File Storage and return the staged { storageId,
+// fileName } refs in input order. Sources that arrived already staged (eager
+// intake uploads carry a storageId) skip the byte POST. The Drive upload_all NO
+// LONGER happens here — it runs server-side in the deferred Attachment Fill
+// (ADR-0027), so submit stays off the serial 5 QPS Drive critical path. Empty
+// input short-circuits with no network calls. This local staging is the only
+// thing the salesperson waits for (the hard deadline before the pane can close —
+// Office.js bytes are unrecoverable after close).
+export async function stageAttachmentSources(
   deps: AttachmentStagingDeps,
   sources: AttachmentSource[],
-): Promise<{ attachments: { fileToken: string }[]; skipped: string[] }> {
-  if (sources.length === 0) return { attachments: [], skipped: [] };
+): Promise<StagedAttachmentSource[]> {
+  if (sources.length === 0) return [];
   const stageStarted = performance.now();
   const staged = await Promise.all(
     sources.map(async (source) => {
@@ -80,13 +94,7 @@ export async function stageAndUploadAttachments(
     }),
   );
   dtime(`attachment storage stage (${staged.length} files)`, stageStarted);
-  const driveStarted = performance.now();
-  const { attachments, skipped } = await deps.uploadToDrive(staged);
-  dtime(
-    `attachment drive token mint (${attachments.length} files, ${skipped.length} skipped)`,
-    driveStarted,
-  );
-  return { attachments, skipped };
+  return staged;
 }
 
 // Default uploadBytes: POST raw bytes to a Convex storage upload URL (1 h TTL),

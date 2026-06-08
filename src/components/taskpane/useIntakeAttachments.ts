@@ -1,8 +1,9 @@
-// Attachment concern for the intake screen (ADR-0022): derives the selectable
-// mail attachments, the Add-file handler (validate + auto-select slots), and the
-// submit-time stageSelected() that downloads the checked mail attachments +
-// uploads and mints Feishu Drive file_tokens. Keeps RequestIntakeScreen focused
-// and the Convex/Office coupling out of the component body.
+// Attachment concern for the intake screen (ADR-0022 / ADR-0027): derives the
+// selectable mail attachments, the Add-file handler (validate + auto-select
+// slots), and the submit-time stageSelected() that downloads the checked mail
+// attachments + uploads and STAGES them to Convex (the Drive mint is now the
+// server-side Attachment Fill's job). Keeps RequestIntakeScreen focused and the
+// Convex/Office coupling out of the component body.
 
 import { useCallback, useMemo, useRef, type Dispatch } from "react";
 

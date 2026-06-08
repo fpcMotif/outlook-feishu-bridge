@@ -227,7 +227,11 @@ export function useRequestIntakeScreen(
             `[intake] skipped ${staged.failed.length} attachment(s): ${staged.failed.map((f) => f.name).join(", ")}`,
           );
         }
-        return sync({ ...payload, attachments: staged.attachments });
+        // Hand the staged Convex storageIds straight to syncRequest; the row is
+        // created with an empty Sales Files cell and the deferred Attachment Fill
+        // writes the files server-side (ADR-0027), so submit never blocks on the
+        // serial Drive uploads. Staging already finished above — the only wait.
+        return sync({ ...payload, attachmentSources: staged.sources });
       })
       .then((result) => {
         if (activeSyncGenerationRef.current !== syncGeneration || !result.recordId) return;

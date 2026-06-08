@@ -121,6 +121,15 @@ describe("shouldRearmAttachmentFill", () => {
     ).toBe(false);
   });
 
+  it("re-arms a `filling` row whose heartbeat went stale (crashed mid-fill)", () => {
+    expect(
+      shouldRearmAttachmentFill(
+        { bitableRecordId: "rec1", bitableAttachmentStatus: "filling", attachmentNextRetryAt: overdue },
+        now,
+      ),
+    ).toBe(true);
+  });
+
   it("does not re-arm while the next attempt is still in the future", () => {
     expect(
       shouldRearmAttachmentFill(

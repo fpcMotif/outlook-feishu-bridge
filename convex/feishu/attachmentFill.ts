@@ -45,9 +45,12 @@ export function mayUpdateOwnedBitableRow(
  * predicate the create-side rearm can't serve: the row already exists
  * (`bitableRecordId` set — which the create lifecycle treats as fully done), yet
  * its deferred attachment fill is stranded. True only for a created row whose
- * fill is non-terminal (`pending`/`failed`, never `filled`/`filling`) and whose
- * real `attachmentNextRetryAt` is overdue past the grace window. The undefined
- * sentinel (terminal/exhausted fill) is never re-armed.
+ * fill is non-terminal (`pending`/`filling`/`failed`, never `filled`) and whose
+ * real `attachmentNextRetryAt` is overdue past the grace window. A `filling` row
+ * with a FRESH heartbeat is within grace → not re-armed (so an actively-running
+ * fill is never double-driven); a `filling` row whose heartbeat went stale (a
+ * crashed mid-fill) IS re-armed. The undefined sentinel (terminal/exhausted
+ * fill) is never re-armed.
  */
 export function shouldRearmAttachmentFill(
   row: {
@@ -59,8 +62,9 @@ export function shouldRearmAttachmentFill(
   graceMs: number = STALE_PENDING_REARM_GRACE_MS,
 ): boolean {
   if (!row.bitableRecordId) return false; // row not created yet → create lifecycle's job
-  if (row.bitableAttachmentStatus !== "pending" && row.bitableAttachmentStatus !== "failed") {
-    return false; // filled / filling / no attachment lifecycle
+  const s = row.bitableAttachmentStatus;
+  if (s !== "pending" && s !== "filling" && s !== "failed") {
+    return false; // filled / no attachment lifecycle
   }
   return isBitableSyncDue(row.attachmentNextRetryAt, now - graceMs);
 }

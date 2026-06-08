@@ -286,9 +286,16 @@ type ReconcileHandler = (
     runQuery: (fn: unknown, args: Record<string, unknown>) => Promise<Array<Record<string, unknown>>>;
     runMutation: (fn: unknown, args: Record<string, unknown>) => Promise<unknown>;
     runAction: (fn: unknown, args: Record<string, unknown>) => Promise<{ recordId: string }>;
+    scheduler: { runAfter: (delayMs: number, fn: unknown, args: Record<string, unknown>) => Promise<string> };
   },
   args: Record<string, never>,
-) => Promise<{ checked: number; synced: number; failed: number }>;
+) => Promise<{ checked: number; synced: number; failed: number; attachmentFills: number }>;
+
+// The reconcile sweep now queries twice: due outbox records, then due attachment
+// fills. The second runQuery returns [] in these outbox-focused tests.
+const noDueFills = (runQuery: ReturnType<typeof vi.fn>): void => {
+  runQuery.mockResolvedValueOnce([]);
+};
 
 const reconcileHandler = (
   reconcilePendingBitableSync as unknown as { _handler: ReconcileHandler }
@@ -304,13 +311,18 @@ describe("reconcilePendingBitableSync", () => {
         bitableClientToken: "client-token-1",
       },
     ]);
+    noDueFills(runQuery);
     const runAction = vi.fn().mockResolvedValueOnce({ recordId: "rec_service_1" });
     const runMutation = vi.fn().mockResolvedValueOnce({ detailUrl: null });
+    const scheduler = { runAfter: vi.fn() };
 
-    await expect(reconcileHandler({ runQuery, runAction, runMutation }, {})).resolves.toEqual({
+    await expect(
+      reconcileHandler({ runQuery, runAction, runMutation, scheduler }, {}),
+    ).resolves.toEqual({
       checked: 1,
       synced: 1,
       failed: 0,
+      attachmentFills: 0,
     });
 
     expect(runAction.mock.calls[0][1]).toMatchObject({
@@ -343,13 +355,18 @@ describe("reconcilePendingBitableSync", () => {
         selectedCoworkers: [jenny],
       },
     ]);
+    noDueFills(runQuery);
     const runAction = vi.fn();
     const runMutation = vi.fn().mockResolvedValue(undefined);
+    const scheduler = { runAfter: vi.fn() };
 
-    await expect(reconcileHandler({ runQuery, runAction, runMutation }, {})).resolves.toEqual({
+    await expect(
+      reconcileHandler({ runQuery, runAction, runMutation, scheduler }, {}),
+    ).resolves.toEqual({
       checked: 1,
       synced: 0,
       failed: 1,
+      attachmentFills: 0,
     });
 
     expect(runAction).not.toHaveBeenCalled();

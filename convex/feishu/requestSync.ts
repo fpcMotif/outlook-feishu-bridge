@@ -328,17 +328,32 @@ async function replayStoredOutboxRecord(
 // chain + rearm-on-reopen somehow missed. Day-to-day recovery is per-task.
 export const reconcilePendingBitableSync = internalAction({
   args: {},
-  handler: async (ctx): Promise<{ checked: number; synced: number; failed: number }> => {
-    const due = await ctx.runQuery(internal.emails.listDueBitableSyncRecords, { now: Date.now(), limit: RECONCILE_LIMIT });
+  handler: async (
+    ctx,
+  ): Promise<{ checked: number; synced: number; failed: number; attachmentFills: number }> => {
+    const now = Date.now();
+    const due = await ctx.runQuery(internal.emails.listDueBitableSyncRecords, { now, limit: RECONCILE_LIMIT });
     const outcomes = await Promise.all(due.map((record) => replayStoredOutboxRecord(ctx, record)));
     const synced = outcomes.filter((o) => o === "synced").length;
     const failed = outcomes.filter((o) => o === "failed").length;
-    if (due.length > 0) {
+    // Backstop the deferred Attachment Fill too (ADR-0027): re-drive any fill that
+    // is stranded-due, for the no-human-in-the-loop case the per-conversation
+    // rearm-on-reopen can't reach. fillRowAttachments is idempotent + fenced.
+    const dueFills = await ctx.runQuery(internal.emails.listDueAttachmentFills, { now, limit: RECONCILE_LIMIT });
+    await Promise.all(
+      dueFills.map((f) =>
+        ctx.scheduler.runAfter(0, internal.feishu.requestSync.fillRowAttachments, {
+          internetMessageId: f.internetMessageId,
+          requestSyncKey: f.requestSyncKey ?? undefined,
+        }),
+      ),
+    );
+    if (due.length > 0 || dueFills.length > 0) {
       console.log(
-        `[requestSync] reconcilePendingBitableSync checked=${due.length} synced=${synced} failed=${failed}`,
+        `[requestSync] reconcile checked=${due.length} synced=${synced} failed=${failed} attachmentFills=${dueFills.length}`,
       );
     }
-    return { checked: due.length, synced, failed };
+    return { checked: due.length, synced, failed, attachmentFills: dueFills.length };
   },
 });
 

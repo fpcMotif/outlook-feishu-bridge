@@ -291,11 +291,43 @@ export const recordAttachmentProgress = internalMutation({
       bitableAttachmentSources: (existing.bitableAttachmentSources ?? []).filter(
         (s) => !completed.has(s.storageId),
       ),
-      // Stay `pending` and refresh the heartbeat — an actively-progressing fill
-      // keeps pushing its rearm clock forward; a crashed one goes stale.
-      bitableAttachmentStatus: "pending",
+      // Mark `filling` and refresh the heartbeat — an actively-progressing fill
+      // keeps pushing its rearm clock forward (so it is never double-driven); a
+      // crashed one goes stale past the grace window and becomes rearmable.
+      bitableAttachmentStatus: "filling",
       attachmentNextRetryAt: Date.now(),
     });
+  },
+});
+
+// Index-backed sweep of attachment fills that are stranded due (pending/filling/
+// failed with a real next-retry in the past). Backs the manual reconcile (ADR-
+// 0027) — the per-conversation rearm-on-reopen only fires when a user reopens, so
+// this is the no-human-in-the-loop backstop. Returns ids the action re-drives.
+export const listDueAttachmentFills = internalQuery({
+  args: { now: v.number(), limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const limit = Math.min(Math.max(args.limit ?? RECONCILE_BATCH_LIMIT, 1), RECONCILE_BATCH_LIMIT);
+    const due: { internetMessageId: string; requestSyncKey?: string }[] = [];
+    for (const status of ["pending", "filling", "failed"] as const) {
+      const rows = await ctx.db
+        .query("emailRecords")
+        .withIndex("by_attachmentStatus_and_attachmentNextRetryAt", (q) =>
+          q
+            .eq("bitableAttachmentStatus", status)
+            .gte("attachmentNextRetryAt", BITABLE_NEXT_RETRY_MIN)
+            .lte("attachmentNextRetryAt", args.now),
+        )
+        .take(limit);
+      for (const row of rows) {
+        // Only rows that actually have a created Base row + remaining work.
+        if (row.bitableRecordId && (row.bitableAttachmentSources?.length ?? 0) > 0) {
+          due.push({ internetMessageId: row.internetMessageId, requestSyncKey: row.requestSyncKey });
+        }
+      }
+      if (due.length >= limit) break;
+    }
+    return due.slice(0, limit);
   },
 });
 

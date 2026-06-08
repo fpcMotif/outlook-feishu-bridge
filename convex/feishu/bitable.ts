@@ -1,13 +1,16 @@
 /* eslint-disable max-lines */
 import { internalAction, type ActionCtx } from "../_generated/server";
 import { v } from "convex/values";
+import { internal } from "../_generated/api";
 import { callFeishu } from "./call";
 import {
+  buildServiceAttachmentFields,
   buildServiceCreateFields,
   buildServiceFields,
   buildServiceSalesFields,
   type ServiceRowInput,
 } from "./serviceRow";
+import { mayUpdateOwnedBitableRow } from "./attachmentFill";
 import { emailDomain } from "./customers";
 import { isDevFixtureRecordId } from "./devCustomerFixtures";
 import {
@@ -206,6 +209,48 @@ export const correctServiceRecord = internalAction({
       label: "Bitable correct service row",
     });
     return { recordId: data.record?.record_id ?? args.recordId };
+  },
+});
+
+// ATTACHMENT FILL PUT (ADR-0027): write ONLY the `Sales Files` cell onto a row
+// THIS flow just minted, with the cumulative file_tokens. Re-reads the fill
+// state and passes the RUNTIME ownership + freshness fence before any write — a
+// foreign or ancient row is refused (throws), never patched. Idempotent: the
+// same cumulative token array PUT twice yields the same cell.
+export const patchRowAttachments = internalAction({
+  args: { internetMessageId: v.string(), requestSyncKey: v.optional(v.string()) },
+  handler: async (ctx, args): Promise<{ patched: boolean }> => {
+    const { appToken, tableId } = requireBitableEnv();
+    const state = await ctx.runQuery(internal.emails.getAttachmentFillState, {
+      internetMessageId: args.internetMessageId,
+      requestSyncKey: args.requestSyncKey,
+    });
+    if (!state || !state.bitableRecordId) return { patched: false };
+    const ok = mayUpdateOwnedBitableRow(
+      {
+        bitableRecordId: state.bitableRecordId,
+        bitableClientToken: state.bitableClientToken ?? undefined,
+        bitableRowMintedAt: state.bitableRowMintedAt ?? undefined,
+      },
+      Date.now(),
+    );
+    if (!ok) {
+      throw new Error(
+        `Refusing Sales Files PUT: row ${state.bitableRecordId} is not an updatable self-minted fresh row`,
+      );
+    }
+    const fields = buildServiceAttachmentFields(
+      state.fileTokens.map((fileToken) => ({ fileToken })),
+    );
+    if (Object.keys(fields).length === 0) return { patched: false };
+    await callFeishu(ctx, {
+      path: `/bitable/v1/apps/${appToken}/tables/${tableId}/records/${state.bitableRecordId}`,
+      method: "PUT",
+      auth: "tenant",
+      json: { fields },
+      label: "Bitable patch Sales Files (attachment fill)",
+    });
+    return { patched: true };
   },
 });
 

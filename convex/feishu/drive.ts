@@ -151,6 +151,54 @@ interface DriveSource {
   fileName: string;
 }
 
+// One staged source for the deferred Attachment Fill (ADR-0027). storageId is an
+// opaque string here (stored that way on the Email Record); cast at the storage
+// boundary only.
+export interface StagedAttachmentSource {
+  storageId: string;
+  fileName: string;
+}
+
+export type StagedSourceOutcome =
+  | { kind: "minted"; fileToken: string; storageId: string; fileName: string }
+  // Permanent per-file failure (dead/GC'd source, >20 MB): never retried.
+  | { kind: "skipped"; fileName: string; storageId: string }
+  // Transient (rate-limit storm beyond retry, network): kept for the fill's retry.
+  | { kind: "deferred"; fileName: string; storageId: string };
+
+/**
+ * Mint ONE staged source's Drive `file_token` without deleting the staged blob
+ * (the fill persists the token first, then deletes — Drive upload_all is not
+ * idempotent, ADR-0027). Classifies the failure: a dead/GC'd or oversize source
+ * is a permanent `skipped`; a Drive transport failure is a `deferred` retry.
+ */
+export async function mintOneStagedSource(
+  ctx: ActionCtx,
+  source: StagedAttachmentSource,
+  opts: { appToken: string; tenantToken: string },
+): Promise<StagedSourceOutcome> {
+  let bytes: ArrayBuffer;
+  try {
+    bytes = await getStorageBytes(ctx, source.storageId as Id<"_storage">);
+  } catch {
+    return { kind: "skipped", fileName: source.fileName, storageId: source.storageId };
+  }
+  if (bytes.byteLength > MAX_MEDIA_UPLOAD_BYTES) {
+    return { kind: "skipped", fileName: source.fileName, storageId: source.storageId };
+  }
+  try {
+    const fileToken = await withDriveRateLimitRetry(() =>
+      uploadMediaToDrive(ctx, new Blob([bytes]), source.fileName, opts.appToken, opts.tenantToken),
+    );
+    return { kind: "minted", fileToken, storageId: source.storageId, fileName: source.fileName };
+  } catch (e: unknown) {
+    console.warn(
+      `[drive] deferring attachment "${source.fileName}": ${e instanceof Error ? e.message : String(e)}`,
+    );
+    return { kind: "deferred", fileName: source.fileName, storageId: source.storageId };
+  }
+}
+
 interface PreparedDriveSource extends DriveSource {
   bytes: ArrayBuffer;
 }

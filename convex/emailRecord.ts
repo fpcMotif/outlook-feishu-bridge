@@ -185,6 +185,9 @@ export interface EmailRecordInput {
   selectedCoworkers?: SelectedCoworker[];
   selectedCustomer?: SelectedCustomer;
   initiator?: Initiator;
+  // Staged Convex blobs for the deferred Attachment Fill (ADR-0027) — persisted
+  // on the backup so the server can mint Drive tokens after the user leaves.
+  attachmentSources?: AttachmentSource[];
 }
 
 // The Feishu handle produced during sync.
@@ -237,5 +240,14 @@ export function toEmailRecord(
     bitableLastAttemptAt: undefined,
     bitableAttemptCount: undefined,
     bitableNextRetryAt: undefined,
+    bitableRowMintedAt: undefined,
+    // Sources ride the backup; the rest of the attachment lifecycle is set by
+    // the fill mutations (beginBitableSync arms the status when sources exist).
+    bitableAttachmentSources: input.attachmentSources,
+    bitableAttachmentStatus: undefined,
+    bitableAttachmentFileTokens: undefined,
+    bitableAttachmentSkipped: undefined,
+    attachmentAttemptCount: undefined,
+    attachmentNextRetryAt: undefined,
   };
 }

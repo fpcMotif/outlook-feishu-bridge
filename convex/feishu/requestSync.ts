@@ -1,10 +1,12 @@
 import { action, internalAction, type ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
-import type { Doc } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import { v } from "convex/values";
-import { initiatorValidator, selectedCoworkerValidator, selectedCustomerValidator, toEmailRecord, type SelectedCoworker } from "../emailRecord";
+import { attachmentSourceValidator, initiatorValidator, selectedCoworkerValidator, selectedCustomerValidator, toEmailRecord, type AttachmentSource, type SelectedCoworker } from "../emailRecord";
 import { assertRealCoworkerOpenIds, poisonedOutboxReason } from "./previewFixtures";
 import { buildConfiguredBitableRecordDetailUrl } from "./bitableUrl";
+import { driveUploadConcurrency, mintOneStagedSource } from "./drive";
+import { resolveFeishuToken } from "./call";
 
 // Shared intake submitted by the taskpane.
 const intakeArgs = {
@@ -23,7 +25,12 @@ const intakeArgs = {
   selectedSales: v.optional(initiatorValidator),
   initiator: v.optional(initiatorValidator),
   requestNote: v.optional(v.string()),
+  // Legacy: pre-minted Drive tokens written on the create (the SPA flow before
+  // ADR-0027). Kept for backward compat until the client sends attachmentSources.
   attachments: v.optional(v.array(v.object({ fileToken: v.string() }))),
+  // ADR-0027: staged Convex blobs. The row is created with an empty Sales Files
+  // cell and these are minted + filled by the deferred Attachment Fill.
+  attachmentSources: v.optional(v.array(attachmentSourceValidator)),
   selectedCoworkers: v.optional(v.array(selectedCoworkerValidator)),
 };
 
@@ -66,6 +73,7 @@ interface RequestSyncArgs {
   initiator?: { openId: string; name?: string };
   requestNote?: string;
   attachments?: { fileToken: string }[];
+  attachmentSources?: AttachmentSource[];
   selectedCoworkers?: SelectedCoworker[];
 }
 
@@ -87,6 +95,7 @@ function buildEmailRecordBackup(args: RequestSyncArgs, sentToBitable: boolean) {
       selectedCoworkers: args.selectedCoworkers,
       selectedCustomer: args.selectedCustomer,
       initiator: args.selectedSales ?? args.initiator,
+      attachmentSources: args.attachmentSources,
     },
     { sentToBitable },
   );
@@ -333,20 +342,110 @@ export const reconcilePendingBitableSync = internalAction({
   },
 });
 
+// Deferred Attachment Fill (ADR-0027). Kicked from markBitableSyncSucceeded once
+// the row exists, and re-driven by rearm-on-reopen. Processes the REMAINING
+// staged sources in waves of `driveUploadConcurrency` (bounded ≤5 under the
+// 5 QPS budget): each wave mints concurrently, persists tokens BEFORE deleting
+// blobs (upload_all is not idempotent), then coalesces into ONE cumulative
+// Sales Files PUT (fenced). Transient Drive failures defer to a bounded retry;
+// dead/oversize sources are permanently skipped. The row already exists, so a
+// stuck fill never affects the synced status — it just leaves a fillable cell.
+export const fillRowAttachments = internalAction({
+  args: { internetMessageId: v.string(), requestSyncKey: v.optional(v.string()) },
+  handler: async (ctx, args): Promise<{ filled: number; skipped: number; deferred: number }> => {
+    const lookup = { internetMessageId: args.internetMessageId, requestSyncKey: args.requestSyncKey };
+    const state = await ctx.runQuery(internal.emails.getAttachmentFillState, lookup);
+    if (!state || !state.bitableRecordId || state.bitableAttachmentStatus === "filled") {
+      return { filled: 0, skipped: 0, deferred: 0 };
+    }
+    if (state.remainingSources.length === 0) {
+      await ctx.runMutation(internal.emails.markAttachmentsFilled, lookup);
+      return { filled: 0, skipped: 0, deferred: 0 };
+    }
+    const appToken = process.env.FEISHU_BITABLE_APP_TOKEN;
+    if (!appToken) throw new Error("FEISHU_BITABLE_APP_TOKEN must be set");
+    const tenantToken = await resolveFeishuToken(ctx, "tenant");
+    const concurrency = driveUploadConcurrency();
+
+    let filled = 0;
+    let skipped = 0;
+    let deferred = 0;
+    let lastError: string | null = null;
+    try {
+      for (let i = 0; i < state.remainingSources.length; i += concurrency) {
+        const batch = state.remainingSources.slice(i, i + concurrency);
+        // eslint-disable-next-line no-await-in-loop -- waves are sequential (coalesced PUT per wave)
+        const outcomes = await Promise.all(
+          batch.map((s) => mintOneStagedSource(ctx, s, { appToken, tenantToken })),
+        );
+        const minted = outcomes.flatMap((o) => (o.kind === "minted" ? [o] : []));
+        const skippedNow = outcomes.flatMap((o) => (o.kind === "skipped" ? [o] : []));
+        const deferredNow = outcomes.flatMap((o) => (o.kind === "deferred" ? [o] : []));
+        filled += minted.length;
+        skipped += skippedNow.length;
+        deferred += deferredNow.length;
+        if (minted.length > 0 || skippedNow.length > 0) {
+          // Persist BEFORE deleting the staged blobs.
+          // eslint-disable-next-line no-await-in-loop -- ordered: persist then delete then PUT
+          await ctx.runMutation(internal.emails.recordAttachmentProgress, {
+            ...lookup,
+            mintedTokens: minted.map((m) => m.fileToken),
+            skippedNames: skippedNow.map((s) => s.fileName),
+            completedStorageIds: [...minted, ...skippedNow].map((o) => o.storageId),
+          });
+          // eslint-disable-next-line no-await-in-loop -- delete consumed blobs after persist
+          await Promise.all(
+            minted.map((m) => ctx.storage.delete(m.storageId as Id<"_storage">).catch(() => {})),
+          );
+          // eslint-disable-next-line no-await-in-loop -- coalesced cumulative PUT for this wave
+          await ctx.runAction(internal.feishu.bitable.patchRowAttachments, lookup);
+        }
+        if (deferredNow.length > 0) break; // transient — stop and reschedule
+      }
+    } catch (e: unknown) {
+      lastError = errorMessage(e);
+    }
+
+    if (deferred > 0 || lastError) {
+      const reason = lastError ?? `${deferred} attachment(s) deferred (transient Drive failure)`;
+      const outcome = await ctx.runMutation(internal.emails.markAttachmentsFailed, {
+        ...lookup,
+        error: reason,
+        attemptedAt: Date.now(),
+      });
+      if (typeof outcome?.retryDelayMs === "number") {
+        await ctx.scheduler.runAfter(outcome.retryDelayMs, internal.feishu.requestSync.fillRowAttachments, lookup);
+      }
+    } else {
+      await ctx.runMutation(internal.emails.markAttachmentsFilled, lookup);
+    }
+    return { filled, skipped, deferred };
+  },
+});
+
 // Per-task self-heal (cron-free backstop). The taskpane calls this when it
 // reopens a conversation whose outbox row is stranded (`rearmable`, see
 // emails.getBitableSyncByConversation). The query re-checks staleness server-
-// side, so this can only re-drive a genuinely stuck row, idempotently.
+// side, so this can only re-drive a genuinely stuck row, idempotently. Two
+// modes: a stranded ROW create replays the outbox; a stranded ATTACHMENT fill
+// re-drives fillRowAttachments (ADR-0027).
 export const rearmConversationSync = action({
   args: { userEmail: v.string(), conversationId: v.string() },
   handler: async (ctx, args): Promise<{ rearmed: boolean }> => {
-    const record = await ctx.runQuery(internal.emails.getRearmableOutboxRecord, {
+    const result = await ctx.runQuery(internal.emails.getRearmableOutboxRecord, {
       userEmail: args.userEmail,
       conversationId: args.conversationId,
       now: Date.now(),
     });
-    if (!record) return { rearmed: false };
-    await replayStoredOutboxRecord(ctx, record);
+    if (!result) return { rearmed: false };
+    if (result.mode === "sync") {
+      await replayStoredOutboxRecord(ctx, result.record);
+      return { rearmed: true };
+    }
+    await ctx.scheduler.runAfter(0, internal.feishu.requestSync.fillRowAttachments, {
+      internetMessageId: result.internetMessageId,
+      requestSyncKey: result.requestSyncKey ?? undefined,
+    });
     return { rearmed: true };
   },
 });

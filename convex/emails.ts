@@ -7,14 +7,17 @@ import {
 } from "./_generated/server";
 import { v } from "convex/values";
 
+import { internal } from "./_generated/api";
 import { buildRequestSyncKey, emailRecordFields } from "./emailRecord";
 import type { Doc } from "./_generated/dataModel";
 import {
   BITABLE_NEXT_RETRY_MIN,
   isBitableSyncDue,
   planBitableSyncFailure,
+  resolveBitableNextRetryAt,
   shouldRearmStaleSync,
 } from "./feishu/bitableSyncRetry";
+import { shouldRearmAttachmentFill } from "./feishu/attachmentFill";
 import { buildConfiguredBitableRecordDetailUrl } from "./feishu/bitableUrl";
 import { poisonedOutboxReason } from "./feishu/previewFixtures";
 
@@ -130,6 +133,10 @@ export const beginBitableSync = internalMutation({
       };
     }
 
+    // Deferred Attachment Fill (ADR-0027): if the intake carried staged sources,
+    // arm the attachment lifecycle as `pending` so markBitableSyncSucceeded can
+    // kick the fill once the row exists. No sources → no attachment lifecycle.
+    const hasAttachmentSources = (args.bitableAttachmentSources?.length ?? 0) > 0;
     const recordFields = {
       ...args,
       bitableClientToken,
@@ -137,6 +144,14 @@ export const beginBitableSync = internalMutation({
       bitableNextRetryAt: now,
       bitableAttemptCount: existing?.bitableAttemptCount ?? 0,
       sentToBitable: args.sentToBitable,
+      bitableAttachmentStatus: hasAttachmentSources ? ("pending" as const) : undefined,
+      bitableAttachmentFileTokens: undefined,
+      bitableAttachmentSkipped: undefined,
+      attachmentAttemptCount: undefined,
+      // Heartbeat clock: a `pending` fill is only rearmed once its next-retry
+      // goes stale past the grace window, so arm it at `now`; the fill refreshes
+      // it each wave, and a crashed fill stops refreshing → becomes rearmable.
+      attachmentNextRetryAt: hasAttachmentSources ? now : undefined,
     };
 
     if (existing) {
@@ -176,6 +191,8 @@ export const markBitableSyncSucceeded = internalMutation({
     if (!existing) {
       throw new Error(`No Email Record backup found for ${args.internetMessageId}`);
     }
+    // Stamp the mint time once (the freshness clock for mayUpdateOwnedBitableRow).
+    const bitableRowMintedAt = existing.bitableRowMintedAt ?? args.attemptedAt;
     await ctx.db.patch(existing._id, {
       bitableRecordId: args.bitableRecordId,
       sentToBitable: true,
@@ -183,7 +200,18 @@ export const markBitableSyncSucceeded = internalMutation({
       bitableLastAttemptAt: args.attemptedAt,
       bitableLastError: undefined,
       bitableNextRetryAt: undefined,
+      bitableRowMintedAt,
     });
+    // Kick the deferred Attachment Fill from INSIDE this mutation (ADR-0027), so
+    // the scheduled fill is guaranteed to see the committed bitableRecordId +
+    // bitableRowMintedAt that the runtime fence asserts against.
+    const hasSources = (existing.bitableAttachmentSources?.length ?? 0) > 0;
+    if (hasSources && existing.bitableAttachmentStatus !== "filled") {
+      await ctx.scheduler.runAfter(0, internal.feishu.requestSync.fillRowAttachments, {
+        internetMessageId: args.internetMessageId,
+        requestSyncKey: args.requestSyncKey,
+      });
+    }
     return { detailUrl: buildConfiguredBitableRecordDetailUrl(args.bitableRecordId) };
   },
 });
@@ -213,6 +241,98 @@ export const markBitableSyncFailed = internalMutation({
     // Convex values can't hold `undefined`; null tells the action the chain is
     // terminal. A numeric delay is the action's cue to self-schedule the next try.
     return { status: plan.status, retryDelayMs: plan.retryDelayMs ?? null };
+  },
+});
+
+// ===== Deferred Attachment Fill (ADR-0027) =====
+// State the fill action reads each pass — including the freshness inputs the
+// runtime fence asserts against and the REMAINING (un-minted) sources.
+export const getAttachmentFillState = internalQuery({
+  args: { internetMessageId: v.string(), requestSyncKey: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const existing = await findExistingEmailRecord(ctx, args);
+    if (!existing) return null;
+    return {
+      bitableRecordId: existing.bitableRecordId ?? null,
+      bitableClientToken: existing.bitableClientToken ?? null,
+      bitableRowMintedAt: existing.bitableRowMintedAt ?? null,
+      bitableAttachmentStatus: existing.bitableAttachmentStatus ?? null,
+      remainingSources: existing.bitableAttachmentSources ?? [],
+      fileTokens: existing.bitableAttachmentFileTokens ?? [],
+    };
+  },
+});
+
+// Persist one wave's outcome BEFORE the action deletes the staged blobs
+// (persist-before-delete: Drive upload_all is not idempotent). Appends the
+// minted tokens + skipped names, drops the completed sources from the remaining
+// list (so a replay re-mints only the un-minted tail), and marks `filling`.
+export const recordAttachmentProgress = internalMutation({
+  args: {
+    internetMessageId: v.string(),
+    requestSyncKey: v.optional(v.string()),
+    mintedTokens: v.array(v.string()),
+    skippedNames: v.array(v.string()),
+    completedStorageIds: v.array(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const existing = await findExistingEmailRecord(ctx, args);
+    if (!existing) return;
+    const completed = new Set(args.completedStorageIds);
+    await ctx.db.patch(existing._id, {
+      bitableAttachmentFileTokens: [
+        ...(existing.bitableAttachmentFileTokens ?? []),
+        ...args.mintedTokens,
+      ],
+      bitableAttachmentSkipped: [
+        ...(existing.bitableAttachmentSkipped ?? []),
+        ...args.skippedNames,
+      ],
+      bitableAttachmentSources: (existing.bitableAttachmentSources ?? []).filter(
+        (s) => !completed.has(s.storageId),
+      ),
+      // Stay `pending` and refresh the heartbeat — an actively-progressing fill
+      // keeps pushing its rearm clock forward; a crashed one goes stale.
+      bitableAttachmentStatus: "pending",
+      attachmentNextRetryAt: Date.now(),
+    });
+  },
+});
+
+export const markAttachmentsFilled = internalMutation({
+  args: { internetMessageId: v.string(), requestSyncKey: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const existing = await findExistingEmailRecord(ctx, args);
+    if (!existing) return;
+    await ctx.db.patch(existing._id, {
+      bitableAttachmentStatus: "filled",
+      attachmentNextRetryAt: undefined,
+    });
+  },
+});
+
+// Terminal-or-retryable attachment failure. Reuses the bitable backoff shape;
+// an undefined next-retry is the terminal sentinel (shouldRearmAttachmentFill /
+// the sweep exclude it). Returns the delay so the action can self-reschedule.
+export const markAttachmentsFailed = internalMutation({
+  args: {
+    internetMessageId: v.string(),
+    requestSyncKey: v.optional(v.string()),
+    error: v.string(),
+    attemptedAt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const existing = await findExistingEmailRecord(ctx, args);
+    if (!existing) return { retryDelayMs: null };
+    const attemptCount = (existing.attachmentAttemptCount ?? 0) + 1;
+    const nextRetryAt = resolveBitableNextRetryAt(attemptCount, args.attemptedAt, args.error);
+    await ctx.db.patch(existing._id, {
+      bitableAttachmentStatus: "failed",
+      attachmentAttemptCount: attemptCount,
+      attachmentNextRetryAt: nextRetryAt,
+      bitableLastError: args.error.slice(0, ERROR_PREVIEW_MAX),
+    });
+    return { retryDelayMs: nextRetryAt === undefined ? null : nextRetryAt - args.attemptedAt };
   },
 });
 
@@ -269,8 +389,21 @@ export const getRearmableOutboxRecord = internalQuery({
       conversationId: args.conversationId,
     });
     if (!existing) return null;
-    if (!shouldRearmStaleSync(existing, args.now)) return null;
-    return existing;
+    // Two independent rearm modes: a stranded ROW create (no bitableRecordId yet)
+    // vs a stranded ATTACHMENT fill on an already-created row. The create-side
+    // predicate short-circuits once the row exists, so the attachment fill needs
+    // its own (ADR-0027 gap-1).
+    if (shouldRearmStaleSync(existing, args.now)) {
+      return { mode: "sync" as const, record: existing };
+    }
+    if (shouldRearmAttachmentFill(existing, args.now)) {
+      return {
+        mode: "attachment" as const,
+        internetMessageId: existing.internetMessageId,
+        requestSyncKey: existing.requestSyncKey ?? null,
+      };
+    }
+    return null;
   },
 });
 
@@ -315,8 +448,11 @@ export const getBitableSyncByConversation = query({
         syncedAt: existing.bitableLastAttemptAt ?? existing.createdAt,
         error: existing.bitableLastError ?? null,
         rearmable: shouldRearmStaleSync(existing, Date.now()),
+        attachmentStatus: existing.bitableAttachmentStatus ?? null,
       };
     }
+    // Row exists. It is `synced` even while attachments are still filling — the
+    // attachment lifecycle is independent (ADR-0027); a stuck fill is rearmable.
     return {
       status: "synced" as const,
       recordId: existing.bitableRecordId,
@@ -324,7 +460,8 @@ export const getBitableSyncByConversation = query({
       coworkerCount: existing.selectedCoworkers?.length ?? 0,
       syncedAt: existing.bitableLastAttemptAt ?? existing.createdAt,
       error: null,
-      rearmable: false as const,
+      rearmable: shouldRearmAttachmentFill(existing, Date.now()),
+      attachmentStatus: existing.bitableAttachmentStatus ?? null,
     };
   },
 });

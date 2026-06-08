@@ -11,6 +11,7 @@
 import type * as crons from "../crons.js";
 import type * as emailRecord from "../emailRecord.js";
 import type * as emails from "../emails.js";
+import type * as feishu_attachmentFill from "../feishu/attachmentFill.js";
 import type * as feishu_auth from "../feishu/auth.js";
 import type * as feishu_bitable from "../feishu/bitable.js";
 import type * as feishu_bitableSyncRetry from "../feishu/bitableSyncRetry.js";
@@ -55,6 +56,7 @@ declare const fullApi: ApiFromModules<{
   crons: typeof crons;
   emailRecord: typeof emailRecord;
   emails: typeof emails;
+  "feishu/attachmentFill": typeof feishu_attachmentFill;
   "feishu/auth": typeof feishu_auth;
   "feishu/bitable": typeof feishu_bitable;
   "feishu/bitableSyncRetry": typeof feishu_bitableSyncRetry;

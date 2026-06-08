@@ -28,7 +28,7 @@ describe("buildServiceFields", () => {
 
   it("create fields write Data From and omit Sales (Sales patched in phase 2)", () => {
     const fields = buildServiceCreateFields(
-      { ...BASE, clientEmail: "buyer@acme.com", selectedSales: { openId: "ou_rep", name: "Rep" } },
+      { ...BASE, clientEmail: "buyer@acme.com", sales: { openId: "ou_rep", name: "Rep" } },
       null,
     );
     expect(fields["Data From"]).toBe("Email ");
@@ -38,35 +38,26 @@ describe("buildServiceFields", () => {
 });
 
 describe("buildServiceSalesFields", () => {
-  it("writes Sales when a salesperson is selected", () => {
+  it("writes Sales when a salesperson is resolved", () => {
     const fields = buildServiceSalesFields({
       ...BASE,
       clientEmail: "buyer@acme.com",
-      selectedSales: { openId: "ou_rep", name: "Rep" },
+      sales: { openId: "ou_rep", name: "Rep" },
     });
     expect(fields.Sales).toEqual([{ id: "ou_rep" }]);
   });
 
-  it("omits Sales when no salesperson is selected", () => {
+  it("omits Sales when no salesperson is resolved", () => {
     expect(buildServiceSalesFields(BASE)).toEqual({});
   });
 
-  it("omits Sales when no salesperson is selected even with clientEmail", () => {
+  it("omits Sales when no salesperson is resolved even with clientEmail", () => {
     expect(
       buildServiceSalesFields({
         ...BASE,
         clientEmail: "buyer@acme.com",
       }),
     ).toEqual({});
-  });
-
-  it("accepts legacy initiator as selectedSales", () => {
-    const fields = buildServiceSalesFields({
-      ...BASE,
-      clientEmail: "buyer@acme.com",
-      initiator: { openId: "ou_legacy", name: "Legacy" },
-    });
-    expect(fields.Sales).toEqual([{ id: "ou_legacy" }]);
   });
 });
 
@@ -76,7 +67,7 @@ describe("buildServiceFields — merged correction payload", () => {
       {
         ...BASE,
         clientEmail: "buyer@acme.com",
-        selectedSales: { openId: "ou_rep", name: "Rep" },
+        sales: { openId: "ou_rep", name: "Rep" },
       },
       null,
     );
@@ -84,13 +75,9 @@ describe("buildServiceFields — merged correction payload", () => {
     expect(fields.Sales).toEqual([{ id: "ou_rep" }]);
   });
 
-  it("always writes the Client DuplexLink when a customer record id is resolved", () => {
-    const originalSkip = process.env.DIAG_SKIP_FIELDS;
-    process.env.DIAG_SKIP_FIELDS = "Client";
+  it("writes the Client DuplexLink when a customer record id is resolved", () => {
     const fields = buildServiceFields(BASE, "rec_customer");
     expect(fields["Client"]).toEqual(["rec_customer"]);
-    if (originalSkip === undefined) delete process.env.DIAG_SKIP_FIELDS;
-    else process.env.DIAG_SKIP_FIELDS = originalSkip;
   });
 });
 

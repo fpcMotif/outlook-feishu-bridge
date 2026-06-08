@@ -1,8 +1,9 @@
 // One source of truth for the shape of a persisted Email Record — the row the
-// Bitable Sync writes after creating the Feishu row. The schema table, the storeEmailRecord
-// mutation, and the sync action→record mapping all derive from here, so a new field
-// is added in one place instead of three. Pure values + types only (no
-// _generated/server import), so convex/schema.ts can import it without a cycle.
+// Base Sync writes/updates around creating the Feishu row. The schema table, the
+// `beginBitableSync` outbox mutation, and the sync action→record mapping all
+// derive from here, so a new field is added in one place instead of three. Pure
+// values + types only (no _generated/server import), so convex/schema.ts can
+// import it without a cycle.
 
 import { v, type Infer } from "convex/values";
 
@@ -73,7 +74,7 @@ export function buildRequestSyncKey(
 
 // Persisted fields of an Email Record (everything except the server-stamped
 // `createdAt`, which the table adds). Spread into defineTable and reused verbatim
-// as the storeEmailRecord args, so the table and the mutation cannot drift.
+// as the `beginBitableSync` outbox args, so the table and the mutation cannot drift.
 export const emailRecordFields = {
   subject: v.string(),
   from: v.string(),

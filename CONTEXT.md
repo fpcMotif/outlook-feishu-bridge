@@ -128,8 +128,8 @@ The pending or retrying **Email Record** for one **Base Sync** attempt — intak
 _Avoid_: "outbox table" (same `emailRecords` documents, not a separate store), conflating it with the **Customer Mirror** (directory read model, different loop).
 
 **Deferred Base write**:
-The Feishu Service row create that follows the outbox enqueue — usually a **Convex Backend** scheduled worker, not the moment the **SPA** receives `pending` from the public sync action ([ADR-0018](docs/adr/0018-request-sync-outbox-and-reconcile.md)).
-_Avoid_: equating Convex dashboard duration on `syncRequest` with "time until the row exists" (heavy work may run in the deferred worker or in **Attachment staging** before enqueue).
+The Feishu Service row create that follows the outbox enqueue — usually a **Convex Backend** scheduled worker (`processPendingBitableSync`), not the moment the **SPA** receives `pending` from the public sync action ([ADR-0018](docs/adr/0018-request-sync-outbox-and-reconcile.md)). The reconcile cron is a **co-equal replayer**, not a mere backstop: it uses the same stored `client_token`, so the immediate worker and the cron can never duplicate a row. A short **first-attempt lease** (`bitableNextRetryAt` parked ~2 min ahead on enqueue) keeps the cron from claiming a row the immediate worker already owns; the lease expires and the cron reclaims if that worker is dropped (see **Base Sync pending mechanism**).
+_Avoid_: equating Convex dashboard duration on `syncRequest` with "time until the row exists" (heavy work may run in the deferred worker or in **Attachment staging** before enqueue); calling the cron a fallback that only fires on failure (it polls every due row, including a lease that simply expired).
 
 **Attachment staging**:
 The phase where selected **Attachment** bytes sit in **Convex Backend** File Storage before Feishu Drive mints `file_token`s for the row create; user uploads may enter staging while the salesperson is still on the intake form ([ADR-0022](docs/adr/0022-attachments-and-mail-body-to-base-row.md)).
@@ -142,6 +142,76 @@ _Avoid_: "draft" alone (overloaded), treating it as durable storage (in-memory f
 **Sync Screen**:
 The taskpane screen after the user taps Sync while a **Request sync outbox** is **pending** or **failed**. Its progress animation is cosmetic; the **SPA** leaves this screen only when the outbox reports **synced** (or surfaces **failed**).
 _Avoid_: treating the animation finishing as proof the **Base** row exists, using "sync screen" for the intake build form.
+
+## Base Sync pending mechanism
+
+The **Base Sync** never writes the Feishu **Base** row inline. The public
+`syncRequest` action only *enqueues* a **Request sync outbox** row, then a
+**Deferred Base write** worker (and, as a safety net, the reconcile cron)
+performs the actual create. Three Convex concerns make it robust against the
+flaky CN↔US network and Feishu's own rate limits / automations:
+
+1. **Durability** — a Convex **Email Record** is written `pending` *before* any
+   Feishu call, so a request is never lost between systems ([ADR-0018](docs/adr/0018-request-sync-outbox-and-reconcile.md)).
+2. **Idempotency** — one Feishu `client_token` is stored per outbox row and
+   reused on every retry, so Feishu **dedupes** instead of creating duplicate
+   rows ([ADR-0012](docs/adr/0012-bitable-record-api.md)).
+3. **First-attempt lease** — when `syncRequest` schedules the immediate worker it
+   parks `bitableNextRetryAt` ~2 min ahead, so the 15-minute reconcile cron does
+   **not** also claim the same row while that worker is in flight. If the worker
+   is dropped the lease expires and the cron reclaims the row.
+
+The outbox status (`emailRecords.bitableSyncStatus`) is the state machine:
+
+```mermaid
+stateDiagram-v2
+    [*] --> pending: syncRequest → beginBitableSync (client_token + lease)
+    pending --> synced: Base create ok → markBitableSyncSucceeded
+    pending --> failed: Base create throws → markBitableSyncFailed
+    failed --> synced: reconcile replay ok (same client_token)
+    failed --> failed: reconcile replay fails → re-backoff
+    synced --> [*]: terminal (idempotent short-circuit on re-sync)
+    note right of failed
+      Retryable while bitableNextRetryAt is set
+      (backoff 5 / 15 / 60 min, ≤ 5 attempts).
+      A permanent error, max attempts, or a poisoned
+      row clears bitableNextRetryAt → terminal.
+    end note
+```
+
+The happy path — immediate worker, the cron held off by the lease, the SPA
+learning the `recordId` from its outbox subscription rather than the action
+return:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant SPA as Taskpane (SPA)
+    participant Sync as syncRequest (public action)
+    participant Outbox as emailRecords (outbox)
+    participant Worker as processPendingBitableSync
+    participant Cron as reconcile cron (15 min)
+    participant Base as Feishu Base
+    SPA->>Sync: intake (exactly 1 Coworker, resolved sales, attachment tokens)
+    Sync->>Outbox: beginBitableSync → pending + client_token + lease
+    Sync->>Worker: scheduler.runAfter(0, …)
+    Sync-->>SPA: { status: pending }
+    Worker->>Base: createServiceRecord (client_token, tenant token)
+    Base-->>Worker: record_id
+    Worker->>Outbox: markBitableSyncSucceeded → synced
+    SPA->>Outbox: getBitableSyncByConversation (live subscription)
+    Outbox-->>SPA: { status: synced, recordId, detailUrl }
+    Note over Cron,Base: If the worker is dropped or fails, the lease expires and the cron replays the same client_token; Feishu dedupes instead of creating a duplicate row.
+```
+
+The Base row write itself is two phases: a `POST` create with every column
+except **Sales**, then a follow-up `PUT` that sets the **Sales** User column —
+so Feishu Base automations can settle on the new row before the User cell is
+patched ([ADR-0012](docs/adr/0012-bitable-record-api.md), [ADR-0025](docs/adr/0025-sales-reassignable-account-owner.md)). The field-shape mapping is the pure
+`convex/feishu/serviceRow.ts` builder (unit-tested column by column); the
+`client_token`, the read-only **Customer Table** lookup, and the HTTP path live
+in `convex/feishu/bitable.ts`.
+_Avoid_: calling the immediate worker the only writer (the cron is a co-equal replayer); equating the `pending` action return with "row exists" (see **Sync Screen** / **Deferred Base write**).
 
 ## Relationships
 
@@ -177,5 +247,5 @@ _Avoid_: treating the animation finishing as proof the **Base** row exists, usin
 - **`syncRequest` wall-clock on the Convex dashboard** is not a single metric for "Base Sync done" — the submit path may await **Attachment staging** and Drive minting before enqueue, and the **Deferred Base write** runs in a separate scheduled action ([ADR-0018](docs/adr/0018-request-sync-outbox-and-reconcile.md), [ADR-0022](docs/adr/0022-attachments-and-mail-body-to-base-row.md)).
 - **"Forward" is retired language.** The multi-target Forward pipeline has been removed from live code. Prefer **Base Sync** in prose.
 - **"Client" survives only as the literal Base column name and the temporary `clientEmail` argument.** The Service row in the live Base has a DuplexLink column literally named `Client`; renaming that is a Base-side schema change that has to be done in Feishu, not from the SPA, and the value string must match exactly or the write fails. Everywhere else, prose should say **Customer**.
-- **Initiator-vs-Sales audit (deferred — 埋下伏笔).** When **Sales** is reassigned (Sales ≠ **Initiator**), it is **not yet settled** whether the **Email Record**'s `initiator` audit should record the actual *clicker* or the reassigned *Sales*. Today `buildSyncPayload` mirrors `selectedSales ?? user` into **both** the Base `Sales` column **and** the Email Record `initiator`, so the audit currently follows the reassignment (records the colleague). Intended direction: record the clicker. Deferred until the reassignment case is exercised — see [ADR-0025](docs/adr/0025-sales-reassignable-account-owner.md).
+- **Initiator-vs-Sales audit (deferred — 埋下伏笔).** When **Sales** is reassigned (Sales ≠ **Initiator**), it is **not yet settled** whether the **Email Record**'s `initiator` audit should record the actual *clicker* or the reassigned *Sales*. Today `buildSyncPayload` mirrors `selectedSales ?? user` into **both** the Base `Sales` column **and** the Email Record `initiator`, so the audit currently follows the reassignment (records the colleague). Intended direction: record the clicker. Deferred until the reassignment case is exercised — see [ADR-0025](docs/adr/0025-sales-reassignable-account-owner.md). **Layering note:** the redundant double-send is now confined to the *SPA payload* and the public `syncRequest` args (which still accept both `selectedSales` and `initiator` for back-compat). The **Convex Base-write layer** (`bitable.createServiceRecord` / `serviceRow.ts`) takes a **single resolved `sales`** — `requestSync` collapses `selectedSales ?? initiator` once at the boundary — so "Sales" (the Base column) and "Initiator" (the Email Record audit) are no longer conflated downstream.
 - **Single Feishu account per browser session (assumption).** The current build assumes **one Initiator signs in per browser/SPA session**; we do **not** build account-switching UX (logging in as two different Feishu accounts without a reload). **Storage** uniqueness is never at risk — each upload gets a globally-unique Convex **`storageId`**. Client-side per-conversation **lookup** caches stay isolated by identity: the **Request sync outbox** snapshot (`requestSyncSnapshot.ts`) keys by **(userEmail + Email Conversation ID)**; the **Upload draft** cache (`uploadDraftCache.ts`) additionally prefixes the Feishu **openId**, because `userEmail` is the *shared Outlook mailbox* — two Feishu accounts on one mailbox must not share drafts — and a logout also wipes the draft Map. `conversationId` **alone is rejected** as a cache key: it is mailbox-local and not unique (see **Email Conversation ID**).

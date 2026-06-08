@@ -36,6 +36,25 @@ Backoff is 5 minutes after the first failure, 15 minutes after the second, then 
 - `crons.ts` has two sync schedules: weekly customer mirror refresh and 15-minute request outbox reconcile.
 - The customer mirror remains read-only against the Customer Table; this ADR does not add Base webhooks or historical Service-row pull audit.
 
+## Amendment: first-attempt lease (accepted)
+
+The original step 2 set `bitableNextRetryAt = now`, which left a freshly-enqueued
+row immediately "due". The immediate `processPendingBitableSync` worker and the
+15-minute reconcile cron could therefore both pick up the same row and call
+Feishu create in parallel. The stored `client_token` makes that **correct**
+(Feishu dedupes), but it is wasteful and races the success mark.
+
+`beginBitableSync` now parks `bitableNextRetryAt` a short **first-attempt lease**
+(`BITABLE_SYNC_FIRST_ATTEMPT_LEASE_MS`, ~2 min) ahead whenever it schedules an
+immediate worker, so the cron does not claim a row that worker already owns. The
+lease is much longer than a single create (seconds) yet short enough that a
+genuinely dropped scheduled job is reclaimed promptly. The decision is a pure
+helper, `planBitableSyncBegin` (`convex/feishu/bitableSyncRetry.ts`), unit-tested
+per the extract-then-test seam ([ADR-0019](0019-extract-then-test-seam.md)). On a
+create failure the normal backoff (5 / 15 / 60 min) overrides the lease, so it
+never delays a legitimate retry — it only suppresses the redundant double-fire
+during the first in-flight attempt.
+
 ## Future Work
 
 - Add a read-only daily Service-row audit from Feishu to Convex once the Base schema has enough stable join fields to reconstruct or classify missing backups.

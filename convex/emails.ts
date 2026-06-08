@@ -9,7 +9,11 @@ import { v } from "convex/values";
 
 import { buildRequestSyncKey, emailRecordFields } from "./emailRecord";
 import type { Doc } from "./_generated/dataModel";
-import { resolveBitableNextRetryAt } from "./feishu/bitableSyncRetry";
+import {
+  BITABLE_NEXT_RETRY_MIN,
+  planBitableSyncBegin,
+  resolveBitableNextRetryAt,
+} from "./feishu/bitableSyncRetry";
 import { buildConfiguredBitableRecordDetailUrl } from "./feishu/bitableUrl";
 import { poisonedOutboxReason } from "./feishu/previewFixtures";
 
@@ -78,16 +82,6 @@ async function patchAbandonedBitableSync(
   });
 }
 
-export const storeEmailRecord = internalMutation({
-  args: emailRecordFields,
-  handler: async (ctx, args) => {
-    await ctx.db.insert("emailRecords", {
-      ...args,
-      createdAt: Date.now(),
-    });
-  },
-});
-
 export const beginBitableSync = internalMutation({
   args: {
     ...emailRecordFields,
@@ -113,7 +107,6 @@ export const beginBitableSync = internalMutation({
 
     const existing = await findExistingEmailRecord(ctx, args);
     const bitableClientToken = existing?.bitableClientToken ?? args.bitableClientToken;
-    const shouldSchedule = !existing || existing.bitableSyncStatus === "failed";
     if (existing?.bitableRecordId) {
       return {
         bitableClientToken,
@@ -123,25 +116,20 @@ export const beginBitableSync = internalMutation({
       };
     }
 
+    // Lease the first attempt from the reconcile cron when we schedule a worker (ADR-0018).
+    const plan = planBitableSyncBegin(existing, now);
     const recordFields = {
       ...args,
       bitableClientToken,
       bitableSyncStatus: "pending" as const,
-      bitableNextRetryAt: now,
+      bitableNextRetryAt: plan.nextRetryAt,
       bitableAttemptCount: existing?.bitableAttemptCount ?? 0,
       sentToBitable: args.sentToBitable,
     };
 
-    if (existing) {
-      await ctx.db.patch(existing._id, recordFields);
-      return { bitableClientToken, bitableRecordId: null, detailUrl: null, shouldSchedule };
-    }
-
-    await ctx.db.insert("emailRecords", {
-      ...recordFields,
-      createdAt: now,
-    });
-    return { bitableClientToken, bitableRecordId: null, detailUrl: null, shouldSchedule };
+    if (existing) await ctx.db.patch(existing._id, recordFields);
+    else await ctx.db.insert("emailRecords", { ...recordFields, createdAt: now });
+    return { bitableClientToken, bitableRecordId: null, detailUrl: null, shouldSchedule: plan.shouldSchedule };
   },
 });
 
@@ -213,11 +201,18 @@ export const listDueBitableSyncRecords = internalQuery({
       Math.max(args.limit ?? RECONCILE_BATCH_LIMIT, 1),
       RECONCILE_BATCH_LIMIT,
     );
+    // The `.gte(BITABLE_NEXT_RETRY_MIN)` lower bound excludes terminal rows whose
+    // `bitableNextRetryAt` was cleared to undefined (permanent error / max attempts
+    // / poisoned-abandoned) — without it, undefined-sorts-lowest makes a bare
+    // `.lte(now)` re-select those dead rows every cycle (see BITABLE_NEXT_RETRY_MIN).
     const takeForStatus = async (status: "pending" | "failed") =>
       await ctx.db
         .query("emailRecords")
         .withIndex("by_bitableSyncStatus_and_bitableNextRetryAt", (q) =>
-          q.eq("bitableSyncStatus", status).lte("bitableNextRetryAt", args.now),
+          q
+            .eq("bitableSyncStatus", status)
+            .gte("bitableNextRetryAt", BITABLE_NEXT_RETRY_MIN)
+            .lte("bitableNextRetryAt", args.now),
         )
         .take(limit);
     const pending = await takeForStatus("pending");

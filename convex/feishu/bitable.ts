@@ -39,11 +39,14 @@ const CLIENT_DOMAIN_FIELD = "域名";
 // Shared write args. The client is the email sender; if `clientRecordId` is
 // passed (the salesperson's override picked from the Customer Picker, ADR-0013)
 // we use it directly. Otherwise we fall back to the legacy email-domain match
-// against the Customer Table. `subject` + `initiator` are written into the
-// row's `Email Subject` and `Sales` columns respectively (ADR-0014). ADR-0022
-// reverses ADR-0010's body-off-Base rule: the consolidated `requestNote` and the
+// against the Customer Table. `subject` + `sales` are written into the row's
+// `Email Subject` and `Sales` columns respectively (ADR-0014). ADR-0022 reverses
+// ADR-0010's body-off-Base rule: the consolidated `requestNote` and the
 // plain-text `body` now ride to the Base row (the Email Record keeps only a
-// preview). Attachment file tokens are added with the staging slice.
+// preview). Attachment file tokens are added with the staging slice. `sales` is
+// the single salesperson identity for the row — the caller (requestSync) has
+// already resolved the picker override vs. the signed-in clicker (ADR-0025), and
+// keeps the separate Email Record `initiator` audit (CONTEXT: Sales vs Initiator).
 const serviceRowArgs = {
   subject: v.optional(v.string()),
   clientEmail: v.optional(v.string()),
@@ -53,8 +56,8 @@ const serviceRowArgs = {
   body: v.optional(v.string()),
   attachments: v.optional(v.array(v.object({ fileToken: v.string() }))),
   selectedCoworkers: v.optional(v.array(selectedCoworkerValidator)),
-  selectedSales: v.optional(initiatorValidator),
-  initiator: v.optional(initiatorValidator),
+  // {openId, name?} — shape shared with the Email Record initiator audit.
+  sales: v.optional(initiatorValidator),
   // ADR-0017: Outlook `item.conversationId` lands in the Service row's
   // `Email Conversation ID` column as the Bitable-to-Outlook join key.
   emailConversationId: v.optional(v.string()),
@@ -127,6 +130,9 @@ export async function resolveClientRecordId(
   return await matchClientRecordId(ctx, appToken, input.clientEmail);
 }
 
+// Concise, PII-redacted create-intake signal: counts and presence flags only, no
+// note/body/email/name content, so triage can confirm what shape a row was
+// written with from the Convex logs without leaking the email contents.
 export function logServiceRecordIntake(
   args: ServiceRowInput,
   resolvedClientRecordId: string | null,
@@ -136,26 +142,9 @@ export function logServiceRecordIntake(
     `[bitable] createServiceRecord clientLinked=${Boolean(resolvedClientRecordId)} ` +
       `note=${args.requestNote?.trim() ? "y" : "n"} bodyLen=${args.body?.length ?? 0} ` +
       `attachments=${args.attachments?.length ?? 0} coworkers=${args.selectedCoworkers?.length ?? 0} ` +
-      `hasSales=${Boolean(args.selectedSales?.openId ?? args.initiator?.openId)} subjectLen=${args.subject?.length ?? 0} ` +
+      `hasSales=${Boolean(args.sales?.openId)} subjectLen=${args.subject?.length ?? 0} ` +
       `convIdLen=${args.emailConversationId?.length ?? 0} fieldKeys=[${Object.keys(fields).join(",")}]`,
   );
-  if (process.env.BITABLE_DIAG_LOG === "1") {
-    console.log(
-      `[bitable] DIAG intake=${JSON.stringify({
-        subject: args.subject,
-        clientEmail: args.clientEmail,
-        clientRecordId: args.clientRecordId,
-        resolvedClientRecordId,
-        dateOfOffer: args.dateOfOffer,
-        emailConversationId: args.emailConversationId,
-        selectedSales: args.selectedSales ?? args.initiator,
-        coworkers: args.selectedCoworkers,
-        requestNote: args.requestNote,
-        bodyLen: args.body?.length ?? 0,
-        attachmentCount: args.attachments?.length ?? 0,
-      })} fields=${JSON.stringify(fields)}`,
-    );
-  }
 }
 
 // CREATE a new Service row. Never touches an existing row.

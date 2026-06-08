@@ -59,10 +59,11 @@ export interface ServiceRowInput {
   // single `Attachments` column as [{ file_token }] (ADR-0022).
   attachments?: { fileToken: string }[];
   selectedCoworkers?: { openId: string; name: string; avatarUrl?: string }[];
-  /** Sales rep on the row (picker override; defaults to signed-in user in the SPA). */
-  selectedSales?: { openId: string; name?: string };
-  /** @deprecated Use selectedSales — kept for reconcile rows stored before the picker. */
-  initiator?: { openId: string; name?: string };
+  // The salesperson attributed on the row, written to the `Sales` (User) column —
+  // already resolved by the caller (picker override, else the signed-in clicker).
+  // Distinct from the Email Record's `initiator` audit, which the caller keeps;
+  // the Base row only needs the one Sales identity (CONTEXT: Sales vs Initiator).
+  sales?: { openId: string; name?: string };
   // Outlook `item.conversationId` — the salesperson-mailbox-local thread id for
   // the original client email. Lands in the Service row's `Email Conversation ID`
   // Text column as the join key Bitable→Outlook (ADR-0017). Distinct from the
@@ -70,79 +71,47 @@ export interface ServiceRowInput {
   emailConversationId?: string;
 }
 
-// Returns the set of Bitable column names listed in DIAG_SKIP_FIELDS (comma-
-// separated). Used to binary-search which field is tripping the live
-// 1255001 InternalError on the Bitable create — flip the env var without
-// redeploying since Convex actions read env at call time.
-function readSkipSet(): Set<string> {
-  return new Set(
-    (process.env.DIAG_SKIP_FIELDS ?? "")
-      .split(",")
-      .flatMap((s) => {
-        const field = s.trim();
-        return field ? [field] : [];
-      }),
-  );
-}
-
-// Set an optional plain-Text column only when it has non-whitespace content and
-// the diagnostic skip switch isn't suppressing it. Shared by every Text column so
-// buildServiceFields stays a flat list of column writes.
+// Set an optional plain-Text column only when it has non-whitespace content, so
+// buildServiceCreateFields stays a flat list of column writes.
 function setText(
   fields: Record<string, unknown>,
-  skip: Set<string>,
   column: string,
   value: string | undefined,
 ): void {
-  if (value && value.trim() && !skip.has(column)) fields[column] = value;
-}
-
-/** Sets the `Data From` SingleSelect to the email-intake option (not clientEmail). */
-function setDataFromEmailSource(fields: Record<string, unknown>, skip: Set<string>): void {
-  if (!skip.has(DATA_FROM_COLUMN)) fields[DATA_FROM_COLUMN] = DATA_FROM_EMAIL_OPTION;
-}
-
-function resolveSelectedSales(
-  input: ServiceRowInput,
-): { openId: string; name?: string } | undefined {
-  return input.selectedSales ?? input.initiator;
-}
-
-function shouldPatchSalesAfterCreate(input: ServiceRowInput): boolean {
-  return Boolean(resolveSelectedSales(input)?.openId);
+  if (value && value.trim()) fields[column] = value;
 }
 
 /**
  * Phase-1 create fields: everything except `Sales` (including `Data From` =
  * `Email `). Sales is patched in a follow-up PUT (bitable.ts) so Feishu Base
  * automations can settle on the row before the User column is set.
+ *
+ * A flat list of column writes — the per-field `DIAG_SKIP_FIELDS` env knob (a
+ * one-off binary search for a column-tripping create error) was removed once the
+ * live column names were CONFIRMED stable (see constants above, listFields
+ * 2026-06-03). To inspect a live row's stored cells, use the read-only
+ * `bitable.diagGetRecord` / `diagSearchAnyClientRow` actions instead.
  */
 export function buildServiceCreateFields(
   input: ServiceRowInput,
   clientRecordId: string | null,
 ): Record<string, unknown> {
-  const fields: Record<string, unknown> = {};
-  const skip = readSkipSet();
-  if (skip.size > 0) console.log(`[bitable] DIAG_SKIP_FIELDS active: ${[...skip].join("|")}`);
+  const fields: Record<string, unknown> = { [DATA_FROM_COLUMN]: DATA_FROM_EMAIL_OPTION };
+  setText(fields, REQUEST_NOTE_COLUMN, input.requestNote);
+  setText(fields, EMAIL_BODY_COLUMN, input.body);
+  setText(fields, "Email Subject", input.subject);
+  setText(fields, "Email Conversation ID", input.emailConversationId);
 
-  setDataFromEmailSource(fields, skip);
-  setText(fields, skip, REQUEST_NOTE_COLUMN, input.requestNote);
-  setText(fields, skip, EMAIL_BODY_COLUMN, input.body);
-  setText(fields, skip, "Email Subject", input.subject);
-  setText(fields, skip, "Email Conversation ID", input.emailConversationId);
-
-  if (input.attachments && input.attachments.length > 0 && !skip.has(ATTACHMENTS_COLUMN)) {
+  if (input.attachments && input.attachments.length > 0) {
     fields[ATTACHMENTS_COLUMN] = input.attachments.map((a) => ({ file_token: a.fileToken }));
   }
 
   if (!input.selectedCoworkers || input.selectedCoworkers.length !== 1) {
     throw new Error("Bitable Service row requires exactly one Feishu coworker");
   }
-  if (!skip.has("Co Worker")) {
-    fields["Co Worker"] = input.selectedCoworkers.map((c) => ({ id: c.openId }));
-  }
+  fields["Co Worker"] = input.selectedCoworkers.map((c) => ({ id: c.openId }));
 
-  if (input.dateOfOffer !== undefined && !skip.has("Date of Offer")) fields["Date of Offer"] = input.dateOfOffer;
+  if (input.dateOfOffer !== undefined) fields["Date of Offer"] = input.dateOfOffer;
 
   if (clientRecordId) fields["Client"] = [clientRecordId];
 
@@ -151,13 +120,7 @@ export function buildServiceCreateFields(
 
 /** Phase-2 patch: `Sales` User column only (after `Data From` on create). */
 export function buildServiceSalesFields(input: ServiceRowInput): Record<string, unknown> {
-  if (!shouldPatchSalesAfterCreate(input)) return {};
-
-  const skip = readSkipSet();
-  const sales = resolveSelectedSales(input);
-  if (!sales?.openId || skip.has("Sales")) return {};
-
-  return { Sales: [{ id: sales.openId }] };
+  return input.sales?.openId ? { Sales: [{ id: input.sales.openId }] } : {};
 }
 
 /**

@@ -106,24 +106,13 @@ describe("resolveClientRecordId", () => {
 });
 
 describe("logServiceRecordIntake", () => {
-  const originalDiag = process.env.BITABLE_DIAG_LOG;
-
-  beforeEach(() => {
-    delete process.env.BITABLE_DIAG_LOG;
-  });
-
-  afterEach(() => {
-    if (originalDiag === undefined) delete process.env.BITABLE_DIAG_LOG;
-    else process.env.BITABLE_DIAG_LOG = originalDiag;
-  });
-
   const intake: ServiceRowInput = {
     subject: "Inquiry: bulk L-Carnitine",
     clientEmail: "buyer@known.com",
     clientRecordId: "rec_override",
     dateOfOffer: 1_716_900_000_000,
     emailConversationId: "AAQk_conv",
-    initiator: { openId: "ou_init", name: "Florian" },
+    sales: { openId: "ou_init", name: "Florian" },
     selectedCoworkers: [{ openId: "ou_jenny", name: "Jenny" }],
     requestNote: "FOB pls; 50g sample",
     body: "Full body text here",
@@ -131,7 +120,7 @@ describe("logServiceRecordIntake", () => {
   };
   const fields = { "Email Subject": "x", "Co Worker": [{ id: "ou_jenny" }] };
 
-  it("logs a redacted summary by default", () => {
+  it("logs a single PII-redacted summary line of counts and presence flags", () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     logServiceRecordIntake(intake, "rec_override", fields);
 
@@ -141,24 +130,11 @@ describe("logServiceRecordIntake", () => {
     expect(line).toContain("note=y");
     expect(line).toContain("attachments=1");
     expect(line).toContain("coworkers=1");
+    expect(line).toContain("hasSales=true");
     expect(line).toContain("fieldKeys=[Email Subject,Co Worker]");
     expect(line).not.toContain("buyer@known.com");
     expect(line).not.toContain("FOB pls");
     expect(line).not.toContain("Florian");
-  });
-
-  it("emits verbose intake only when BITABLE_DIAG_LOG=1", () => {
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-    logServiceRecordIntake(intake, "rec_override", fields);
-    expect(logSpy).toHaveBeenCalledTimes(1);
-
-    process.env.BITABLE_DIAG_LOG = "1";
-    logServiceRecordIntake(intake, "rec_override", fields);
-    expect(logSpy).toHaveBeenCalledTimes(3);
-    const diag = String(logSpy.mock.calls[2][0]);
-    expect(diag).toContain("[bitable] DIAG intake=");
-    expect(diag).toContain("buyer@known.com");
-    expect(diag).toContain("FOB pls");
   });
 });
 
@@ -208,7 +184,7 @@ describe("createServiceRecord idempotency", () => {
         subject: "Need quote",
         clientEmail: "buyer@acme.com",
         selectedCoworkers: [{ openId: "ou_jenny", name: "Jenny" }],
-        selectedSales: { openId: "ou_rep", name: "Rep" },
+        sales: { openId: "ou_rep", name: "Rep" },
       }),
     ).resolves.toEqual({ recordId: "rec_service_1" });
 

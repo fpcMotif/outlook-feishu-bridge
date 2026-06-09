@@ -166,17 +166,17 @@ describe("transient Drive failure defers one file, then the retry completes", ()
 // SCENARIO 2 — Rate-limit recovery: 99991400 storm, retry wrapper recovers
 // ===========================================================================
 
-describe("rate-limit (99991400) recovery via withDriveRateLimitRetry", () => {
+describe("rate-limit (99991400) recovery via withFeishuRateLimitRetry", () => {
   it("retries the frequency-limit transparently; the token still mints onto the row", async () => {
     const intake = harness.makeIntake({ fileNames: ["limited.pdf"] });
     // The next 2 uploads (any file) throw 99991400, then succeed. The real
-    // withDriveRateLimitRetry must recover (it sleeps via setTimeout — drive the
+    // withFeishuRateLimitRetry must recover (it sleeps via setTimeout — drive the
     // backoff with the fake timers below).
     harness.feishu.rateLimitNextUpload(2);
 
     await harness.submit(intake);
 
-    // withDriveRateLimitRetry uses real setTimeout backoff; under fake timers the
+    // withFeishuRateLimitRetry uses real setTimeout backoff; under fake timers the
     // sleep never resolves on its own. Launch the drive (whose in-flight handler
     // awaits those sleeps) WITHOUT awaiting, flush the backoff timers so the
     // sleeps resolve, then await the drive to quiescence. runAllTimersAsync also

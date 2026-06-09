@@ -12,8 +12,7 @@
 
 import { action, type ActionCtx } from "../_generated/server";
 import { v } from "convex/values";
-import { callFeishu, resolveFeishuToken } from "./call";
-import { FeishuError } from "./client";
+import { callFeishu, resolveFeishuToken, withFeishuRateLimitRetry } from "./call";
 import { getStorageBytes } from "../storage";
 import type { Id } from "../_generated/dataModel";
 
@@ -30,16 +29,12 @@ export const MAX_MEDIA_UPLOAD_BYTES = 20 * 1024 * 1024;
 // uploads > 5 QPS:
 //   https://open.feishu.cn/document/server-docs/api-call-guide/generic-error-code
 // Feishu's documented remedy is exponential backoff — quote: "建议使用指数退避算法",
-// so we upload SERIALLY (one request in flight) and retry 99991400 with exp backoff.
-// (Strictly-correct: honor the `x-ogw-ratelimit-reset` 429 response header — a
-// future enhancement; FeishuError does not yet surface response headers.)
+// so we upload SERIALLY (one request in flight) and retry the rate-limit codes with
+// exp backoff via the shared withFeishuRateLimitRetry (honors x-ogw-ratelimit-reset).
 //   https://open.feishu.cn/document/server-docs/api-call-guide/frequency-control
-export const FEISHU_RATE_LIMIT_CODE = 99991400;
-
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
+// The code constant lives in call.ts (one definition, shared by the classifier);
+// re-exported here for the Drive-flavored tests that construct a 99991400 error.
+export { FEISHU_RATE_LIMIT_CODE } from "./call";
 
 // Drive upload concurrency (ADR-0027). `medias/upload_all` is 5 QPS, NOT
 // concurrency-of-one, so a small pool cuts the serial ~14s/10-files to ~3s. The
@@ -80,38 +75,6 @@ export async function mapWithConcurrency<T, R>(
   };
   await Promise.all(Array.from({ length: width }, () => worker()));
   return results;
-}
-
-/**
- * Run a Drive upload, retrying ONLY Feishu's 99991400 frequency-limit with
- * exponential backoff (500ms · 1s · 2s …). Any other error — or exhausting
- * `maxAttempts` — rethrows unchanged. `sleep` is injectable so the retry policy
- * is unit-testable without real waits (ADR-0019 extract-then-test seam).
- */
-export async function withDriveRateLimitRetry<T>(
-  upload: () => Promise<T>,
-  opts: {
-    maxAttempts?: number;
-    backoffMs?: (attempt: number) => number;
-    sleep?: (ms: number) => Promise<void>;
-  } = {},
-): Promise<T> {
-  const maxAttempts = opts.maxAttempts ?? 4;
-  const backoffMs = opts.backoffMs ?? ((attempt) => 500 * 2 ** attempt);
-  const doSleep = opts.sleep ?? sleep;
-  for (let attempt = 0; ; attempt++) {
-    try {
-      // eslint-disable-next-line react-doctor/async-await-in-loop -- retry loop is inherently sequential (rate-limit backoff)
-      return await upload();
-    } catch (e: unknown) {
-      const rateLimited =
-        e instanceof FeishuError && e.code === FEISHU_RATE_LIMIT_CODE;
-      if (!rateLimited || attempt >= maxAttempts - 1) throw e;
-      // Honor the server's reset hint when present (ADR-0027); else exp backoff.
-      const hinted = e instanceof FeishuError ? e.retryAfterMs : undefined;
-      await doSleep(hinted ?? backoffMs(attempt));
-    }
-  }
 }
 
 /**
@@ -188,7 +151,7 @@ export async function mintOneStagedSource(
     return { kind: "skipped", fileName: source.fileName, storageId: source.storageId };
   }
   try {
-    const fileToken = await withDriveRateLimitRetry(() =>
+    const fileToken = await withFeishuRateLimitRetry(() =>
       uploadMediaToDrive(ctx, new Blob([bytes]), source.fileName, opts.appToken, opts.tenantToken),
     );
     return { kind: "minted", fileToken, storageId: source.storageId, fileName: source.fileName };
@@ -260,7 +223,7 @@ export const uploadAttachmentsToDrive = action({
         // eslint-disable-next-line react-doctor/async-await-in-loop -- bounded pipeline: each Drive upload depends on this prepared source
         const source = await prepared;
         // eslint-disable-next-line react-doctor/async-await-in-loop -- serial by design: medias/upload_all is 5 QPS-limited (ADR-0022); parallel trips 99991400
-        const fileToken = await withDriveRateLimitRetry(() =>
+        const fileToken = await withFeishuRateLimitRetry(() =>
           uploadMediaToDrive(ctx, new Blob([source.bytes]), source.fileName, appToken, tenantToken),
         );
         // eslint-disable-next-line react-doctor/async-await-in-loop -- cleanup tied to this iteration's upload

@@ -125,7 +125,7 @@ describe("deferred fill at experiment scale (50 files)", () => {
   it("recovers from a mid-batch 99991400 rate-limit storm and still lands all 50 exactly once", async () => {
     const intake = harness.makeIntake({ attachmentCount: SCALE });
     // The first 3 Drive uploads hit the frequency limit, then succeed — the real
-    // withDriveRateLimitRetry must absorb it (it sleeps via setTimeout; flush the
+    // withFeishuRateLimitRetry must absorb it (it sleeps via setTimeout; flush the
     // backoff with the fake timers, as the single-file retry test does).
     harness.feishu.rateLimitNextUpload(3);
 

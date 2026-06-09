@@ -22,6 +22,17 @@ const RATE_LIMIT_CODES = new Set([
   FEISHU_RATE_LIMIT_CODE,
 ]);
 
+/**
+ * The single rate-limit classifier for every Feishu call (Bitable records AND
+ * Drive uploads). Returns true only for a {@link FeishuError} whose code is one
+ * of the retry-with-backoff codes — 1254290 (TooManyRequest), 1254608 (same
+ * request still in-flight), 99991400 (Drive/gateway frequency limit). Any other
+ * error (including a non-FeishuError) is not a transient throttle: don't retry.
+ */
+export function isFeishuRateLimited(error: unknown): boolean {
+  return error instanceof FeishuError && RATE_LIMIT_CODES.has(error.code);
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -51,8 +62,7 @@ export async function withFeishuRateLimitRetry<T>(
       // eslint-disable-next-line react-doctor/async-await-in-loop -- retry loop is inherently sequential (rate-limit backoff)
       return await fn();
     } catch (e: unknown) {
-      const rateLimited = e instanceof FeishuError && RATE_LIMIT_CODES.has(e.code);
-      if (!rateLimited || attempt >= maxAttempts - 1) throw e;
+      if (!isFeishuRateLimited(e) || attempt >= maxAttempts - 1) throw e;
       // Honor the server's reset hint when present; else exp backoff.
       const hinted = e instanceof FeishuError ? e.retryAfterMs : undefined;
       await doSleep(hinted ?? backoffMs(attempt));

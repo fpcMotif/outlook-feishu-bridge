@@ -2,9 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { initialIntakeState, intakeReducer } from "./intakeReducer";
 import {
-  clearIntakeUploadCache,
+  awaitIntakeUploads,
   intakeUploadInFlight,
   queueIntakeFileUploads,
+  resetIntakeUploadCaches,
   uploadIntakeFileToStorage,
 } from "./uploadIntakeFile";
 
@@ -21,7 +22,7 @@ import { postBytesToConvexWithProgress } from "../../office/attachmentUpload";
 describe("uploadIntakeFileToStorage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    clearIntakeUploadCache("u1");
+    resetIntakeUploadCaches();
   });
 
   it("dispatches uploading, progress, and complete transitions", async () => {
@@ -150,5 +151,59 @@ describe("uploadIntakeFileToStorage", () => {
     });
     resolveUpload();
     await intakeUploadInFlight("u1");
+  });
+
+  it("runs at most the configured number of uploads concurrently", async () => {
+    // Each upload parks until released, so `inFlightNow` is exactly the number
+    // of POSTs the pool has running at once; `maxInFlight` is the high-water
+    // mark across the whole drain.
+    let inFlightNow = 0;
+    let maxInFlight = 0;
+    let started = 0;
+    const releases: Array<() => void> = [];
+    vi.mocked(postBytesToConvexWithProgress).mockImplementation(async () => {
+      started += 1;
+      inFlightNow += 1;
+      maxInFlight = Math.max(maxInFlight, inFlightNow);
+      await new Promise<void>((resolve) => {
+        releases.push(resolve);
+      });
+      inFlightNow -= 1;
+      return { storageId: `st_${started}` };
+    });
+
+    const dispatch = vi.fn();
+    const deps = { generateUploadUrl: vi.fn().mockResolvedValue("https://up/1") };
+    const cap = 3;
+    const fileCount = 9;
+    const rows = Array.from({ length: fileCount }, (_, i) => ({
+      id: `cap_${i}`,
+      file: new File(["x"], `cap_${i}.pdf`),
+      rejection: null as string | null,
+    }));
+
+    queueIntakeFileUploads(deps, rows, dispatch, cap);
+
+    // The pool ramps to exactly the cap and parks there — the remaining rows
+    // wait for a slot instead of all firing at once.
+    await vi.waitFor(() => {
+      expect(inFlightNow).toBe(cap);
+    });
+    expect(started).toBe(cap);
+
+    // Drain every upload one at a time. Freeing a slot pulls in exactly one more,
+    // so the in-flight count must never climb above the cap at any point.
+    for (let released = 0; released < fileCount; released += 1) {
+      await vi.waitFor(() => {
+        expect(releases.length).toBeGreaterThan(0);
+      });
+      expect(inFlightNow).toBeLessThanOrEqual(cap);
+      releases.shift()!();
+    }
+
+    await awaitIntakeUploads(rows.map((r) => r.id));
+    expect(started).toBe(fileCount);
+    expect(maxInFlight).toBe(cap);
+    expect(maxInFlight).toBeLessThanOrEqual(cap);
   });
 });

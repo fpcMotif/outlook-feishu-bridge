@@ -3,11 +3,7 @@ import { useEffect, useReducer, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 
 import { iconFor } from "./attachmentFileDisplay";
-import {
-  uploadDisplayProgressTarget,
-  uploadSimulatedCap,
-  uploadSmoothedStep,
-} from "./uploadDisplayProgress";
+import { uploadDisplayFrame } from "./uploadDisplayProgress";
 
 type UploadOverlayPhase = "hidden" | "live" | "settling";
 
@@ -22,51 +18,59 @@ function uploadOverlayReducer(
   return { phase: "hidden", wasActive: false };
 }
 
-function useSmoothedUploadProgress(progress: number, active: boolean): number {
-  const [display, setDisplay] = useState(0);
-  const displayRef = useRef(0);
-  const xhrRef = useRef(0);
-  const startedAtRef = useRef<number | null>(null);
+// Mutable animation state, kept off React's render path so the rAF loop can
+// advance the fill every frame without re-rendering until the value changes.
+type FillAnim = {
+  display: number;
+  xhr: number;
+  startedAt: number | null;
+  lastTick: number | null;
+};
 
-  // Adjust during render so the icon never paints stale progress between commits.
-  const [prev, setPrev] = useState({ active, progress });
-  if (prev.active !== active || prev.progress !== progress) {
-    setPrev({ active, progress });
-    if ((!active || progress <= 0) && display !== 0) setDisplay(0);
+function useSmoothedUploadProgress(
+  progress: number,
+  active: boolean,
+  pending: boolean,
+): number {
+  const [display, setDisplay] = useState(0);
+  const anim = useRef<FillAnim>({ display: 0, xhr: 0, startedAt: null, lastTick: null });
+
+  // Snap back to empty the instant the row leaves the active states.
+  const [prevActive, setPrevActive] = useState(active);
+  if (prevActive !== active) {
+    setPrevActive(active);
+    if (!active && display !== 0) setDisplay(0);
   }
 
   useEffect(() => {
+    const a = anim.current;
     if (!active) {
-      displayRef.current = 0;
-      xhrRef.current = 0;
-      startedAtRef.current = null;
+      a.display = 0;
+      a.xhr = 0;
+      a.startedAt = null;
+      a.lastTick = null;
       return;
     }
-
-    if (startedAtRef.current === null) startedAtRef.current = performance.now();
-
-    if (progress <= 0) {
-      xhrRef.current = 0;
-      displayRef.current = 0;
-    } else {
-      xhrRef.current = Math.max(xhrRef.current, progress);
-    }
+    // Queued: hold the steady sliver. The ramp clock only starts once bytes flow,
+    // so a file waiting behind the concurrency cap never creeps up a fake percent.
+    if (pending) return;
+    if (a.startedAt === null) a.startedAt = performance.now();
+    // XHR only ever climbs — ignore a transient 0 so the fill never retreats.
+    if (progress > 0) a.xhr = Math.max(a.xhr, progress);
 
     let frame = 0;
-    const tick = () => {
-      const elapsed = performance.now() - (startedAtRef.current ?? performance.now());
-      const mergedIncoming = Math.max(xhrRef.current, uploadSimulatedCap(elapsed));
-      const target = uploadDisplayProgressTarget(displayRef.current, mergedIncoming, true);
-      const { next, done } = uploadSmoothedStep(displayRef.current, target);
-      displayRef.current = next;
+    const tick = (now: number) => {
+      const dtMs = Math.max(0, now - (a.lastTick ?? now));
+      a.lastTick = now;
+      const elapsed = now - (a.startedAt ?? now);
+      const { next, done } = uploadDisplayFrame(a.display, a.xhr, elapsed, dtMs);
+      a.display = next;
       setDisplay(next);
-      if (!done || mergedIncoming < 100) {
-        frame = requestAnimationFrame(tick);
-      }
+      if (!done) frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [progress, active]);
+  }, [progress, active, pending]);
 
   return display;
 }
@@ -93,14 +97,12 @@ function useUploadOverlayPhase(active: boolean) {
 
 function UploadFillOverlay({
   phase,
-  indeterminate,
   accent,
   fillScale,
 }: {
   phase: UploadOverlayPhase;
-  indeterminate: boolean;
   accent: string;
-  fillScale: number | undefined;
+  fillScale: number;
 }) {
   return (
     <span
@@ -115,18 +117,14 @@ function UploadFillOverlay({
         className={cn(
           "absolute inset-0 origin-bottom opacity-55",
           accent,
-          phase === "settling" &&
-            "transition-transform duration-200 ease-[var(--ease-out-strong)] motion-reduce:transition-none",
-          phase === "live" && !indeterminate && "transition-none",
-          phase === "live" &&
-            indeterminate &&
-            "motion-safe:animate-[upload-fill-indeterminate_1.2s_ease-in-out_infinite] motion-reduce:scale-y-[0.35]",
+          // The fill height is driven frame-by-frame in JS (a steady linear
+          // climb), so the live phase paints each value directly with no CSS
+          // tween. Only the final settle gets a short transition.
+          phase === "settling"
+            ? "transition-transform duration-200 ease-[var(--ease-out-strong)] motion-reduce:transition-none"
+            : "transition-none",
         )}
-        style={
-          fillScale === undefined
-            ? undefined
-            : { transform: `scaleY(${fillScale})` }
-        }
+        style={{ transform: `scaleY(${fillScale})` }}
       />
     </span>
   );
@@ -136,35 +134,28 @@ type UploadIconProps = {
   name: string;
   progress?: number;
   active: boolean;
-  indeterminate?: boolean;
+  /** Queued behind the concurrency cap — bytes have not started flowing yet. */
+  pending?: boolean;
 };
 
-function progressValueText(
-  show: boolean,
-  pct: number | undefined,
-): string | undefined {
+function progressValueText(show: boolean, pct: number): string | undefined {
   if (!show) return undefined;
-  return pct === undefined ? "Uploading" : `${pct} percent uploaded`;
+  return `${pct} percent uploaded`;
 }
 
 /** Upload rows: bottom fill inside the icon tile (scaleY, file accent). */
 export function FileTypeIconWithUploadProgress(props: UploadIconProps) {
-  const { name, progress = 0, active, indeterminate = false } = props;
+  const { name, progress = 0, active, pending = false } = props;
   const { Icon, tint, bg, border, accent } = iconFor(name);
   const { phase, showOverlay } = useUploadOverlayPhase(active);
-  const smoothed = useSmoothedUploadProgress(progress, active);
+  const smoothed = useSmoothedUploadProgress(progress, active, pending);
   // Visual fill follows the smoothed value; the accessible value reports the
-  // real percent so screen readers hear true progress, not the eased ramp.
-  const pct = indeterminate ? undefined : Math.min(100, Math.max(0, smoothed));
-  const ariaPct = indeterminate
-    ? undefined
-    : Math.min(100, Math.max(0, Math.round(progress)));
-  const fillScale =
-    phase === "settling"
-      ? 1
-      : indeterminate
-        ? undefined
-        : Math.max(0.04, (pct ?? 0) / 100);
+  // real percent so screen readers hear true progress, not the simulated ramp.
+  const pct = Math.min(100, Math.max(0, smoothed));
+  const ariaPct = Math.min(100, Math.max(0, Math.round(progress)));
+  // A queued/early row shows a thin steady sliver (0.04); the linear fill grows
+  // continuously out of it once bytes flow. The final settle snaps to full.
+  const fillScale = phase === "settling" ? 1 : Math.max(0.04, pct / 100);
 
   return (
     <span
@@ -187,12 +178,7 @@ export function FileTypeIconWithUploadProgress(props: UploadIconProps) {
         <Icon className={cn("size-5", tint)} strokeWidth={1.75} />
       </span>
       {showOverlay ? (
-        <UploadFillOverlay
-          phase={phase}
-          indeterminate={indeterminate}
-          accent={accent}
-          fillScale={fillScale}
-        />
+        <UploadFillOverlay phase={phase} accent={accent} fillScale={fillScale} />
       ) : null}
     </span>
   );

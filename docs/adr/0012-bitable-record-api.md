@@ -31,6 +31,7 @@ Base Sync writes one row per synced email, with exactly one selected Feishu **Co
 - **`client_token` gives idempotent create** — a retried create with the same uuidv4 won't duplicate the row.
 - **`Co Worker` is a person (人员) field.** [bitable.ts](../../convex/feishu/bitable.ts) writes the single selected Coworker in the official user-field format `[{ id: open_id }]`. `Date of Offer` is epoch-ms.
 - **Update is a bounded in-sync correction only.** The add-in updates *only* the row it just created in the current sync session: if the user spots an error during/just after the sync, it PUTs the corrected `fields` to that `bitableRecordId`. It does **not** edit other or historical rows — the add-in is not permitted to modify pre-existing data. Lifecycle: create on first write → optional immediate correction-update of that same record. (A general edit/upsert-by-email model was explicitly rejected.)
+- **Rate-limit retry is mandatory on all Bitable calls.** `createServiceRecord`, `correctServiceRecord`, and `patchRowAttachments` all wrap `callFeishu` with `withFeishuRateLimitRetry()`. Feishu returns `1254290` (QPS throttled) or `1254608` (same `client_token` still in-flight) on bursts; both are transient and resolve with exponential backoff (500 ms → 1 s → 2 s → 4 s). The Drive frequency-limit code `99991400` is treated identically. This was missing initially and caused sporadic 5-minute scheduler delays that "just worked" on retry but were wasteful.
 
 ## Client linkage (domain match)
 

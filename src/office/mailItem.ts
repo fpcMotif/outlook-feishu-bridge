@@ -1,7 +1,11 @@
 export interface AttachmentInfo {
   id: string;
   name: string;
-  contentType: string;
+  // Office.js AttachmentType — "file" | "cloud" | "item". The picker offers only
+  // real file attachments (`attachmentType === "file" && !isInline`). The former
+  // `contentType` is deprecated (ADR-0022 derives MIME from the extension), so
+  // it is dropped.
+  attachmentType: string;
   size: number;
   isInline: boolean;
 }
@@ -58,7 +62,7 @@ export function extractAttachments(office: OfficeLike, item: ReadItem): Attachme
   return (item.attachments ?? []).map((a: Office.AttachmentDetails) => ({
     id: a.id,
     name: a.name,
-    contentType: a.contentType,
+    attachmentType: String(a.attachmentType),
     size: a.size,
     isInline: a.isInline,
   }));

@@ -1,6 +1,6 @@
 /* eslint-disable max-lines-per-function */
 import { useEffect, useRef, useState } from "react";
-import { Loader2, MailOpen } from "lucide-react";
+import { MailOpen } from "lucide-react";
 
 import { dload } from "../debug";
 import { useFeishuAuth } from "../hooks/useFeishuAuth";
@@ -11,10 +11,18 @@ import { FeishuProfile } from "./taskpane/FeishuProfile";
 import { ThemeToggle } from "./ThemeToggle";
 import { ReceivedScreen } from "./taskpane/ReceivedScreen";
 import { SyncScreen } from "./taskpane/SyncScreen";
+import { AuthResolvingScreen } from "./taskpane/AuthResolvingScreen";
+import { LoginScreen } from "./taskpane/LoginScreen";
 import {
   findDevEmailFixture,
   submittedAtForDevEmailFixture,
 } from "../../convex/feishu/devEmailFixtures";
+import { DEV_SYNC_PREVIEW } from "../testing/sync-preview-fixtures";
+import {
+  buildMockStagingDeps,
+  buildMockUploadedFiles,
+  isMockUploadsMode,
+} from "../testing/mock-uploads-fixtures";
 
 // Browser dev has no Office host or mailbox (useOffice falls back to host
 // "browser" after 3s). A sample item lets the full drawer flow render for
@@ -35,28 +43,29 @@ const DEV_SAMPLE: MailItemData = {
   // address from this add-in.
   userEmail: "fanpc@fenchem.com",
   attachments: [
-    { id: "a1", name: "RFQ-2026-Q1.pdf", contentType: "application/pdf", size: 184320, isInline: false },
+    { id: "a1", name: "RFQ-2026-Q1.pdf", attachmentType: "file", size: 184320, isInline: false },
   ],
 };
-
-const DEV_REQUEST_PREVIEW = [
-  {
-    id: "sample",
-    title: "Sample",
-    note: "Need 50 g of SX-440 silica blend, ship to Acme R&D in Eindhoven.",
-  },
-];
 
 function DevScreenPreview({
   screen,
   devFixtureKey,
 }: {
-  screen: "sync" | "received";
+  screen: "sync" | "received" | "login";
   devFixtureKey: string | null;
 }) {
+  if (screen === "login") {
+    return (
+      <AuthResolvingScreen
+        onLogin={() => {}}
+        onLoginFallback={() => {}}
+      />
+    );
+  }
+
   if (screen === "sync") {
     return (
-      <SyncScreen requests={DEV_REQUEST_PREVIEW} />
+      <SyncScreen preview={DEV_SYNC_PREVIEW} />
     );
   }
 
@@ -75,28 +84,24 @@ function DevScreenPreview({
 }
 
 function EmptyState({
-  loading,
   error,
   onRead,
 }: {
-  loading: boolean;
   error: string | null;
   onRead: () => void;
 }) {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center px-8 text-center">
-      <span className="bg-secondary text-muted-foreground mb-4 flex size-14 items-center justify-center rounded-2xl">
-        {loading ? <Loader2 className="size-6 animate-spin" /> : <MailOpen className="size-6" />}
+    <div className="animate-pop-in flex flex-1 flex-col items-center justify-center px-8 text-center">
+      <span className="bg-card-soft text-muted-foreground mb-4 flex size-14 items-center justify-center rounded-2xl shadow-edge">
+        <MailOpen className="size-6" strokeWidth={1.75} aria-hidden="true" />
       </span>
-      <h2 className="text-2xl">{loading ? "Reading your email..." : "No message open"}</h2>
-      <p className="text-muted-foreground mt-1.5 max-w-[32ch] text-sm leading-relaxed">
+      <h2 className="text-2xl font-semibold tracking-tight text-balance">No message open</h2>
+      <p className="text-muted-foreground mt-1.5 max-w-[32ch] text-sm leading-relaxed text-pretty">
         {error ?? "Open a received message in Outlook, then sync it to Feishu from here."}
       </p>
-      {loading ? null : (
-        <Button variant="secondary" className="mt-4" onClick={onRead}>
-          Read current email
-        </Button>
-      )}
+      <Button variant="secondary" className="mt-4" onClick={onRead}>
+        Read current email
+      </Button>
     </div>
   );
 }
@@ -127,8 +132,23 @@ export function TaskPane({ host }: { host: string | null }) {
   // "send" is an informal alias for the sync progress screen (Act IV).
   const normalizedDevScreen = requestedDevScreen === "send" ? "sync" : requestedDevScreen;
   const devScreen =
-    normalizedDevScreen === "sync" || normalizedDevScreen === "received" ? normalizedDevScreen : null;
+    normalizedDevScreen === "sync" || normalizedDevScreen === "received" || normalizedDevScreen === "login"
+      ? normalizedDevScreen
+      : null;
   const devFixtureKey = devPreview ? params.get("devFixture") : null;
+  // "constra mode": ?mock=failed-uploads seeds the intake with fixture uploads so
+  // the failed/retry/re-add attachment UI renders in `bun run dev` with no real
+  // network. DEV + non-Outlook only (devPreview), so production can never enter it.
+  const mockMode =
+    devPreview && isMockUploadsMode(params.get("mock")) ? params.get("mock") : null;
+  const mockUploads =
+    mockMode && isMockUploadsMode(mockMode)
+      ? buildMockUploadedFiles(mockMode)
+      : undefined;
+  const mockStagingDeps =
+    mockMode && isMockUploadsMode(mockMode)
+      ? buildMockStagingDeps(mockMode)
+      : undefined;
   const item = mailItem ?? (devPreview ? DEV_SAMPLE : null);
 
   // Dev-only: clicking "Log in" advances straight to the logged-in UI (profile +
@@ -139,7 +159,13 @@ export function TaskPane({ host }: { host: string | null }) {
     params.has("devUser") || params.has("dev") || params.has("fake") || params.has("fakeLogin");
   const showDevUser = devPreview && (devLoggedIn || forceFakeLogin);
   const devUser = showDevUser
-    ? { openId: "ou_dev", userName: "Jenny Xu", email: "jenny.xu@fenchem.com", org: "Branch Sales" }
+    ? {
+        openId: "ou_dev",
+        userName: "Jenny Xu",
+        email: "jenny.xu@fenchem.com",
+        org: "Branch Sales",
+        avatarUrl: "https://example.test/jenny.png",
+      }
     : null;
   const isLoggedIn = feishuAuth.isLoggedIn || devUser !== null;
   // While the Convex session query is in flight, isLoggedIn is briefly false
@@ -150,6 +176,14 @@ export function TaskPane({ host }: { host: string | null }) {
   const handleLogin = devPreview ? () => setDevLoggedIn(true) : feishuAuth.login;
   const handleLoginFallback = devPreview ? () => setDevLoggedIn(true) : feishuAuth.loginFallback;
   const handleLogout = devPreview ? () => setDevLoggedIn(false) : feishuAuth.logout;
+  const loginGate = isLoggedIn ? null : isAuthLoading ? (
+    <AuthResolvingScreen
+      onLogin={handleLogin}
+      onLoginFallback={handleLoginFallback}
+    />
+  ) : (
+    <LoginScreen onLogin={handleLogin} onLoginFallback={handleLoginFallback} />
+  );
   const profileHeader =
     isLoggedIn && user ? (
       <section
@@ -179,12 +213,17 @@ export function TaskPane({ host }: { host: string | null }) {
             user={user ?? undefined}
             userAccessToken={feishuAuth.userAccessToken}
             usePreviewCoworkers={useCoworkerFixtures}
+            devPreview={devPreview}
+            mockUploads={mockUploads}
+            mockStagingDeps={mockStagingDeps}
             profileSlot={profileHeader}
             onLogin={handleLogin}
             onLoginFallback={handleLoginFallback}
           />
-        ) : (
-          <EmptyState loading={loading} error={error} onRead={readCurrentItem} />
+        ) : loginGate ? (
+          loginGate
+        ) : loading ? null : (
+          <EmptyState error={error} onRead={readCurrentItem} />
         )}
       </main>
     </div>

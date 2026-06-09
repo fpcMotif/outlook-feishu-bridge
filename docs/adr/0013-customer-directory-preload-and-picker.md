@@ -46,10 +46,10 @@ Until now, the Base Service row's `Client` DuplexLink was set by a single server
 
 ## Out of scope (future work)
 
-- **Creating a new Customer from the picker.** When the sender's domain has no match today, the picker prompts the salesperson to pick an existing Customer or sync unlinked. A future iteration will add a **"+ Add new customer"** affordance with two candidate paths:
+- **Creating a new Customer from the picker.** When the sender's domain has no match today, the picker opens directly on the Customer search panel so the salesperson can pick an existing Customer or sync unlinked. A future iteration will add a **"+ Add new customer"** affordance with two candidate paths:
   - **(a) Direct Base create** — `POST /bitable/v1/apps/.../tables/tbl4TE2GV472sKzp/records` from the SPA via a Convex tenant action. Crosses the line from "Customer Table is read-only" to "the add-in can create new Customer rows" — note the HARD RULE forbids *modifying* pre-existing rows but does *not* forbid creating new ones.
   - **(b) External Feishu form link** — open the existing Customer-onboarding Feishu form in a popup; the SPA waits for the directory refresh on next reload to see the new row.
-  No decision yet on (a) vs (b). The picker reserves space for a disabled `+ Add new customer (coming soon)` placeholder in the no-match state so the slot is visible but inert.
+  No decision yet on (a) vs (b). The current picker exposes create-customer only after a typed query has no matches, rather than reserving disabled placeholder space in the default no-match view.
 
 ## References
 

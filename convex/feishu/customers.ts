@@ -51,6 +51,15 @@ export interface CustomerRecord {
  * I/O — so it is the foundation for both the on-login `listCustomers` preload
  * and the per-keystroke `searchCustomers` fallback.
  *
+ * `recordId` is keyed on the IMMUTABLE Feishu API `item.record_id` — the natural
+ * key the mirror upserts on (schema.ts) and the value the Service-row Client
+ * DuplexLink links by. It is deliberately NOT read from the user-facing "Record
+ * Id" Bitable column: that column happens to equal the API id today only because
+ * it is a `RECORD_ID()` formula, and keying on it would re-key every mirror row
+ * (and break the DuplexLink target) the moment someone edits the formula into a
+ * manual field (ADR-0021). The human column stays available — display-only —
+ * via {@link recordIdFromCustomerInfoRow}.
+ *
  * Field shapes (verified against live data on 2026-05-28):
  *  - Text fields (`Account Name`, `域名`, `全名`, `Account No.`) → rich-text
  *    array `[{text,type:"text"}, ...]`; flattened to a plain string.
@@ -63,7 +72,7 @@ export function mapFeishuItemToCustomer(item: {
 }): CustomerRecord {
   const f = item.fields;
   return {
-    recordId: recordIdFromCustomerInfoRow(item),
+    recordId: item.record_id,
     name: flattenText(f["Account Name"]) ?? "",
     domain: flattenText(f["域名"]),
     fullName: flattenText(f["全名"]),
@@ -73,6 +82,14 @@ export function mapFeishuItemToCustomer(item: {
   };
 }
 
+/**
+ * Read the user-facing "Record Id" Bitable column (rich-text), falling back to
+ * the immutable API `record_id`. DISPLAY-ONLY: this is the human-authored column
+ * and may diverge from the API id if its `RECORD_ID()` formula is ever changed
+ * to a manual field — so it must NEVER be used as a dedup/identity key or as a
+ * DuplexLink target (use `item.record_id` for those). Kept so the human value
+ * remains a projected display field if a surface ever needs it (ADR-0021).
+ */
 export function recordIdFromCustomerInfoRow(item: {
   record_id: string;
   fields?: Record<string, unknown>;

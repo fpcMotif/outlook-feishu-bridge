@@ -26,6 +26,7 @@ export function TaskpaneSelectionRow({
   onChange,
   changeLabel = "Change",
   dataRow,
+  enterStagger = false,
 }: {
   /** Lucide or custom icon in the muted icon slot. */
   icon?: ReactNode;
@@ -34,13 +35,19 @@ export function TaskpaneSelectionRow({
   label: string;
   onChange?: () => void;
   changeLabel?: string;
-  dataRow?: "customer" | "coworker";
+  dataRow?: "customer" | "sales" | "coworker";
+  /** Staggered ease-out enter when the system applies a default selection. */
+  enterStagger?: boolean;
 }) {
   const rowProps = dataRow ? { [`data-${dataRow}-row`]: "true" as const } : {};
 
   return (
     <div
-      className="flex min-h-14 min-w-0 items-center gap-3 px-3 py-2"
+      className={
+        enterStagger
+          ? "taskpane-selection-enter-group flex min-h-14 min-w-0 items-center gap-3 px-3 py-2"
+          : "flex min-h-14 min-w-0 items-center gap-3 px-3 py-2"
+      }
       {...rowProps}
     >
       <SelectionRowLeading leading={leading} icon={icon} />

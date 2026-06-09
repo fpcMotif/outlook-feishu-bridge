@@ -1,4 +1,14 @@
 import { Button } from "@/components/ui/button";
+import { Loader2 } from "lucide-react";
+
+import { cn } from "@/lib/utils";
+import { FeishuLogo } from "./FeishuLogo";
+
+type ConnectActionsProps = {
+  onLogin: () => void;
+  onLoginFallback: () => void;
+  isCheckingSession: boolean;
+};
 
 function OutlookLogo() {
   return (
@@ -14,15 +24,6 @@ function OutlookLogo() {
       />
       <rect x="2.5" y="5.5" width="11.5" height="17" rx="2.4" fill="#0a4c92" />
       <ellipse cx="8.25" cy="14" rx="2.6" ry="3.3" fill="none" stroke="#fff" strokeWidth="1.8" />
-    </svg>
-  );
-}
-
-function FeishuGlyph({ className = "size-6" }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 28 28" className={className} fill="currentColor" aria-hidden="true">
-      <path d="M4.2 18.6c5 .6 9.3-1.5 12.2-6 .2 2.2-.4 4.3-1.7 6 3-.1 5.7-1.6 7.9-4.5.1 4.1-2.6 7.5-6.9 8.8-4.4 1.3-8.9-.3-11.5-4.3Z" />
-      <circle cx="20" cy="8.6" r="2.1" />
     </svg>
   );
 }
@@ -43,10 +44,65 @@ function ConnectVisual() {
       </span>
       <span
         aria-hidden="true"
-        className="bg-primary text-primary-foreground flex size-14 items-center justify-center rounded-xl shadow-edge"
+        className="bg-card flex size-14 items-center justify-center rounded-xl p-2 shadow-edge"
       >
-        <FeishuGlyph className="size-7" />
+        <FeishuLogo className="size-9" />
       </span>
+    </div>
+  );
+}
+
+function BackupLoginButton({
+  disabled,
+  onLoginFallback,
+}: {
+  disabled: boolean;
+  onLoginFallback: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onLoginFallback}
+      disabled={disabled}
+      className={cn(
+        "inline-flex min-h-10 items-center justify-center text-xs font-medium underline-offset-2 transition-[color,scale] duration-150 ease-[var(--ease-out-strong)]",
+        "disabled:cursor-not-allowed disabled:text-muted-foreground/55 disabled:hover:no-underline disabled:active:scale-100",
+        disabled
+          ? "text-muted-foreground/55"
+          : "text-muted-foreground hover:text-primary hover:underline active:scale-[0.97]",
+      )}
+    >
+      Use backup login (email code)
+    </button>
+  );
+}
+
+function ConnectActions({
+  onLogin,
+  onLoginFallback,
+  isCheckingSession,
+}: ConnectActionsProps) {
+  return (
+    <div className="mt-5 flex flex-col gap-2">
+      <Button
+        className="h-11 w-full rounded-[14px] disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100 disabled:shadow-none"
+        onClick={onLogin}
+        disabled={isCheckingSession}
+        aria-busy={isCheckingSession}
+      >
+        {isCheckingSession ? (
+          <>
+            <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden="true" />
+            <output aria-live="polite">Checking Feishu&hellip;</output>
+          </>
+        ) : (
+          <>
+            <FeishuLogo className="size-4 shrink-0" />
+            <span>Continue with Feishu</span>
+          </>
+        )}
+      </Button>
+      <BackupLoginButton disabled={isCheckingSession} onLoginFallback={onLoginFallback} />
     </div>
   );
 }
@@ -54,9 +110,11 @@ function ConnectVisual() {
 export function ConnectCard({
   onLogin,
   onLoginFallback,
+  isCheckingSession = false,
 }: {
   onLogin: () => void;
   onLoginFallback: () => void;
+  isCheckingSession?: boolean;
 }) {
   return (
     <section
@@ -64,19 +122,14 @@ export function ConnectCard({
       className="bg-card mx-auto flex aspect-square w-full max-w-[420px] flex-col justify-center rounded-[28px] p-6 shadow-float"
     >
       <ConnectVisual />
-      <div className="mt-6 flex flex-col gap-2">
-        <Button className="h-11 w-full rounded-[14px]" onClick={onLogin}>
-          <FeishuGlyph className="size-4" />
-          <span>Continue with Feishu</span>
-        </Button>
-        <button
-          type="button"
-          onClick={onLoginFallback}
-          className="text-muted-foreground hover:text-primary inline-flex min-h-10 items-center justify-center text-xs font-medium underline-offset-2 transition-[color,scale] duration-150 ease-[var(--ease-out-strong)] hover:underline active:scale-[0.97]"
-        >
-          Use backup login (email code)
-        </button>
-      </div>
+      <p className="text-muted-foreground mt-5 text-center text-sm leading-relaxed text-pretty">
+        Sync this email into your team&apos;s Services Base.
+      </p>
+      <ConnectActions
+        onLogin={onLogin}
+        onLoginFallback={onLoginFallback}
+        isCheckingSession={isCheckingSession}
+      />
     </section>
   );
 }

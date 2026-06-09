@@ -38,9 +38,7 @@ export function buildDevEmailRecordFixture(fixture: DevEmailFixture, now = Date.
     sentToBot: false,
     sentToChat: false,
     sentToBitable: true,
-    requestSelections: [
-      { requestType: "Sample", note: "DEV fixture request for timestamp display." },
-    ],
+    requestNote: "DEV fixture request for timestamp display.",
     selectedCoworkers: selectedCoworkers(fixture.coworkerCount),
     selectedCustomer: { recordId: "dev_fixture_fanpc_customer", name: "fanpc" },
     initiator: { openId: "ou_dev", name: "Jenny Xu" },

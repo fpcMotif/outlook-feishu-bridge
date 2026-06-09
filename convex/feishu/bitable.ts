@@ -1,13 +1,20 @@
 /* eslint-disable max-lines */
 import { internalAction, type ActionCtx } from "../_generated/server";
 import { v } from "convex/values";
-import { callFeishu } from "./call";
-import { buildServiceFields, type ServiceRowInput } from "./serviceRow";
-import { emailDomain, recordIdFromCustomerInfoRow } from "./customers";
+import { internal } from "../_generated/api";
+import { callFeishu, withFeishuRateLimitRetry } from "./call";
+import {
+  buildServiceAttachmentFields,
+  buildServiceCreateFields,
+  buildServiceFields,
+  buildServiceSalesFields,
+  type ServiceRowInput,
+} from "./serviceRow";
+import { mayUpdateOwnedBitableRow } from "./attachmentFill";
+import { emailDomain } from "./customers";
 import { isDevFixtureRecordId } from "./devCustomerFixtures";
 import {
   initiatorValidator,
-  requestSelectionValidator,
   selectedCoworkerValidator,
 } from "../emailRecord";
 
@@ -36,16 +43,20 @@ const CLIENT_DOMAIN_FIELD = "域名";
 // passed (the salesperson's override picked from the Customer Picker, ADR-0013)
 // we use it directly. Otherwise we fall back to the legacy email-domain match
 // against the Customer Table. `subject` + `initiator` are written into the
-// row's `Email Subject` and `Sales` columns respectively (ADR-0014); the email
-// BODY is NOT written here; that stays preview-only on the Email Record
-// (ADR-0010 still holds for body).
+// row's `Email Subject` and `Sales` columns respectively (ADR-0014). ADR-0022
+// reverses ADR-0010's body-off-Base rule: the consolidated `requestNote` and the
+// plain-text `body` now ride to the Base row (the Email Record keeps only a
+// preview). Attachment file tokens are added with the staging slice.
 const serviceRowArgs = {
   subject: v.optional(v.string()),
   clientEmail: v.optional(v.string()),
   clientRecordId: v.optional(v.string()),
   dateOfOffer: v.optional(v.number()),
-  requestSelections: v.optional(v.array(requestSelectionValidator)),
+  requestNote: v.optional(v.string()),
+  body: v.optional(v.string()),
+  attachments: v.optional(v.array(v.object({ fileToken: v.string() }))),
   selectedCoworkers: v.optional(v.array(selectedCoworkerValidator)),
+  selectedSales: v.optional(initiatorValidator),
   initiator: v.optional(initiatorValidator),
   // ADR-0017: Outlook `item.conversationId` lands in the Service row's
   // `Email Conversation ID` column as the Bitable-to-Outlook join key.
@@ -89,7 +100,11 @@ export async function matchClientRecordId(
     label: "Bitable client domain search",
   });
   const first = data.items?.[0];
-  return first ? recordIdFromCustomerInfoRow(first) : null;
+  // The Client DuplexLink links by the IMMUTABLE Feishu API record_id, never the
+  // user-facing "Record Id" column (which only equals the API id while it stays a
+  // RECORD_ID() formula — ADR-0021). Use record_id directly so the link is
+  // robust to that column being changed to a manual field.
+  return first?.record_id ?? null;
 }
 
 // Resolve the Client DuplexLink target for a sync: prefer the override picked
@@ -122,8 +137,9 @@ export function logServiceRecordIntake(
 ): void {
   console.log(
     `[bitable] createServiceRecord clientLinked=${Boolean(resolvedClientRecordId)} ` +
-      `requests=${args.requestSelections?.length ?? 0} coworkers=${args.selectedCoworkers?.length ?? 0} ` +
-      `hasInitiator=${Boolean(args.initiator)} subjectLen=${args.subject?.length ?? 0} ` +
+      `note=${args.requestNote?.trim() ? "y" : "n"} bodyLen=${args.body?.length ?? 0} ` +
+      `attachments=${args.attachments?.length ?? 0} coworkers=${args.selectedCoworkers?.length ?? 0} ` +
+      `hasSales=${Boolean(args.selectedSales?.openId ?? args.initiator?.openId)} subjectLen=${args.subject?.length ?? 0} ` +
       `convIdLen=${args.emailConversationId?.length ?? 0} fieldKeys=[${Object.keys(fields).join(",")}]`,
   );
   if (process.env.BITABLE_DIAG_LOG === "1") {
@@ -135,9 +151,11 @@ export function logServiceRecordIntake(
         resolvedClientRecordId,
         dateOfOffer: args.dateOfOffer,
         emailConversationId: args.emailConversationId,
-        initiator: args.initiator,
+        selectedSales: args.selectedSales ?? args.initiator,
         coworkers: args.selectedCoworkers,
-        requestSelections: args.requestSelections,
+        requestNote: args.requestNote,
+        bodyLen: args.body?.length ?? 0,
+        attachmentCount: args.attachments?.length ?? 0,
       })} fields=${JSON.stringify(fields)}`,
     );
   }
@@ -149,17 +167,32 @@ export const createServiceRecord = internalAction({
   handler: async (ctx, args): Promise<{ recordId: string }> => {
     const { appToken, tableId } = requireBitableEnv();
     const clientRecordId = await resolveClientRecordId(ctx, appToken, args);
-    const fields = buildServiceFields(args, clientRecordId);
-    logServiceRecordIntake(args, clientRecordId, fields);
-    const data = await callFeishu<{ record?: { record_id: string } }>(ctx, {
-      path: `/bitable/v1/apps/${appToken}/tables/${tableId}/records`,
-      method: "POST",
-      auth: "tenant",
-      json: { fields },
-      query: args.clientToken ? { client_token: args.clientToken } : undefined,
-      label: "Bitable create service row",
-    });
-    return { recordId: data.record?.record_id ?? "" };
+    const createFields = buildServiceCreateFields(args, clientRecordId);
+    logServiceRecordIntake(args, clientRecordId, createFields);
+    const data = await withFeishuRateLimitRetry(() =>
+      callFeishu<{ record?: { record_id: string } }>(ctx, {
+        path: `/bitable/v1/apps/${appToken}/tables/${tableId}/records`,
+        method: "POST",
+        auth: "tenant",
+        json: { fields: createFields },
+        query: args.clientToken ? { client_token: args.clientToken } : undefined,
+        label: "Bitable create service row",
+      }),
+    );
+    const recordId = data.record?.record_id ?? "";
+    const salesFields = buildServiceSalesFields(args);
+    if (recordId && Object.keys(salesFields).length > 0) {
+      await withFeishuRateLimitRetry(() =>
+        callFeishu<{ record?: { record_id: string } }>(ctx, {
+          path: `/bitable/v1/apps/${appToken}/tables/${tableId}/records/${recordId}`,
+          method: "PUT",
+          auth: "tenant",
+          json: { fields: salesFields },
+          label: "Bitable patch Sales after create",
+        }),
+      );
+    }
+    return { recordId };
   },
 });
 
@@ -172,14 +205,60 @@ export const correctServiceRecord = internalAction({
     const { appToken, tableId } = requireBitableEnv();
     const clientRecordId = await resolveClientRecordId(ctx, appToken, args);
     const fields = buildServiceFields(args, clientRecordId);
-    const data = await callFeishu<{ record?: { record_id: string } }>(ctx, {
-      path: `/bitable/v1/apps/${appToken}/tables/${tableId}/records/${args.recordId}`,
-      method: "PUT",
-      auth: "tenant",
-      json: { fields },
-      label: "Bitable correct service row",
-    });
+    const data = await withFeishuRateLimitRetry(() =>
+      callFeishu<{ record?: { record_id: string } }>(ctx, {
+        path: `/bitable/v1/apps/${appToken}/tables/${tableId}/records/${args.recordId}`,
+        method: "PUT",
+        auth: "tenant",
+        json: { fields },
+        label: "Bitable correct service row",
+      }),
+    );
     return { recordId: data.record?.record_id ?? args.recordId };
+  },
+});
+
+// ATTACHMENT FILL PUT (ADR-0027): write ONLY the `Sales Files` cell onto a row
+// THIS flow just minted, with the cumulative file_tokens. Re-reads the fill
+// state and passes the RUNTIME ownership + freshness fence before any write — a
+// foreign or ancient row is refused (throws), never patched. Idempotent: the
+// same cumulative token array PUT twice yields the same cell.
+export const patchRowAttachments = internalAction({
+  args: { internetMessageId: v.string(), requestSyncKey: v.optional(v.string()) },
+  handler: async (ctx, args): Promise<{ patched: boolean }> => {
+    const { appToken, tableId } = requireBitableEnv();
+    const state = await ctx.runQuery(internal.emails.getAttachmentFillState, {
+      internetMessageId: args.internetMessageId,
+      requestSyncKey: args.requestSyncKey,
+    });
+    if (!state || !state.bitableRecordId) return { patched: false };
+    const ok = mayUpdateOwnedBitableRow(
+      {
+        bitableRecordId: state.bitableRecordId,
+        bitableClientToken: state.bitableClientToken ?? undefined,
+        bitableRowMintedAt: state.bitableRowMintedAt ?? undefined,
+      },
+      Date.now(),
+    );
+    if (!ok) {
+      throw new Error(
+        `Refusing Sales Files PUT: row ${state.bitableRecordId} is not an updatable self-minted fresh row`,
+      );
+    }
+    const fields = buildServiceAttachmentFields(
+      state.fileTokens.map((fileToken) => ({ fileToken })),
+    );
+    if (Object.keys(fields).length === 0) return { patched: false };
+    await withFeishuRateLimitRetry(() =>
+      callFeishu(ctx, {
+        path: `/bitable/v1/apps/${appToken}/tables/${tableId}/records/${state.bitableRecordId}`,
+        method: "PUT",
+        auth: "tenant",
+        json: { fields },
+        label: "Bitable patch Sales Files (attachment fill)",
+      }),
+    );
+    return { patched: true };
   },
 });
 
@@ -202,38 +281,6 @@ export const diagGetRecord = internalAction({
         label: "Bitable diag get record",
       });
       return { ok: true, record: data.record };
-    } catch (e: unknown) {
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
-    }
-  },
-});
-
-export const diagSearchCustomerByName = internalAction({
-  args: { name: v.string() },
-  handler: async (ctx, args): Promise<{ ok: boolean; matches?: { record_id: string; name?: string }[]; error?: string }> => {
-    const appToken = process.env.FEISHU_BITABLE_APP_TOKEN;
-    if (!appToken) return { ok: false, error: "env not set" };
-    try {
-      const data = await callFeishu<{ items?: { record_id: string; fields?: Record<string, unknown> }[] }>(ctx, {
-        path: `/bitable/v1/apps/${appToken}/tables/${CLIENT_TABLE_ID}/records/search`,
-        method: "POST",
-        auth: "tenant",
-        json: {
-          filter: {
-            conjunction: "and",
-            conditions: [{ field_name: "Account Name", operator: "contains", value: [args.name] }],
-          },
-        },
-        query: { page_size: "5" },
-        label: "Bitable diag search customer by name",
-      });
-      return {
-        ok: true,
-        matches: (data.items ?? []).map((i) => ({
-          record_id: i.record_id,
-          name: i.fields?.["Name"] as string | undefined,
-        })),
-      };
     } catch (e: unknown) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }

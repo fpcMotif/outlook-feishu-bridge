@@ -2,33 +2,73 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mockSync = vi.fn((_payload: unknown) =>
-  Promise.resolve({
-    recordId: "recTEST",
-    detailUrl: "https://feishu.cn/base/app?table=tbl&record=recTEST",
-  }),
+type SyncResult =
+  | { status: "pending"; recordId: null; detailUrl: null }
+  | { status: "synced"; recordId: string; detailUrl: string | null };
+
+const mockSync = vi.fn(
+  (_payload: unknown): Promise<SyncResult> =>
+    Promise.resolve({
+      status: "synced",
+      recordId: "recTEST",
+      detailUrl: "https://feishu.cn/base/app?table=tbl&record=recTEST",
+    }),
 );
-const mockCorrect = vi.fn((_payload: unknown) => Promise.resolve({ recordId: "recTEST" }));
-let mockExistingSync: { recordId: string; detailUrl: string | null } | null = null;
+const mockCorrect = vi.fn((_payload: unknown) =>
+  Promise.resolve({ recordId: "recTEST" }),
+);
+let mockExistingSync: {
+  status?: "pending" | "synced" | "failed";
+  recordId: string | null;
+  detailUrl: string | null;
+  syncedAt?: number;
+  error?: string | null;
+} | null = null;
 vi.mock("../../hooks/useRequestSync", () => ({
-  useRequestSync: () => ({ sync: mockSync, correct: mockCorrect, existingSync: mockExistingSync }),
+  useRequestSync: () => ({
+    sync: mockSync,
+    correct: mockCorrect,
+    existingSync: mockExistingSync,
+  }),
 }));
 const mockSendSelfForward = vi.fn(
-  (_payload: unknown): Promise<{ ok: true } | { ok: false; step: string; code: string; message: string }> =>
-    Promise.resolve({ ok: true }),
+  (
+    _payload: unknown,
+  ): Promise<
+    { ok: true } | { ok: false; step: string; code: string; message: string }
+  > => Promise.resolve({ ok: true }),
 );
 vi.mock("../../hooks/useSelfForward", () => ({
   useSelfForward: () => ({ sendNote: mockSendSelfForward }),
 }));
+
+vi.mock("../../hooks/useAttachmentStaging", () => ({
+  useAttachmentStaging: () => ({
+    generateUploadUrl: vi.fn().mockResolvedValue("https://up/test"),
+    uploadBytes: vi.fn().mockResolvedValue({ storageId: "st_test" }),
+  }),
+}));
 vi.mock("../../hooks/useCoworkerSearch", () => {
   const coworkers = [
-    { openId: "ou_jenny", name: "Jenny Xu", avatarUrl: "https://example.test/jenny.png" },
-    { openId: "ou_michael", name: "Michael Chen", avatarUrl: "https://example.test/michael.png" },
+    {
+      openId: "ou_jenny",
+      name: "Jenny Xu",
+      avatarUrl: "https://example.test/jenny.png",
+    },
+    {
+      openId: "ou_michael",
+      name: "Michael Chen",
+      avatarUrl: "https://example.test/michael.png",
+    },
   ];
   return {
     useCoworkerSearch: () =>
       vi.fn((query: string) =>
-        Promise.resolve(coworkers.filter((c) => c.name.toLowerCase().includes(query.toLowerCase()))),
+        Promise.resolve(
+          coworkers.filter((c) =>
+            c.name.toLowerCase().includes(query.toLowerCase()),
+          ),
+        ),
       ),
   };
 });
@@ -55,7 +95,17 @@ vi.mock("../../hooks/useCustomerSearch", () => ({
   }),
 }));
 
+import type { AttachmentSyncResult } from "./useAttachmentSync";
+const emptyStage: AttachmentSyncResult = { sources: [], failed: [] };
+const mockStageAttachments = vi.fn(
+  (): Promise<AttachmentSyncResult> => Promise.resolve(emptyStage),
+);
+vi.mock("./useAttachmentSync", () => ({
+  useAttachmentSync: () => mockStageAttachments,
+}));
+
 import { RequestIntakeScreen } from "./RequestIntakeScreen";
+import { clearIntakeDraftCache } from "./intakeDraftCache";
 import type { MailItemData } from "../../office/useMailItem";
 
 const SAMPLE: MailItemData = {
@@ -72,9 +122,11 @@ const SAMPLE: MailItemData = {
   attachments: [],
 };
 
-function renderScreen(
-  user?: { openId: string; userName?: string; avatarUrl?: string },
-) {
+function renderScreen(user?: {
+  openId: string;
+  userName?: string;
+  avatarUrl?: string;
+}) {
   render(
     <RequestIntakeScreen
       isLoggedIn={true}
@@ -91,52 +143,83 @@ async function searchCoworker(name: string) {
   fireEvent.change(screen.getByLabelText("Search Feishu coworkers"), {
     target: { value: name },
   });
-  return await screen.findByRole("button", { name: new RegExp(`^${name}`, "i") });
+  return await screen.findByRole("button", {
+    name: new RegExp(`^${name}`, "i"),
+  });
 }
 
 describe("RequestIntakeScreen sync wiring", () => {
   beforeEach(() => {
+    clearIntakeDraftCache();
     mockSync.mockClear();
     mockCorrect.mockClear();
     mockExistingSync = null;
     mockSendSelfForward.mockClear();
     mockSendSelfForward.mockImplementation(() => Promise.resolve({ ok: true }));
+    mockStageAttachments.mockReset();
+    mockStageAttachments.mockResolvedValue({ sources: [], failed: [] });
     localStorage.clear();
   });
 
   it("calls sync once with the request, coworker, and email on submit", async () => {
     renderScreen();
-    fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
-    fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
-      target: { value: "Need a quarterly L-Carnitine quote." },
-    });
+    fireEvent.change(
+      screen.getByPlaceholderText(/Describe your requirements/i),
+      {
+        target: { value: "Need a quarterly L-Carnitine quote." },
+      },
+    );
     fireEvent.click(await searchCoworker("Jenny Xu"));
-    fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Sync with Jenny Xu/i }),
+    );
 
     await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(1));
     expect(
       await screen.findByRole("link", { name: /Open in Feishu/i }),
-    ).toHaveAttribute("href", "https://feishu.cn/base/app?table=tbl&record=recTEST");
+    ).toHaveAttribute(
+      "href",
+      "https://feishu.cn/base/app?table=tbl&record=recTEST",
+    );
     expect(mockSync.mock.calls[0][0]).toMatchObject({
       clientEmail: "m.hoffmann@bayerpharma.de",
       subject: "Inquiry - bulk L-Carnitine",
       from: "m.hoffmann@bayerpharma.de",
-      requestSelections: [
-        { requestType: "Quotation", note: "Need a quarterly L-Carnitine quote." },
+      requestNote: "Need a quarterly L-Carnitine quote.",
+      body: "We need quarterly pricing.",
+      selectedCoworkers: [
+        {
+          openId: "ou_jenny",
+          name: "Jenny Xu",
+          avatarUrl: "https://example.test/jenny.png",
+        },
       ],
-      selectedCoworkers: [{ openId: "ou_jenny", name: "Jenny Xu", avatarUrl: "https://example.test/jenny.png" }],
     });
   });
 
   it("links to the existing Feishu Base record instead of syncing the same conversation again", () => {
-    const detailUrl = "https://feishu.cn/base/app?table=tbl&record=rec_existing";
-    mockExistingSync = { recordId: "rec_existing", detailUrl };
+    const detailUrl =
+      "https://feishu.cn/base/app?table=tbl&record=rec_existing";
+    mockExistingSync = {
+      status: "synced",
+      recordId: "rec_existing",
+      detailUrl,
+      syncedAt: Date.now() - 6 * 24 * 60 * 60 * 1000,
+    };
 
     renderScreen();
 
-    expect(screen.getByRole("heading", { name: /^Already synced$/i })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Open in Feishu/i })).toHaveAttribute("href", detailUrl);
-    expect(screen.queryByRole("button", { name: /Sync with/i })).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: /^Already synced$/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: /Open in Feishu/i }),
+    ).toHaveAttribute("href", detailUrl);
+    expect(screen.getByText("6 days ago")).toBeInTheDocument();
+    expect(screen.queryByText("Just now")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Sync with/i }),
+    ).not.toBeInTheDocument();
     expect(mockSync).not.toHaveBeenCalled();
   });
 
@@ -150,16 +233,21 @@ describe("RequestIntakeScreen sync wiring", () => {
         onLoginFallback={vi.fn()}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
-    fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
-      target: { value: "Need a quarterly L-Carnitine quote." },
-    });
+    fireEvent.change(
+      screen.getByPlaceholderText(/Describe your requirements/i),
+      {
+        target: { value: "Need a quarterly L-Carnitine quote." },
+      },
+    );
     fireEvent.click(await searchCoworker("Jenny Xu"));
-    fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Sync with Jenny Xu/i }),
+    );
 
     await screen.findByRole("heading", { name: /^Synced$/i });
 
     mockExistingSync = {
+      status: "synced",
       recordId: "rec_existing",
       detailUrl: "https://feishu.cn/base/app?table=tbl&record=rec_existing",
     };
@@ -173,8 +261,71 @@ describe("RequestIntakeScreen sync wiring", () => {
       />,
     );
 
-    expect(screen.getByRole("heading", { name: /^Synced$/i })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: /^Already synced$/i })).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: /^Synced$/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: /^Already synced$/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("stays on the sync screen after a queued sync until Convex reports the Base record", async () => {
+    mockSync.mockResolvedValueOnce({
+      status: "pending",
+      recordId: null,
+      detailUrl: null,
+    });
+    const { rerender } = render(
+      <RequestIntakeScreen
+        isLoggedIn={true}
+        mailItem={SAMPLE}
+        sessionId="test-session"
+        onLogin={vi.fn()}
+        onLoginFallback={vi.fn()}
+      />,
+    );
+    fireEvent.change(
+      screen.getByPlaceholderText(/Describe your requirements/i),
+      {
+        target: { value: "Need a quarterly L-Carnitine quote." },
+      },
+    );
+    fireEvent.click(await searchCoworker("Jenny Xu"));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Sync with Jenny Xu/i }),
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: /Syncing to Feishu Base/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: /^Synced$/i }),
+    ).not.toBeInTheDocument();
+
+    mockExistingSync = {
+      status: "synced",
+      recordId: "rec_async",
+      detailUrl: "https://feishu.cn/base/app?table=tbl&record=rec_async",
+    };
+    rerender(
+      <RequestIntakeScreen
+        isLoggedIn={true}
+        mailItem={SAMPLE}
+        sessionId="test-session"
+        onLogin={vi.fn()}
+        onLoginFallback={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: /^Synced$/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: /Open in Feishu/i }),
+    ).toHaveAttribute(
+      "href",
+      "https://feishu.cn/base/app?table=tbl&record=rec_async",
+    );
   });
 
   // Customer-matching wiring (ADR-0013): when the directory contains a row
@@ -183,12 +334,16 @@ describe("RequestIntakeScreen sync wiring", () => {
   // back to the legacy domain-search-per-write.
   it("passes the auto-matched Customer through to sync when the directory has a domain hit", async () => {
     renderScreen();
-    fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
-    fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
-      target: { value: "Need a quarterly L-Carnitine quote." },
-    });
+    fireEvent.change(
+      screen.getByPlaceholderText(/Describe your requirements/i),
+      {
+        target: { value: "Need a quarterly L-Carnitine quote." },
+      },
+    );
     fireEvent.click(await searchCoworker("Jenny Xu"));
-    fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Sync with Jenny Xu/i }),
+    );
 
     await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(1));
     expect(mockSync.mock.calls[0][0]).toMatchObject({
@@ -200,19 +355,26 @@ describe("RequestIntakeScreen sync wiring", () => {
   // picking a different Customer changes which selectedCustomer rides to sync.
   it("uses the user's Customer override instead of the auto-match when one is picked", async () => {
     renderScreen();
-    fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
-    fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
-      target: { value: "Need a quarterly L-Carnitine quote." },
-    });
+    fireEvent.change(
+      screen.getByPlaceholderText(/Describe your requirements/i),
+      {
+        target: { value: "Need a quarterly L-Carnitine quote." },
+      },
+    );
 
     fireEvent.click(screen.getByRole("button", { name: /change/i }));
-    fireEvent.change(screen.getByRole("combobox", { name: /search customers/i }), {
-      target: { value: "stock" },
-    });
+    fireEvent.change(
+      screen.getByRole("combobox", { name: /search customers/i }),
+      {
+        target: { value: "stock" },
+      },
+    );
     fireEvent.click(screen.getByRole("button", { name: /STOCKMEIER Chemie/i }));
 
     fireEvent.click(await searchCoworker("Jenny Xu"));
-    fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Sync with Jenny Xu/i }),
+    );
 
     await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(1));
     expect(mockSync.mock.calls[0][0]).toMatchObject({
@@ -225,32 +387,43 @@ describe("RequestIntakeScreen sync wiring", () => {
   // column as the Base-to-Outlook join key.
   it("passes the Mail Item conversationId on sync", async () => {
     renderScreen();
-    fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
-    fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
-      target: { value: "Need a quarterly L-Carnitine quote." },
-    });
+    fireEvent.change(
+      screen.getByPlaceholderText(/Describe your requirements/i),
+      {
+        target: { value: "Need a quarterly L-Carnitine quote." },
+      },
+    );
     fireEvent.click(await searchCoworker("Jenny Xu"));
-    fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Sync with Jenny Xu/i }),
+    );
 
     await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(1));
-    expect(mockSync.mock.calls[0][0]).toMatchObject({ conversationId: "conv-1" });
+    expect(mockSync.mock.calls[0][0]).toMatchObject({
+      conversationId: "conv-1",
+    });
   });
 
   // ADR-0014: the signed-in Feishu user (the Initiator) rides on every sync
   // call so the backend can write the `Sales` User column. Distinct from the
   // assignee Coworker — the salesperson who clicked Sync vs the one who'll
   // handle the request.
-  it("passes the signed-in user as the Initiator on sync", async () => {
+  it("passes the signed-in user as selectedSales on sync by default", async () => {
     renderScreen({ openId: "ou_jenny_initiator", userName: "Jenny Xu" });
-    fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
-    fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
-      target: { value: "Need a quarterly L-Carnitine quote." },
-    });
+    fireEvent.change(
+      screen.getByPlaceholderText(/Describe your requirements/i),
+      {
+        target: { value: "Need a quarterly L-Carnitine quote." },
+      },
+    );
     fireEvent.click(await searchCoworker("Jenny Xu"));
-    fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Sync with Jenny Xu/i }),
+    );
 
     await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(1));
     expect(mockSync.mock.calls[0][0]).toMatchObject({
+      selectedSales: { openId: "ou_jenny_initiator", name: "Jenny Xu" },
       initiator: { openId: "ou_jenny_initiator", name: "Jenny Xu" },
     });
   });
@@ -259,12 +432,16 @@ describe("RequestIntakeScreen sync wiring", () => {
   // Base sync. Both calls are issued from the same submit click.
   it("fires the Self-Forward `sendNote` alongside `sync` on submit", async () => {
     renderScreen();
-    fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
-    fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
-      target: { value: "Need a quarterly L-Carnitine quote." },
-    });
+    fireEvent.change(
+      screen.getByPlaceholderText(/Describe your requirements/i),
+      {
+        target: { value: "Need a quarterly L-Carnitine quote." },
+      },
+    );
     fireEvent.click(await searchCoworker("Jenny Xu"));
-    fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Sync with Jenny Xu/i }),
+    );
 
     await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(mockSendSelfForward).toHaveBeenCalledTimes(1));
@@ -274,8 +451,64 @@ describe("RequestIntakeScreen sync wiring", () => {
       customerName: "Bayer Pharma",
       clientEmail: "m.hoffmann@bayerpharma.de",
       requestSelections: [
-        { requestType: "Quotation", note: "Need a quarterly L-Carnitine quote." },
+        {
+          requestType: "Quotation",
+          note: "Need a quarterly L-Carnitine quote.",
+        },
       ],
+    });
+  });
+
+  it("keeps attachment token minting on the sync critical path while Self-Forward runs in parallel", async () => {
+    let resolveStage!: (value: AttachmentSyncResult) => void;
+    mockStageAttachments.mockReturnValueOnce(
+      new Promise<AttachmentSyncResult>((resolve) => {
+        resolveStage = resolve;
+      }),
+    );
+    render(
+      <RequestIntakeScreen
+        isLoggedIn={true}
+        mailItem={{
+          ...SAMPLE,
+          attachments: [
+            {
+              id: "a1",
+              name: "rfq.pdf",
+              attachmentType: "file",
+              size: 2048,
+              isInline: false,
+            },
+          ],
+        }}
+        sessionId="test-session"
+        onLogin={vi.fn()}
+        onLoginFallback={vi.fn()}
+      />,
+    );
+    fireEvent.change(
+      screen.getByPlaceholderText(/Describe your requirements/i),
+      {
+        target: { value: "Need a quarterly L-Carnitine quote." },
+      },
+    );
+    fireEvent.click(screen.getByRole("checkbox", { name: /rfq\.pdf/i }));
+    fireEvent.click(await searchCoworker("Jenny Xu"));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Sync with Jenny Xu/i }),
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: /Syncing to Feishu Base/i }),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(mockSendSelfForward).toHaveBeenCalledTimes(1));
+    expect(mockSync).not.toHaveBeenCalled();
+
+    resolveStage({ sources: [{ storageId: "stSLOW", fileName: "slow.pdf" }], failed: [] });
+
+    await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(1));
+    expect(mockSync.mock.calls[0][0]).toMatchObject({
+      attachmentSources: [{ storageId: "stSLOW", fileName: "slow.pdf" }],
     });
   });
 
@@ -292,12 +525,16 @@ describe("RequestIntakeScreen sync wiring", () => {
       }),
     );
     renderScreen();
-    fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
-    fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
-      target: { value: "Need a quarterly L-Carnitine quote." },
-    });
+    fireEvent.change(
+      screen.getByPlaceholderText(/Describe your requirements/i),
+      {
+        target: { value: "Need a quarterly L-Carnitine quote." },
+      },
+    );
     fireEvent.click(await searchCoworker("Jenny Xu"));
-    fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Sync with Jenny Xu/i }),
+    );
 
     expect(
       await screen.findByRole("heading", { name: /^Synced$/i }),
@@ -324,38 +561,186 @@ describe("RequestIntakeScreen sync wiring", () => {
         }),
     );
     renderScreen();
-    fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
-    fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
-      target: { value: "Need a quarterly L-Carnitine quote." },
-    });
+    fireEvent.change(
+      screen.getByPlaceholderText(/Describe your requirements/i),
+      {
+        target: { value: "Need a quarterly L-Carnitine quote." },
+      },
+    );
     fireEvent.click(await searchCoworker("Jenny Xu"));
-    fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Sync with Jenny Xu/i }),
+    );
 
-    const retry = await screen.findByRole("button", { name: /Retry note-to-myself/i });
+    const retry = await screen.findByRole("button", {
+      name: /Retry note-to-myself/i,
+    });
     fireEvent.click(retry);
 
-    expect(await screen.findByText(/Sending Note to myself/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Sending Note to myself/i),
+    ).toBeInTheDocument();
     expect(mockSendSelfForward).toHaveBeenCalledTimes(2);
 
     resolveRetry({ ok: true });
     await waitFor(() => {
-      expect(screen.queryByText(/Sending Note to myself/i)).not.toBeInTheDocument();
+      expect(
+        screen.queryByText(/Sending Note to myself/i),
+      ).not.toBeInTheDocument();
     });
     expect(screen.queryByText(/Note to myself sent/i)).not.toBeInTheDocument();
   });
 
-  it("shows an error and not the success screen when sync rejects", async () => {
-    mockSync.mockImplementationOnce(() => Promise.reject(new Error("Base unavailable")));
-    renderScreen();
-    fireEvent.click(screen.getByRole("button", { name: /Quotation/i }));
-    fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
-      target: { value: "Need a quarterly L-Carnitine quote." },
+  // ADR-0027: a checked mail attachment is staged at submit and its Convex
+  // storageId rides into the syncRequest payload's `attachmentSources` (the Drive
+  // mint now happens server-side in the deferred Attachment Fill).
+  it("stages a checked mail attachment and rides its storageId into the sync payload", async () => {
+    mockStageAttachments.mockResolvedValueOnce({
+      sources: [{ storageId: "stFILE", fileName: "rfq.pdf" }],
+      failed: [],
     });
+    render(
+      <RequestIntakeScreen
+        isLoggedIn={true}
+        mailItem={{
+          ...SAMPLE,
+          attachments: [
+            {
+              id: "a1",
+              name: "rfq.pdf",
+              attachmentType: "file",
+              size: 2048,
+              isInline: false,
+            },
+          ],
+        }}
+        sessionId="test-session"
+        onLogin={vi.fn()}
+        onLoginFallback={vi.fn()}
+      />,
+    );
+    fireEvent.change(
+      screen.getByPlaceholderText(/Describe your requirements/i),
+      {
+        target: { value: "Need a quarterly L-Carnitine quote." },
+      },
+    );
+    fireEvent.click(screen.getByRole("checkbox", { name: /rfq\.pdf/i }));
+    fireEvent.click(await searchCoworker("Jenny Xu"));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Sync with Jenny Xu/i }),
+    );
+
+    await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(1));
+    expect(mockStageAttachments).toHaveBeenCalledWith(
+      [{ id: "a1", name: "rfq.pdf" }],
+      [],
+    );
+    expect(mockSync.mock.calls[0][0]).toMatchObject({
+      attachmentSources: [{ storageId: "stFILE", fileName: "rfq.pdf" }],
+    });
+  });
+
+  // Regression (rare repro): submit on conversation A, then switch to another
+  // conversation BEFORE the Base sync resolves, then return to A. The leaving
+  // Core unmounts mid-sync, so its in-flight success dispatch is a no-op; the
+  // draft snapshot must NOT persist the transient `screen:"sync"`, or the
+  // restored draft resurrects a DEAD sync overlay that never advances even
+  // though the server row is already synced. On return we must see the
+  // already-synced overlay, never the stuck "Syncing to Feishu Base" screen.
+  it("does not strand the sync screen when the user switches conversations mid-sync and returns", async () => {
+    // Sync stays pending forever for this submit (the action effectively dies
+    // when the Core unmounts on the conversation switch).
+    mockSync.mockImplementationOnce(
+      () => new Promise<SyncResult>(() => {}),
+    );
+    const { rerender } = render(
+      <RequestIntakeScreen
+        isLoggedIn={true}
+        mailItem={SAMPLE}
+        sessionId="test-session"
+        onLogin={vi.fn()}
+        onLoginFallback={vi.fn()}
+      />,
+    );
+    fireEvent.change(
+      screen.getByPlaceholderText(/Describe your requirements/i),
+      { target: { value: "Need a quarterly L-Carnitine quote." } },
+    );
     fireEvent.click(await searchCoworker("Jenny Xu"));
     fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
 
-    expect(await screen.findByRole("heading", { name: /Sync failed/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Try again/i })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: /Syncing to Feishu Base/i }),
+    ).toBeInTheDocument();
+
+    // The server completes the row out-of-band (Base + self-forward succeeded).
+    mockExistingSync = {
+      status: "synced",
+      recordId: "rec_recovered",
+      detailUrl: "https://feishu.cn/base/app?table=tbl&record=rec_recovered",
+      syncedAt: Date.now(),
+    };
+
+    // Switch AWAY to a different conversation -> the conv-1 Core unmounts mid-sync.
+    rerender(
+      <RequestIntakeScreen
+        isLoggedIn={true}
+        mailItem={{
+          ...SAMPLE,
+          conversationId: "conv-2",
+          internetMessageId: "<y@acme.com>",
+          itemId: "item-2",
+          from: "buyer@acme.com",
+        }}
+        sessionId="test-session"
+        onLogin={vi.fn()}
+        onLoginFallback={vi.fn()}
+      />,
+    );
+
+    // Return to conv-1 -> remount restores its draft. It must land on the
+    // already-synced overlay, NOT a stranded "Syncing" screen.
+    rerender(
+      <RequestIntakeScreen
+        isLoggedIn={true}
+        mailItem={SAMPLE}
+        sessionId="test-session"
+        onLogin={vi.fn()}
+        onLoginFallback={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: /^Already synced$/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: /Syncing to Feishu Base/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows an error and not the success screen when sync rejects", async () => {
+    mockSync.mockImplementationOnce(() =>
+      Promise.reject(new Error("Base unavailable")),
+    );
+    renderScreen();
+    fireEvent.change(
+      screen.getByPlaceholderText(/Describe your requirements/i),
+      {
+        target: { value: "Need a quarterly L-Carnitine quote." },
+      },
+    );
+    fireEvent.click(await searchCoworker("Jenny Xu"));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Sync with Jenny Xu/i }),
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: /Sync failed/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Try again/i }),
+    ).toBeInTheDocument();
     expect(
       screen.queryByRole("heading", { name: /^Synced$/i }),
     ).not.toBeInTheDocument();

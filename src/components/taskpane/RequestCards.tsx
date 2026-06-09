@@ -1,16 +1,12 @@
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
-import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 
 import { REQUESTS } from "./requests";
 
-const ITEM_CLASS =
-  "group bg-card rounded-2xl shadow-edge transition-[background-color,box-shadow,scale] duration-200 ease-[var(--ease-out-strong)] data-[state=open]:bg-card data-[state=open]:shadow-float";
+const NOTE_INPUT_SHELL =
+  "group relative rounded-2xl bg-card-soft shadow-edge transition-[background-color,box-shadow] duration-200 ease-[var(--ease-out-strong)] focus-within:bg-card focus-within:ring-[3px] focus-within:ring-ring/20";
+
+const CHAR_COUNTER_CLASS =
+  "pointer-events-none absolute right-3 bottom-3 rounded-full border border-border/40 bg-background/90 px-2.5 py-1 text-[11px] leading-none font-medium text-muted-foreground tabular-nums";
 
 export function RequestCards({
   values,
@@ -19,38 +15,30 @@ export function RequestCards({
   values: Record<string, string>;
   onChange: (id: string, value: string) => void;
 }) {
+  const [primaryRequest] = REQUESTS;
+
+  if (!primaryRequest) {
+    return null;
+  }
+
+  const value = values[primaryRequest.id] ?? "";
+
   return (
-    <Accordion type="single" collapsible className="space-y-3">
-      {REQUESTS.map((r) => {
-        const value = values[r.id] ?? "";
-        const filled = value.trim() !== "";
-        return (
-          <AccordionItem key={r.id} value={r.id} className={ITEM_CLASS}>
-            <AccordionTrigger className="min-h-14 px-5 py-2">
-              <span className="flex min-w-0 items-center gap-2.5">
-                <span className="size-2 shrink-0 rounded-full" style={{ background: r.dot }} />
-                <span className="text-sm leading-5 font-normal">{r.title}</span>
-                {filled ? (
-                  <Badge variant="sage" className="group-data-[state=open]:hidden">
-                    Selected
-                  </Badge>
-                ) : null}
-              </span>
-            </AccordionTrigger>
-            <AccordionContent className="px-4 pb-4">
-              <Textarea
-                value={value}
-                onChange={(e) => onChange(r.id, e.target.value)}
-                placeholder={r.placeholder}
-                rows={4}
-              />
-              <div className="text-muted-foreground mt-2 text-right text-[11px] tabular-nums">
-                {value.length} chars
-              </div>
-            </AccordionContent>
-          </AccordionItem>
-        );
-      })}
-    </Accordion>
+    <section
+      className={NOTE_INPUT_SHELL}
+      aria-label="New request routing"
+      data-request-note-card="true"
+    >
+      <Textarea
+        value={value}
+        onChange={(e) => onChange(primaryRequest.id, e.target.value)}
+        placeholder={primaryRequest.placeholder}
+        rows={4}
+        className="min-h-[148px] rounded-2xl border-0 bg-transparent p-4 pb-10 shadow-none placeholder:text-[13px] placeholder:italic placeholder:font-normal focus-visible:bg-transparent focus-visible:ring-0"
+      />
+      <div className={CHAR_COUNTER_CLASS}>
+        {value.length} char{value.length === 1 ? "" : "s"}
+      </div>
+    </section>
   );
 }

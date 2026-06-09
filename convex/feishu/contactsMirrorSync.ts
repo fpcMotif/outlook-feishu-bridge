@@ -170,7 +170,11 @@ export function staleContactIds<TId>(
   rows: readonly PrunableContactRow<TId>[],
   seenOpenIds: ReadonlySet<string>,
 ): TId[] {
-  return rows.filter((row) => !seenOpenIds.has(row.openId)).map((row) => row._id);
+  const ids: TId[] = [];
+  for (const row of rows) {
+    if (!seenOpenIds.has(row.openId)) ids.push(row._id);
+  }
+  return ids;
 }
 
 // HARD SAFETY GATE: prune ONLY after a fully verified, complete crawl. A partial

@@ -4,7 +4,7 @@
     "require-unicode-regexp": "off",
     "no-underscore-dangle": [
       "error",
-      { "allow": ["_id", "_creationTime", "__convex"] }
+      { "allow": ["_id", "_creationTime", "__convex", "_handler"] }
     ]
   },
   "overrides": [

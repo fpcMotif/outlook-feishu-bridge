@@ -6,11 +6,18 @@
 
 import { describe, expect, it } from "vitest";
 
-import { findCustomerByEmail, mapFeishuItemToCustomer, type CustomerRecord } from "./customers";
+import {
+  findCustomerByEmail,
+  mapFeishuItemToCustomer,
+  recordIdFromCustomerInfoRow,
+  type CustomerRecord,
+} from "./customers";
 
 // One real shape sampled live from the Customer Table on 2026-05-28 (the dirty
 // probe in the grilling session for ADR-0013) — captured here so the test
-// guards against schema-drift surprises in the live table.
+// guards against schema-drift surprises in the live table. The "Record Id"
+// column is deliberately set to a value that DIVERGES from `record_id` so the
+// test proves the projection keys on the immutable API id, not the human column.
 const STOCKMEIER_ITEM = {
   record_id: "rec27inYHPqxyZ",
   fields: {
@@ -30,13 +37,17 @@ const STOCKMEIER_ITEM = {
 };
 
 describe("mapFeishuItemToCustomer", () => {
-  it("flattens Account Name rich-text and carries Customer Info `Record Id` as recordId", () => {
+  // ADR-0021: the dedup/identity key is the immutable API `record_id`, NOT the
+  // user-facing "Record Id" column. Here they diverge, so this pins that the
+  // human column never re-keys the mirror or the DuplexLink target.
+  it("keys recordId on the immutable API record_id, ignoring the human `Record Id` column", () => {
     const customer = mapFeishuItemToCustomer(STOCKMEIER_ITEM);
-    expect(customer.recordId).toBe("recFromVisibleColumn");
+    expect(customer.recordId).toBe("rec27inYHPqxyZ");
+    expect(customer.recordId).not.toBe("recFromVisibleColumn");
     expect(customer.name).toBe("STOCKMEIER Chemie GmbH & Co. KG");
   });
 
-  it("falls back to API record_id when Customer Info `Record Id` is absent", () => {
+  it("uses the API record_id even when the row carries no `Record Id` column", () => {
     const customer = mapFeishuItemToCustomer({
       record_id: "rec27inYHPqxOw",
       fields: { "Account Name": [{ text: "tricogen", type: "text" }] },
@@ -69,6 +80,33 @@ describe("mapFeishuItemToCustomer", () => {
       name: "Florian Meurer",
     });
     expect(customer.countryRegion).toBe("Germany 德国");
+  });
+});
+
+// The human "Record Id" column is demoted to a DISPLAY-ONLY projection
+// (ADR-0021). The helper still reads it (with API fallback) so a surface can
+// show the human value, but it must never be the identity key — these tests pin
+// both that contract and the fact that it CAN diverge from the API id.
+describe("recordIdFromCustomerInfoRow (display-only)", () => {
+  it("reads the user-facing `Record Id` column when present", () => {
+    expect(recordIdFromCustomerInfoRow(STOCKMEIER_ITEM)).toBe("recFromVisibleColumn");
+  });
+
+  it("falls back to the API record_id when the `Record Id` column is absent", () => {
+    expect(
+      recordIdFromCustomerInfoRow({
+        record_id: "rec27inYHPqxOw",
+        fields: { "Account Name": [{ text: "tricogen", type: "text" }] },
+      }),
+    ).toBe("rec27inYHPqxOw");
+  });
+
+  it("is decoupled from the identity key the mapper assigns", () => {
+    // Same row: the display helper yields the human column while the mapper keys
+    // identity on the API id — proving the two are intentionally independent.
+    expect(recordIdFromCustomerInfoRow(STOCKMEIER_ITEM)).not.toBe(
+      mapFeishuItemToCustomer(STOCKMEIER_ITEM).recordId,
+    );
   });
 });
 

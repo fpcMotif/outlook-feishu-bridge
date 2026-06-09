@@ -30,7 +30,7 @@ function StatusOrb({
 
 export function ConnectionRail() {
   return (
-    <div className="-mt-2 flex items-start justify-between gap-3">
+    <div className="mt-1 flex shrink-0 items-start justify-between gap-3">
       <StatusOrb icon={<Mail className="size-6" />} label="Outlook" />
       <div className="relative h-14 min-w-0 flex-1" aria-hidden="true">
         <svg className="size-full overflow-visible" viewBox="0 0 100 64" preserveAspectRatio="none">

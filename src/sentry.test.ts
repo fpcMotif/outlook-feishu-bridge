@@ -11,11 +11,19 @@ vi.mock("@sentry/react", () => ({
 import * as Sentry from "@sentry/react";
 import {
   buildSentryOptions,
+  classifyUploadError,
   forwardLatestBreadcrumb,
   reportSyncError,
+  reportUploadError,
   toBreadcrumbLevel,
 } from "./sentry";
 import type { DebugEntry } from "./debug";
+
+function namedError(name: string, message = "x"): Error {
+  const err = new Error(message);
+  err.name = name;
+  return err;
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -96,5 +104,58 @@ describe("reportSyncError", () => {
     expect(captured).toBeInstanceOf(Error);
     expect((captured as Error).message).toBe("plain string failure");
     expect(ctx).toEqual({ tags: { feature: "base-sync" } });
+  });
+});
+
+describe("classifyUploadError", () => {
+  it("classifies by marker first, then by message shape", () => {
+    expect(classifyUploadError(namedError("ConvexFileUnreadableError"))).toBe(
+      "unreadable",
+    );
+    expect(classifyUploadError(namedError("ConvexUploadTransportError"))).toBe(
+      "transport",
+    );
+    expect(
+      classifyUploadError(new Error("Convex storage upload failed (413)")),
+    ).toBe("server");
+    expect(
+      classifyUploadError(new Error("Convex storage upload failed (503)")),
+    ).toBe("server");
+    expect(
+      classifyUploadError(new Error("Convex storage upload returned invalid JSON")),
+    ).toBe("malformed");
+    expect(classifyUploadError(new Error("something else"))).toBe("unknown");
+  });
+});
+
+describe("reportUploadError", () => {
+  it("captures a transport failure at error level with size/type/kind tags", () => {
+    const err = namedError(
+      "ConvexUploadTransportError",
+      "Convex storage upload failed (network)",
+    );
+    reportUploadError(err, { bytes: 2048, ext: "pdf", attempts: 3 });
+    expect(Sentry.captureException).toHaveBeenCalledWith(err, {
+      level: "error",
+      tags: {
+        feature: "attachment-upload",
+        uploadErrorKind: "transport",
+        ext: "pdf",
+      },
+      extra: { bytes: 2048, attempts: 3 },
+    });
+  });
+
+  it("logs an unreadable cloud-file pick at warning level with a placeholder ext", () => {
+    reportUploadError(namedError("ConvexFileUnreadableError"), {
+      bytes: 10,
+      ext: "",
+      attempts: 3,
+    });
+    const [, ctx] = vi.mocked(Sentry.captureException).mock.calls[0];
+    expect(ctx).toMatchObject({
+      level: "warning",
+      tags: { uploadErrorKind: "unreadable", ext: "(none)" },
+    });
   });
 });

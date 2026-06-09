@@ -1,0 +1,15 @@
+# These project skill copies are byte-identical to user/global installs.
+# Hide them from Pi auto-discovery so startup has no skill collision noise.
+caveman/
+diagnose/
+grill-with-docs/
+handoff/
+improve-codebase-architecture/
+prototype/
+setup-matt-pocock-skills/
+tdd/
+to-issues/
+to-prd/
+triage/
+write-a-skill/
+zoom-out/

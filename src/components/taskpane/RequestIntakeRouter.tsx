@@ -4,62 +4,15 @@
 // (sync / received / error / auth-resolving / login). `null` means "no overlay
 // screen — render the build shell".
 
-import { Loader2 } from "lucide-react";
 import type { ReactNode } from "react";
 
 import type { IntakeScreenName, SelfForwardStatus } from "./intakeReducer";
-import { Button } from "../ui/button";
-import { ConnectCard } from "./ConnectCard";
 import { ReceivedScreen } from "./ReceivedScreen";
 import { SyncScreen } from "./SyncScreen";
-
-function LoginScreen({
-  onLogin,
-  onLoginFallback,
-}: {
-  onLogin: () => void;
-  onLoginFallback: () => void;
-}) {
-  return (
-    <div
-      className="no-scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto px-5 py-8"
-      style={{ backgroundColor: "var(--login-background)" }}
-    >
-      <header className="shrink-0 px-1">
-        <div className="text-accent-foreground flex items-center gap-2 text-[11px] font-semibold uppercase">
-          <span className="bg-muted-foreground inline-block h-px w-3.5" />
-          Outlook handoff
-        </div>
-      </header>
-      <div className="flex flex-1 items-center py-7">
-        <ConnectCard onLogin={onLogin} onLoginFallback={onLoginFallback} />
-      </div>
-    </div>
-  );
-}
-
-function AuthResolvingScreen() {
-  return (
-    <div className="flex min-h-0 flex-1 items-center justify-center">
-      <Loader2 className="text-muted-foreground size-6 animate-spin" aria-label="Checking Feishu session" />
-    </div>
-  );
-}
-
-function SyncErrorScreen({ message, onRetry, onBack }: { message: string; onRetry: () => void; onBack: () => void }) {
-  return (
-    <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 px-8 text-center">
-      <h1 className="text-2xl">Sync failed</h1>
-      <p className="text-muted-foreground max-w-[34ch] text-sm leading-relaxed">{message}</p>
-      <div className="flex gap-2">
-        <Button onClick={onRetry}>Try again</Button>
-        <Button variant="secondary" onClick={onBack}>
-          Back
-        </Button>
-      </div>
-    </div>
-  );
-}
+import { AuthResolvingScreen } from "./AuthResolvingScreen";
+import { LoginScreen } from "./LoginScreen";
+import { SyncErrorScreen } from "./SyncErrorScreen";
+import type { SyncPreviewPayload } from "./syncPreviewModel";
 
 export interface IntakeRouterProps {
   screen: IntakeScreenName;
@@ -70,7 +23,9 @@ export interface IntakeRouterProps {
   syncError: string | null;
   bitableRecordId: string | null;
   bitableDetailUrl: string | null;
-  filledRequests: { id: string; title: string; note: string }[];
+  /** Deferred attachment-fill status from getBitableSyncByConversation; gates the open_feishu CTA (ADR-0027). */
+  attachmentStatus?: "pending" | "filling" | "filled" | "failed" | null;
+  syncPreview: SyncPreviewPayload;
   onRetrySelfForward: () => void;
   onRetrySync: () => void;
   onBackToBuild: () => void;
@@ -92,12 +47,13 @@ export function resolveIntakeScreen(props: IntakeRouterProps): ReactNode | null 
         detailUrl={props.bitableDetailUrl}
         selfForwardStatus={props.selfForwardStatus}
         onRetrySelfForward={props.onRetrySelfForward}
+        attachmentStatus={props.attachmentStatus}
       />
     );
   }
   if (screen === "sync") {
     return (
-      <SyncScreen requests={props.filledRequests} />
+      <SyncScreen preview={props.syncPreview} />
     );
   }
   if (screen === "error") {
@@ -110,7 +66,14 @@ export function resolveIntakeScreen(props: IntakeRouterProps): ReactNode | null 
     );
   }
   if (!isLoggedIn) {
-    if (isAuthLoading) return <AuthResolvingScreen />;
+    if (isAuthLoading) {
+      return (
+        <AuthResolvingScreen
+          onLogin={props.onLogin}
+          onLoginFallback={props.onLoginFallback}
+        />
+      );
+    }
     return <LoginScreen onLogin={props.onLogin} onLoginFallback={props.onLoginFallback} />;
   }
   return null;

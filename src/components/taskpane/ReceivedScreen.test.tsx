@@ -1,7 +1,8 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ReceivedScreen, relativeSubmittedTime } from "./ReceivedScreen";
+import { ReceivedScreen } from "./ReceivedScreen";
+import { relativeSubmittedTime } from "./relativeSubmittedTime";
 
 const NOW = new Date("2026-06-02T05:00:00Z").getTime();
 
@@ -24,7 +25,7 @@ describe("relativeSubmittedTime", () => {
 });
 
 describe("ReceivedScreen layout", () => {
-  it("uses login chrome background and centers content without a timeline card", () => {
+  it("uses semantic background and centers content without a timeline card", () => {
     const { container } = render(
       <ReceivedScreen
         coworkerCount={1}
@@ -34,7 +35,7 @@ describe("ReceivedScreen layout", () => {
     );
 
     const root = container.firstElementChild;
-    expect(root).toHaveStyle({ backgroundColor: "var(--login-background)" });
+    expect(root).toHaveClass("bg-background", "text-foreground");
     const layout = root?.querySelector(".intake-stagger");
     expect(layout).toHaveClass("grid", "grid-rows-[minmax(0,1fr)_auto_minmax(0,1fr)]");
 
@@ -86,6 +87,14 @@ describe("ReceivedScreen layout", () => {
 });
 
 describe("ReceivedScreen submitted timestamp", () => {
+  beforeEach(() => {
+    vi.setSystemTime(NOW);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("keeps fresh submit copy as Just now", () => {
     render(<ReceivedScreen coworkerCount={1} recordId="rec1" />);
 
@@ -103,5 +112,54 @@ describe("ReceivedScreen submitted timestamp", () => {
 
     expect(screen.getByText("6 days ago")).toHaveClass("text-muted-foreground", "mt-0.5", "text-xs");
     expect(screen.queryByText("Just now")).not.toBeInTheDocument();
+  });
+});
+
+describe("ReceivedScreen attachment soft-gate (ADR-0027)", () => {
+  const url = "https://feishu.cn/base/app?table=tbl&record=rec1";
+  const liRows = () =>
+    screen.getByRole("list", { name: /Sync completion steps/i }).querySelectorAll("li");
+
+  it("no attachments: Open in Feishu is the primary CTA, with no attachment step", () => {
+    render(<ReceivedScreen coworkerCount={1} recordId="rec1" detailUrl={url} />);
+    expect(screen.getByRole("link", { name: /Open in Feishu/i })).toHaveClass("text-primary");
+    expect(liRows()).toHaveLength(3);
+  });
+
+  it("filled: Open in Feishu is primary and a done attachment step is shown", () => {
+    render(
+      <ReceivedScreen coworkerCount={1} recordId="rec1" detailUrl={url} attachmentStatus="filled" />,
+    );
+    expect(screen.getByRole("link", { name: /Open in Feishu/i })).toHaveClass("text-primary");
+    expect(screen.getByText("Attachments synced")).toBeInTheDocument();
+    expect(liRows()).toHaveLength(4);
+  });
+
+  it("filling: the link is demoted under an uploading chip, with a live step", () => {
+    render(
+      <ReceivedScreen coworkerCount={1} recordId="rec1" detailUrl={url} attachmentStatus="filling" />,
+    );
+    const link = screen.getByRole("link", { name: /Open in Feishu/i });
+    expect(link).toHaveClass("text-muted-foreground");
+    expect(link).not.toHaveClass("text-primary");
+    expect(link).toHaveTextContent(/anyway/i);
+    expect(liRows()).toHaveLength(4);
+  });
+
+  it("pending behaves like filling (still uploading, link offered)", () => {
+    render(
+      <ReceivedScreen coworkerCount={1} recordId="rec1" detailUrl={url} attachmentStatus="pending" />,
+    );
+    expect(screen.getByRole("link", { name: /Open in Feishu/i })).toHaveTextContent(/anyway/i);
+    expect(liRows()).toHaveLength(4);
+  });
+
+  it("failed: a failure chip shows but the link is still offered (the row exists)", () => {
+    render(
+      <ReceivedScreen coworkerCount={1} recordId="rec1" detailUrl={url} attachmentStatus="failed" />,
+    );
+    expect(screen.getByText(/couldn't finish/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Open in Feishu/i })).toHaveClass("text-muted-foreground");
+    expect(screen.getByText("Attachments incomplete")).toBeInTheDocument();
   });
 });

@@ -18,7 +18,7 @@ const syncInput: EmailRecordInput = {
   conversationId: "conv-1",
   userEmail: "me@corp.com",
   dateTimeCreated: 1716000000000,
-  requestSelections: [{ requestType: "Quotation", note: "Need a quarterly quote." }],
+  requestNote: "Need a quarterly quote.",
   selectedCoworkers: [{ openId: "ou_abc", name: "Bob", avatarUrl: "https://cdn/bob.png" }],
 };
 
@@ -40,7 +40,8 @@ const syncRecord: EmailRecord = {
   sentToBitable: true,
   sentToContacts: undefined,
   sentToGroups: undefined,
-  requestSelections: [{ requestType: "Quotation", note: "Need a quarterly quote." }],
+  requestNote: "Need a quarterly quote.",
+  requestSelections: undefined,
   selectedCoworkers: [{ openId: "ou_abc", name: "Bob", avatarUrl: "https://cdn/bob.png" }],
   selectedCustomer: undefined,
   initiator: undefined,
@@ -69,11 +70,13 @@ describe("toEmailRecord", () => {
     expect(toEmailRecord(syncInput, { bitableRecordId: "rec_1" })).toEqual(syncRecord);
   });
 
-  it("carries the request selections and single chosen Coworker through unchanged", () => {
+  // ADR-0022: the backup now carries ONE consolidated note (requestNote). The
+  // legacy per-category requestSelections is no longer populated on new rows —
+  // the schema field is kept only so historical rows still validate.
+  it("carries the consolidated note and the single chosen Coworker through unchanged", () => {
     const record = toEmailRecord(syncInput, {});
-    expect(record.requestSelections).toEqual([
-      { requestType: "Quotation", note: "Need a quarterly quote." },
-    ]);
+    expect(record.requestNote).toBe("Need a quarterly quote.");
+    expect(record.requestSelections).toBeUndefined();
     expect(record.selectedCoworkers).toEqual([
       { openId: "ou_abc", name: "Bob", avatarUrl: "https://cdn/bob.png" },
     ]);
@@ -110,6 +113,7 @@ describe("toEmailRecord", () => {
     expect(record.sentToBitable).toBe(true);
     expect(record.sentToContacts).toBeUndefined();
     expect(record.sentToGroups).toBeUndefined();
+    expect(record.requestNote).toBeUndefined();
     expect(record.requestSelections).toBeUndefined();
     expect(record.selectedCoworkers).toBeUndefined();
     expect(record.attachmentFileKeys).toBeUndefined();

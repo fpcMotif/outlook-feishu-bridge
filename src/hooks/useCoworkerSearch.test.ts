@@ -2,122 +2,75 @@ import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useCoworkerSearch } from "./useCoworkerSearch";
-import type { Coworker } from "../components/taskpane/coworkers";
+import type { ColleagueRow } from "../components/taskpane/colleagueRank";
 
-import * as convexReact from "convex/react";
+// The hook is now thin glue over the preloaded directory + the pure ranker
+// (ranking itself is exhaustively tested in colleagueRank.test.ts). Mock the
+// directory so these tests assert the glue: the short-query guard, that it ranks
+// the preloaded rows, and that it returns slim Coworkers (no avatarUrl).
+vi.mock("./useColleagueDirectory", () => ({ useColleagueDirectory: vi.fn() }));
+import { useColleagueDirectory } from "./useColleagueDirectory";
+const mockUseColleagueDirectory = vi.mocked(useColleagueDirectory);
 
-vi.mock("convex/react", () => ({
-  useAction: vi.fn(),
-  useConvex: vi.fn(),
-}));
+const ROWS: ColleagueRow[] = [
+  {
+    openId: "ou_peng",
+    name: "彭爱丽(Aili Peng)",
+    email: "aili.peng@fenchem.com",
+    department: "Sales",
+    pinyinFull: "peng ai li pengaili",
+    pinyinInitials: "pal",
+    pinyinAlts: "",
+    nameFold: "彭爱丽(aili peng)",
+  },
+  {
+    openId: "ou_james",
+    name: "James Liu",
+    department: "Sales",
+    pinyinFull: "",
+    pinyinInitials: "",
+    pinyinAlts: "",
+    nameFold: "james liu",
+  },
+];
 
-const mockUseAction = vi.mocked(convexReact.useAction);
-const mockUseConvex = vi.mocked(convexReact.useConvex);
-
-describe("useCoworkerSearch", () => {
-  const sample: Coworker[] = [
-    { openId: "ou_1", name: "Alice", avatarUrl: "https://example/avatar-1.png" },
-  ];
-
+describe("useCoworkerSearch (preload-backed)", () => {
   beforeEach(() => {
-    vi.restoreAllMocks();
-    mockUseConvex.mockReturnValue({ query: vi.fn(async () => null) } as never);
-  });
-
-  it("skips Convex and Feishu search for one-character queries", async () => {
-    const query = vi.fn(async () => null);
-    const action = vi.fn().mockResolvedValue(sample);
-    mockUseConvex.mockReturnValue({ query } as never);
-    mockUseAction.mockReturnValue(action);
-
-    const { result } = renderHook(() => useCoworkerSearch("session-short"));
-
-    const found = await act(async () => result.current(" a "));
-
-    expect(found).toEqual([]);
-    expect(query).not.toHaveBeenCalled();
-    expect(action).not.toHaveBeenCalled();
-  });
-
-  it("caches identical queries for the same session", async () => {
-    const action = vi.fn().mockResolvedValue(sample);
-    mockUseAction.mockReturnValue(action);
-
-    const { result } = renderHook(() => useCoworkerSearch("session-1"));
-
-    const first = await act(async () => {
-      return result.current("Alice ");
+    mockUseColleagueDirectory.mockReturnValue({
+      state: { status: "ready", contacts: ROWS, mirroredAt: 1 },
+      refresh: vi.fn(),
     });
-    const second = await act(async () => {
-      return result.current("alice");
+  });
+
+  it("returns [] for a too-short Latin query", async () => {
+    const { result } = renderHook(() => useCoworkerSearch("session"));
+    expect(await act(async () => result.current("a"))).toEqual([]);
+  });
+
+  it("ranks the preloaded directory by Pinyin initials and returns slim Coworkers (no avatarUrl)", async () => {
+    const { result } = renderHook(() => useCoworkerSearch("session"));
+    const found = await act(async () => result.current("pal"));
+    expect(found).toEqual([{ openId: "ou_peng", name: "彭爱丽(Aili Peng)" }]);
+  });
+
+  it("matches by glued full Pinyin and by Latin name substring", async () => {
+    const { result } = renderHook(() => useCoworkerSearch("session"));
+    expect((await act(async () => result.current("pengaili")))[0]?.name).toBe("彭爱丽(Aili Peng)");
+    expect((await act(async () => result.current("james")))[0]?.name).toBe("James Liu");
+  });
+
+  it("finds a colleague by a single CJK character (爱 -> 彭爱丽)", async () => {
+    const { result } = renderHook(() => useCoworkerSearch("session"));
+    const found = await act(async () => result.current("爱"));
+    expect(found.map((c) => c.name)).toContain("彭爱丽(Aili Peng)");
+  });
+
+  it("preloads nothing when logged out (empty sessionId still safe)", async () => {
+    mockUseColleagueDirectory.mockReturnValue({
+      state: { status: "idle", contacts: [], mirroredAt: null },
+      refresh: vi.fn(),
     });
-
-    expect(action).toHaveBeenCalledTimes(1);
-    expect(first).toEqual(sample);
-    expect(second).toEqual(sample);
+    const { result } = renderHook(() => useCoworkerSearch(""));
+    expect(await act(async () => result.current("pal"))).toEqual([]);
   });
-
-  it("uses the Convex query cache before falling back to the action", async () => {
-    const action = vi.fn().mockResolvedValue(sample);
-    const query = vi.fn(async () => ({ results: sample }));
-    mockUseAction.mockReturnValue(action);
-    mockUseConvex.mockReturnValue({ query } as never);
-
-    const { result } = renderHook(() => useCoworkerSearch("session-query"));
-
-    const found = await act(async () => result.current("Alice"));
-
-    expect(found).toEqual(sample);
-    expect(query).toHaveBeenCalledTimes(1);
-    expect(action).not.toHaveBeenCalled();
-  });
-
-  it("scopes cached fallback results by user access token", async () => {
-    const action = vi.fn()
-      .mockResolvedValueOnce([{ openId: "ou_1", name: "Alice Token 1" }])
-      .mockResolvedValueOnce([{ openId: "ou_2", name: "Alice Token 2" }]);
-    mockUseAction.mockReturnValue(action);
-
-    const { result, rerender } = renderHook(
-      ({ token }) => useCoworkerSearch("session-token", token),
-      { initialProps: { token: "token-one" } },
-    );
-
-    const first = await act(async () => result.current("Alice"));
-    rerender({ token: "token-two" });
-    const second = await act(async () => result.current("alice"));
-
-    expect(action).toHaveBeenCalledTimes(2);
-    expect(first).toEqual([{ openId: "ou_1", name: "Alice Token 1" }]);
-    expect(second).toEqual([{ openId: "ou_2", name: "Alice Token 2" }]);
-  });
-
-  it("reuses an in-flight promise for repeated query bursts", async () => {
-    let resolve!: (rows: Coworker[]) => void;
-    const pending = new Promise<Coworker[]>((res) => {
-      resolve = res;
-    });
-    const action = vi.fn().mockReturnValue(pending);
-    mockUseAction.mockReturnValue(action);
-
-    const { result } = renderHook(() => useCoworkerSearch("session-2"));
-
-    const p1 = result.current("Manager");
-    const p2 = result.current("manager");
-    expect(p1).toBe(p2);
-    await Promise.resolve();
-    expect(action).toHaveBeenCalledTimes(1);
-
-    resolve(sample);
-
-    const both = await Promise.all([p1, p2]);
-    expect(both).toEqual([sample, sample]);
-
-    const fromCache = await act(async () => {
-      return result.current("  MANAGER  ");
-    });
-    expect(action).toHaveBeenCalledTimes(1);
-    expect(fromCache).toEqual(sample);
-  });
-
 });

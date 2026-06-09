@@ -26,6 +26,7 @@ USAGE
 fi
 
 domain="$1"
+version="${MANIFEST_VERSION:-1.0.0.0}"
 # `${2-default}` (not `${2:-default}`) so an explicit empty "" base is honoured
 # (root) rather than falling back to addin/.
 base="${2-addin/}"
@@ -34,4 +35,5 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # `|` delimiter: the base value contains `/`, which would clash with sed's default.
 sed -e "s|__ADDIN_DOMAIN__|${domain}|g" \
     -e "s|__ADDIN_BASE__|${base}|g" \
+    -e "s|__ADDIN_VERSION__|${version}|g" \
     "$script_dir/../public/manifest.xml"

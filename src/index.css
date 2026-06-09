@@ -23,6 +23,10 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-sage: var(--sage);
   --color-sage-soft: var(--sage-soft);
+  --color-file-rose: var(--file-rose);
+  --color-file-rose-soft: var(--file-rose-soft);
+  --color-file-amber: var(--file-amber);
+  --color-file-amber-soft: var(--file-amber-soft);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-border: var(--border);
@@ -42,7 +46,6 @@
   --ease-in-out-strong: cubic-bezier(0.77, 0, 0.175, 1);
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
   --background: oklch(0.983 0.002 67.803);
-  --login-background: oklch(0.956 0.041 247.915);
   --foreground: oklch(0.224 0.003 196.939);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.224 0.003 196.939);
@@ -61,6 +64,10 @@
   /* Fresh green: Sample dot, "Ready" / connected */
   --sage: oklch(0.51 0.165 142.668);
   --sage-soft: oklch(0.949 0.024 147.288);
+  --file-rose: oklch(0.5 0.15 18);
+  --file-rose-soft: oklch(0.965 0.028 18);
+  --file-amber: oklch(0.58 0.13 72);
+  --file-amber-soft: oklch(0.965 0.038 85);
   --destructive: oklch(0.523 0.206 25.85);
   --destructive-foreground: oklch(1 0 0);
   --border: oklch(0.918 0.006 255.477);
@@ -94,6 +101,10 @@
   --accent-foreground: oklch(0.92 0.041 246.021);
   --sage: oklch(0.781 0.141 144.077);
   --sage-soft: oklch(0.337 0.053 153.099);
+  --file-rose: oklch(0.78 0.12 18);
+  --file-rose-soft: oklch(0.32 0.045 18);
+  --file-amber: oklch(0.8 0.11 78);
+  --file-amber-soft: oklch(0.34 0.05 78);
   --destructive: oklch(0.702 0.159 16.869);
   --destructive-foreground: oklch(0.176 0.033 256.392);
   --border: oklch(0.385 0.042 254.044);
@@ -307,6 +318,32 @@
   animation: profile-pop 0.16s var(--ease-out-strong);
 }
 
+/* Sales selection row: fade + slide (no scale-from-zero). */
+@keyframes taskpane-selection-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+    filter: blur(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+.taskpane-selection-enter-group > * {
+  animation: taskpane-selection-enter 0.22s var(--ease-out-strong) both;
+}
+.taskpane-selection-enter-group > *:nth-child(1) {
+  animation-delay: 0ms;
+}
+.taskpane-selection-enter-group > *:nth-child(2) {
+  animation-delay: 45ms;
+}
+.taskpane-selection-enter-group > *:nth-child(3) {
+  animation-delay: 90ms;
+}
+
 @media (hover: hover) and (pointer: fine) {
   [data-slot="accordion-trigger"]:hover {
     opacity: 0.92;
@@ -321,7 +358,8 @@
   .animate-pulse-dot,
   .animate-pulse-ring,
   .animate-pop-in,
-  .profile-pop {
+  .profile-pop,
+  .taskpane-selection-enter-group > * {
     animation: none;
     transition-duration: 1ms;
   }
@@ -372,6 +410,16 @@
 
   .submit-dock-btn[data-live]:hover .submit-dock-arrow {
     transform: translateX(2px);
+  }
+}
+
+@keyframes upload-fill-indeterminate {
+  0%,
+  100% {
+    transform: scaleY(0.25);
+  }
+  50% {
+    transform: scaleY(0.65);
   }
 }
 

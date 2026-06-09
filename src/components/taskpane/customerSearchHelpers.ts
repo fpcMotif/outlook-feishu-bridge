@@ -16,6 +16,11 @@ function customerMatchesText(customer: CustomerRecord, q: string): boolean {
   );
 }
 
+/** Owner scope applies only when browsing with an empty query (Show mine browse mode). */
+export function ownerFilterApplies(showMine: boolean, q: string): boolean {
+  return showMine && !q;
+}
+
 export function filterLocalCustomers(
   records: readonly CustomerRecord[],
   q: string,
@@ -23,9 +28,10 @@ export function filterLocalCustomers(
   currentUserOpenId: string | undefined,
 ): CustomerRecord[] {
   if (!q && !showMine) return [];
+  const applyOwner = ownerFilterApplies(showMine, q);
   return records.filter((customer) => {
     const ownedByMe =
-      !showMine ||
+      !applyOwner ||
       (currentUserOpenId !== undefined && customer.owner?.openId === currentUserOpenId);
     return ownedByMe && customerMatchesText(customer, q);
   });
@@ -39,8 +45,9 @@ export function logLocalFilter(
 ): CustomerRecord[] {
   const started = performance.now();
   const matches = filterLocalCustomers(records, q, showMine, currentUserOpenId);
+  const mineSuffix = ownerFilterApplies(showMine, q) ? " +mine" : "";
   dtime(
-    `customer picker: local filter "${q.slice(0, 40)}"${showMine ? " +mine" : ""} -> ${matches.length}/${records.length}`,
+    `customer picker: local filter "${q.slice(0, 40)}"${mineSuffix} -> ${matches.length}/${records.length}`,
     started,
   );
   return matches;
@@ -49,8 +56,11 @@ export function logLocalFilter(
 export function ownerFilter(
   showMine: boolean,
   currentUserOpenId: string | undefined,
+  q = "",
 ): CustomerSearchOptions | undefined {
-  return showMine && currentUserOpenId !== undefined ? { mineFor: currentUserOpenId } : undefined;
+  return ownerFilterApplies(showMine, q) && currentUserOpenId !== undefined
+    ? { mineFor: currentUserOpenId }
+    : undefined;
 }
 
 export type CustomerSearchEmptyKind = "show-mine-no-owned" | "show-mine-no-match";
@@ -60,8 +70,8 @@ export function getCustomerSearchEmptyKind(
   showMine: boolean,
   matchCount: number,
 ): CustomerSearchEmptyKind | null {
-  if (matchCount > 0 || !showMine) return null;
-  return q ? "show-mine-no-match" : "show-mine-no-owned";
+  if (matchCount > 0 || !ownerFilterApplies(showMine, q)) return null;
+  return "show-mine-no-owned";
 }
 
 export function customerSearchEmptyMessage(
@@ -69,8 +79,7 @@ export function customerSearchEmptyMessage(
   showMine: boolean,
   rawQuery: string,
 ): string {
-  if (showMine && !q) return "You don't have any customers assigned to you.";
-  if (showMine && q) return `No customers you own match "${rawQuery.trim()}".`;
+  if (ownerFilterApplies(showMine, q)) return "You don't have any customers assigned to you.";
   if (q) return `No customers match "${rawQuery.trim()}"`;
   return "No customers found.";
 }

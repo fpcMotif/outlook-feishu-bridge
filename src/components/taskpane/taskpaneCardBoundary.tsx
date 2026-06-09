@@ -1,4 +1,4 @@
-import { createContext, useContext, type RefObject } from "react";
+import { createContext, use, type RefObject } from "react";
 
 /** Shared boundary for the Customer & Coworker card — in-card clicks must not dismiss customer search. */
 export const TaskpaneCardBoundaryContext = createContext<RefObject<HTMLElement | null> | null>(
@@ -6,5 +6,5 @@ export const TaskpaneCardBoundaryContext = createContext<RefObject<HTMLElement |
 );
 
 export function useTaskpaneCardBoundary(): RefObject<HTMLElement | null> | null {
-  return useContext(TaskpaneCardBoundaryContext);
+  return use(TaskpaneCardBoundaryContext);
 }

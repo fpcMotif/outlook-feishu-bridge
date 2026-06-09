@@ -43,8 +43,10 @@ export function buildSearchBlob(customer: CustomerRecord): string {
   ].filter(Boolean);
   const base = fields.join(" ");
   const bigrams = fields
-    .map((field) => cjkBigramBlob(field))
-    .filter(Boolean)
+    .flatMap((field) => {
+      const blob = cjkBigramBlob(field);
+      return blob ? [blob] : [];
+    })
     .join(" ");
   return bigrams ? `${base} ${bigrams}` : base;
 }

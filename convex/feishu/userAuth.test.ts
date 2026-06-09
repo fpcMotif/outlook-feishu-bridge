@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   classifyRefreshError,
+  classifyTouchOutcome,
   exchangeCodeForUserToken,
   getUserAccessToken,
   toPublicSession,
@@ -30,6 +31,7 @@ describe("toPublicSession", () => {
       openId: "ou_1",
       userName: "Jenny",
       avatarUrl: "http://a",
+      expiresAt: 2000,
       isExpired: false,
     });
   });
@@ -226,5 +228,41 @@ describe("classifyRefreshError", () => {
   it("treats a thrown network error (no Feishu verdict) as transient", () => {
     expect(classifyRefreshError(new TypeError("fetch failed"))).toBe("transient");
     expect(classifyRefreshError(undefined)).toBe("transient");
+  });
+});
+
+describe("classifyTouchOutcome", () => {
+  // The terminal sentinel surfaced by the refresh path (refreshAccessTokenAttempt
+  // throws `new Error(TERMINAL_MSG)` after deleting the row).
+  const TERMINAL_MSG = "Feishu session expired. Please log in to Feishu again.";
+
+  it("maps a missing session row to 'absent'", () => {
+    expect(classifyTouchOutcome({ sessionExists: false })).toBe("absent");
+  });
+
+  it("maps a live / successfully refreshed token to 'ok'", () => {
+    expect(classifyTouchOutcome({ sessionExists: true })).toBe("ok");
+  });
+
+  it("maps a terminal (dead refresh_token) failure to 'terminal'", () => {
+    expect(
+      classifyTouchOutcome({ sessionExists: true, error: new Error(TERMINAL_MSG) }),
+    ).toBe("terminal");
+  });
+
+  it("maps a transient failure to 'ok' so a blip never clears the snapshot", () => {
+    expect(
+      classifyTouchOutcome({
+        sessionExists: true,
+        error: new Error("Temporary Feishu authentication failure. Please try again."),
+      }),
+    ).toBe("ok");
+    expect(classifyTouchOutcome({ sessionExists: true, error: new TypeError("fetch failed") })).toBe("ok");
+    expect(
+      classifyTouchOutcome({
+        sessionExists: true,
+        error: new FeishuError(-1, "non-JSON", "Feishu token refresh"),
+      }),
+    ).toBe("ok");
   });
 });

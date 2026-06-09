@@ -12,6 +12,7 @@
 //    it and any consumer must fall back to initials on a 404).
 
 import { cjkBigramBlob } from "./cjkSearch";
+import { buildPinyinKeys, foldName } from "./pinyinTokens";
 
 // One Feishu directory user as returned by /contact/v3/users/find_by_department
 // (open.feishu.cn). Only the fields the mirror reads are typed; phone fields are
@@ -52,6 +53,28 @@ export interface ContactUpsertRow {
   departmentIds?: string[];
   avatarUrl?: string;
   searchBlob: string;
+  // ADR-0024: Pinyin match keys (sync-time precomputed; omitted when the name
+  // has no Han characters). nameFold is always set for a non-empty name.
+  pinyinFull?: string;
+  pinyinInitials?: string;
+  pinyinAlts?: string;
+  nameFold?: string;
+}
+
+// Slim row the colleague picker preloads (ADR-0024). Includes avatarUrl so the
+// search dropdown shows real photos; the URL is volatile (ADR-0003) so the
+// consumer must fall back to initials/icon on a 404. Pinyin fields default to ""
+// client-side.
+export interface ContactPickerRow {
+  openId: string;
+  name: string;
+  email?: string;
+  department?: string;
+  avatarUrl?: string;
+  pinyinFull: string;
+  pinyinInitials: string;
+  pinyinAlts: string;
+  nameFold: string;
 }
 
 export interface ContactMirrorDoc {
@@ -119,8 +142,10 @@ export function buildContactSearchBlob(contact: {
   const fields = [contact.name, contact.email ?? "", contact.department ?? ""].filter(Boolean);
   const base = fields.join(" ");
   const bigrams = fields
-    .map((field) => cjkBigramBlob(field))
-    .filter(Boolean)
+    .flatMap((field) => {
+      const blob = cjkBigramBlob(field);
+      return blob ? [blob] : [];
+    })
     .join(" ");
   return bigrams ? `${base} ${bigrams}` : base;
 }
@@ -136,6 +161,7 @@ export function mapUserToRow(
   const departmentIds =
     user.department_ids && user.department_ids.length > 0 ? user.department_ids : undefined;
   const name = user.name;
+  const pinyin = buildPinyinKeys(name);
   return {
     openId: user.open_id,
     name,
@@ -144,6 +170,12 @@ export function mapUserToRow(
     departmentIds,
     avatarUrl: feishuAvatarUrl(user),
     searchBlob: buildContactSearchBlob({ name, email, department }),
+    // ADR-0024: precompute Pinyin keys for the picker's client matcher. Empty
+    // strings (no Han) become `undefined` so the optional column stays absent.
+    pinyinFull: pinyin.full || undefined,
+    pinyinInitials: pinyin.initials || undefined,
+    pinyinAlts: pinyin.alts || undefined,
+    nameFold: foldName(name),
   };
 }
 

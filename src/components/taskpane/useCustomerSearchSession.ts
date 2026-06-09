@@ -1,16 +1,13 @@
-import { useCallback, useRef, useState, type RefObject } from "react";
+import { useCallback, useRef, useState } from "react";
 
-import { useTaskpaneCardBoundary } from "./taskpaneCardBoundary";
 import { useOutsidePointerDismiss } from "./taskpaneOutsideDismiss";
 
 const PANEL_EXIT_MS = 150;
 
-export function useCustomerSearchSession(embedded: boolean) {
+export function useCustomerSearchSession() {
   const [searchSession, setSearchSession] = useState<{ openedAt: number } | null>(null);
   const [exiting, setExiting] = useState(false);
-  const cardBoundary = useTaskpaneCardBoundary();
-  const standaloneBoundaryRef = useRef<HTMLElement>(null);
-  const dismissBoundaryRef = embedded ? cardBoundary : standaloneBoundaryRef;
+  const searchPanelBoundaryRef = useRef<HTMLElement>(null);
 
   const dismissSearch = useCallback(() => {
     setExiting(true);
@@ -21,9 +18,9 @@ export function useCustomerSearchSession(embedded: boolean) {
   }, []);
 
   useOutsidePointerDismiss(
-    dismissBoundaryRef ?? standaloneBoundaryRef,
+    searchPanelBoundaryRef,
     dismissSearch,
-    Boolean(searchSession && !exiting && dismissBoundaryRef),
+    Boolean(searchSession && !exiting),
   );
 
   const openSearch = () => {
@@ -39,16 +36,9 @@ export function useCustomerSearchSession(embedded: boolean) {
   return {
     searchSession,
     exiting,
-    standaloneBoundaryRef,
+    searchPanelBoundaryRef,
     openSearch,
     dismissSearch,
     closeSearch,
   };
-}
-
-export function customerSearchBoundaryRef(
-  embedded: boolean,
-  standaloneBoundaryRef: RefObject<HTMLElement | null>,
-): RefObject<HTMLElement | null> | undefined {
-  return embedded ? undefined : standaloneBoundaryRef;
 }

@@ -54,7 +54,7 @@ describe("CoworkerPicker selected row", () => {
     expect(row.querySelector('[data-slot="avatar"]')).toBeInTheDocument();
   });
 
-  it("keeps coworker icon when avatarUrl is missing", () => {
+  it("renders the avatar with a person fallback when avatarUrl is missing", () => {
     render(
       <CoworkerPicker
         sessionId="sess"
@@ -65,12 +65,24 @@ describe("CoworkerPicker selected row", () => {
 
     const row = document.querySelector('[data-coworker-row="true"]') as HTMLElement;
     expect(row).not.toBeNull();
-    expect(row.querySelector(':scope > span[aria-hidden="true"]')).toHaveClass(
-      "text-muted-foreground",
-    );
-    expect(row.querySelector('[data-slot="avatar"]')).toBeNull();
-    expect(row.querySelector("svg")).toBeInTheDocument();
+    // Matches SalesPicker: the selected row always shows a circular avatar whose
+    // fallback is the UserRound person glyph, even with no avatarUrl.
+    expect(row.querySelector('[data-slot="avatar"]')).toBeInTheDocument();
+    expect(row.querySelector('[data-slot="avatar-image"]')).toBeNull();
+    expect(row.querySelector(".lucide-user-round")).toBeInTheDocument();
     expect(within(row as HTMLElement).getByText("Sales Ops")).toBeInTheDocument();
+  });
+
+  it("shows a quiet person icon in search when avatarUrl is missing", async () => {
+    render(<CoworkerPicker sessionId="sess" onSelect={() => {}} />);
+
+    fireEvent.change(screen.getByLabelText("Search Feishu coworkers"), {
+      target: { value: "Sales" },
+    });
+
+    const option = await screen.findByRole("button", { name: /Sales Ops/i });
+    expect(option.querySelector(".lucide-user-round")).toBeInTheDocument();
+    expect(option.querySelector('[data-slot="avatar-image"]')).toBeNull();
   });
 
   it("passes avatarUrl when selecting a coworker from search", async () => {
@@ -105,11 +117,11 @@ describe("CoworkerPicker selected row", () => {
     fireEvent.change(screen.getByLabelText("Search Feishu coworkers"), {
       target: { value: "Jenny" },
     });
-    expect(await screen.findByRole("listbox")).toBeInTheDocument();
+    expect(await screen.findByLabelText("Search results")).toBeInTheDocument();
 
     fireEvent.mouseDown(screen.getByRole("button", { name: "Outside section" }));
 
-    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Search results")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Search Feishu coworkers")).toHaveValue("");
   });
 
@@ -148,7 +160,7 @@ describe("CoworkerPicker selected row", () => {
       />,
     );
 
-    const divider = document.querySelector('[role="separator"]');
+    const divider = document.querySelector("hr");
     expect(divider).not.toBeNull();
     expect(divider).toHaveClass(...TASKPANE_INSET_DIVIDER.split(" "));
   });

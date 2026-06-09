@@ -1,9 +1,7 @@
 /* eslint-disable max-lines-per-function, max-lines */
 import * as React from "react";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { Check } from "lucide-react";
-
-import { CoworkerIcon } from "./icons/CoworkerIcon";
+import { Check, UserRound } from "lucide-react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import type { Coworker } from "./coworkers";
@@ -15,7 +13,7 @@ import { TaskpaneSelectionRow } from "./TaskpaneSelectionRow";
 import { TaskpaneCardBoundaryContext } from "./taskpaneCardBoundary";
 import {
   TASKPANE_SEARCH_PANEL_HEADER,
-  TASKPANE_SEARCH_PANEL_SHELL,
+  TASKPANE_SEARCH_PANEL_SHELL_FOOTER,
   TASKPANE_SEARCH_PANEL_TITLE,
 } from "./taskpaneSearchPanelLayout";
 
@@ -63,13 +61,18 @@ function searchResultsReducer(state: Coworker[], results: Coworker[]) {
 }
 
 const COWORKER_FALLBACK_ICON = (
-  <CoworkerIcon className="size-4 translate-y-px" strokeWidth={2} />
+  <UserRound className="size-4" strokeWidth={1.8} aria-hidden="true" />
 );
 
-function CoworkerSelectedLeading({ avatarUrl }: { avatarUrl: string }) {
+/** Search dropdown + image-error fallback — single person glyph (matches SalesPicker). */
+const SEARCH_PERSON_FALLBACK_ICON = (
+  <UserRound className="size-5" strokeWidth={1.8} aria-hidden="true" />
+);
+
+function CoworkerSelectedLeading({ avatarUrl }: { avatarUrl?: string }) {
   return (
     <Avatar className="size-8 bg-secondary">
-      <AvatarImage src={avatarUrl} alt="" />
+      {avatarUrl ? <AvatarImage src={avatarUrl} alt="" /> : null}
       <AvatarFallback className="bg-secondary text-muted-foreground">
         {COWORKER_FALLBACK_ICON}
       </AvatarFallback>
@@ -77,7 +80,7 @@ function CoworkerSelectedLeading({ avatarUrl }: { avatarUrl: string }) {
   );
 }
 
-function CoworkerOption({
+export function CoworkerOption({
   coworker,
   selected,
   onSelect,
@@ -91,15 +94,14 @@ function CoworkerOption({
       type="button"
       aria-pressed={selected}
       data-search-option=""
-      aria-selected={false}
       onClick={() => onSelect(coworker)}
-      className="bg-card flex w-full cursor-pointer items-center gap-3 rounded-[14px] px-4 py-3 text-left shadow-edge transition-[background-color,box-shadow,scale] duration-150 ease-[var(--ease-out-strong)] outline-none active:scale-[0.97] data-[selected=true]:bg-accent data-[selected=true]:shadow-[0_0_0_1.5px_var(--primary)] aria-selected:bg-secondary focus-visible:ring-[3px] focus-visible:ring-ring/20"
+      className="bg-card flex w-full cursor-pointer items-center gap-3 rounded-[14px] px-4 py-3 text-left shadow-edge transition-[background-color,box-shadow,scale] duration-150 ease-[var(--ease-out-strong)] outline-none active:scale-[0.97] data-[selected=true]:bg-accent data-[selected=true]:shadow-[0_0_0_1.5px_var(--primary)] data-[keyboard-active=true]:bg-secondary focus-visible:ring-[3px] focus-visible:ring-ring/20"
       data-selected={selected}
     >
       <Avatar className="size-10 bg-secondary">
         {coworker.avatarUrl ? <AvatarImage src={coworker.avatarUrl} alt="" /> : null}
-        <AvatarFallback className="bg-secondary text-muted-foreground">
-          <CoworkerIcon className="size-5" strokeWidth={2} />
+        <AvatarFallback className="bg-secondary text-muted-foreground/70">
+          {SEARCH_PERSON_FALLBACK_ICON}
         </AvatarFallback>
       </Avatar>
       <span className="min-w-0 flex-1">
@@ -141,7 +143,11 @@ function CoworkerSearchPanel({
   }, [dismissable, onDismiss]);
 
   return (
-    <div ref={panelRef} className={TASKPANE_SEARCH_PANEL_SHELL} aria-labelledby="coworker-search-title">
+    <div
+      ref={panelRef}
+      className={TASKPANE_SEARCH_PANEL_SHELL_FOOTER}
+      aria-labelledby="coworker-search-title"
+    >
       <div className={TASKPANE_SEARCH_PANEL_HEADER}>
         <span id="coworker-search-title" className={TASKPANE_SEARCH_PANEL_TITLE}>
           Pick a coworker
@@ -164,6 +170,7 @@ function CoworkerSearchPanel({
 
 export function CoworkerPicker({
   customerSlot,
+  salesSlot,
   sessionId,
   userAccessToken,
   selectedCoworker: selectedCoworkerProp,
@@ -171,6 +178,8 @@ export function CoworkerPicker({
   usePreviewCoworkers = false,
 }: {
   customerSlot?: React.ReactNode;
+  /** Sales rep row — rendered between customer and coworker (ADR-0014 picker). */
+  salesSlot?: React.ReactNode;
   sessionId: string;
   userAccessToken?: string;
   /** Authoritative selection from intake state (survives outside search/recents maps). */
@@ -244,16 +253,19 @@ export function CoworkerPicker({
     onSelect(coworker);
   };
 
+  const selectedLeading = useMemo(
+    () =>
+      selectedCoworker ? (
+        <CoworkerSelectedLeading avatarUrl={selectedCoworker.avatarUrl} />
+      ) : undefined,
+    [selectedCoworker],
+  );
+
   const coworkerContent =
     selectedCoworker && !showCoworkerSearch ? (
       <TaskpaneSelectionRow
         dataRow="coworker"
-        leading={
-          selectedCoworker.avatarUrl ? (
-            <CoworkerSelectedLeading avatarUrl={selectedCoworker.avatarUrl} />
-          ) : undefined
-        }
-        icon={selectedCoworker.avatarUrl ? undefined : COWORKER_FALLBACK_ICON}
+        leading={selectedLeading}
         label={selectedCoworker.name}
         onChange={() => {
           setChangingCoworker(true);
@@ -282,11 +294,13 @@ export function CoworkerPicker({
     ) : null;
 
   return (
-    <TaskpaneSection id="client-coworker-title" title="Customer & coworker">
+    <TaskpaneSection id="client-coworker-title" title="Customer, sales & coworker">
       <TaskpaneCardBoundaryContext.Provider value={cardRef}>
         <section ref={cardRef} className="bg-card-soft overflow-visible rounded-xl shadow-edge">
         {customerSlot ? <div>{customerSlot}</div> : null}
-        {customerSlot && coworkerContent ? <TaskpaneInsetDivider /> : null}
+        {customerSlot && salesSlot ? <TaskpaneInsetDivider /> : null}
+        {salesSlot ? <div>{salesSlot}</div> : null}
+        {(salesSlot ?? customerSlot) && coworkerContent ? <TaskpaneInsetDivider /> : null}
         {coworkerContent ? <div>{coworkerContent}</div> : null}
         </section>
       </TaskpaneCardBoundaryContext.Provider>

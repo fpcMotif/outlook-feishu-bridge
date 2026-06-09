@@ -27,7 +27,7 @@
 // excluded so they keep SimpleTokenizer's native behavior.
 const CJK = "㐀-䶿一-鿿豈-﫿぀-ヿ가-힯";
 const NON_CJK = new RegExp(`[^${CJK}]+`, "g");
-const IS_CJK_CHAR = new RegExp(`[${CJK}]`);
+export const IS_CJK_CHAR = new RegExp(`[${CJK}]`);
 // One segment = a maximal CJK run OR a maximal non-CJK run, so "acme 化妆"
 // yields ["acme ", "化妆"] in order. Non-CJK segments are then word-split below.
 const SEGMENT = new RegExp(`[${CJK}]+|[^${CJK}]+`, "g");

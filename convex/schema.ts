@@ -34,6 +34,13 @@ export default defineSchema({
     .index("by_bitableSyncStatus_and_bitableNextRetryAt", [
       "bitableSyncStatus",
       "bitableNextRetryAt",
+    ])
+    // Deferred attachment fill sweep (ADR-0022). Separate from the create-sync
+    // index because an attachment-stuck row is bitableSyncStatus='synced' (the
+    // row exists) — only its attachment lifecycle is unfinished.
+    .index("by_attachmentStatus_and_attachmentNextRetryAt", [
+      "bitableAttachmentStatus",
+      "attachmentNextRetryAt",
     ]),
 
   // Short-lived, per-session Feishu Search Users results. This keeps repeated
@@ -128,11 +135,24 @@ export default defineSchema({
   feishuContacts: defineTable({
     openId: v.string(),
     name: v.string(),
-    email: v.optional(v.string()), // enterprise_email only; omitted when absent
-    department: v.optional(v.string()), // joined department name(s)
-    departmentIds: v.optional(v.array(v.string())), // open_department_ids
-    avatarUrl: v.optional(v.string()), // volatile (ADR-0003); re-stamped each run
+    // enterprise_email only; omitted when absent
+    email: v.optional(v.string()),
+    // joined department name(s)
+    department: v.optional(v.string()),
+    // open_department_ids
+    departmentIds: v.optional(v.array(v.string())),
+    // volatile (ADR-0003); re-stamped each run
+    avatarUrl: v.optional(v.string()),
     searchBlob: v.string(),
+    // ADR-0024: Pinyin match keys precomputed at sync time for the colleague
+    // picker's client-side matcher (preload mode). Optional so pre-backfill rows
+    // degrade to name/email matching; the pinyin-pro dictionary never ships to
+    // the SPA. nameFold is the NFKC-folded lowercased name for cheap substring
+    // matching. See convex/feishu/pinyinTokens.ts + src/.../colleagueRank.ts.
+    pinyinFull: v.optional(v.string()),
+    pinyinInitials: v.optional(v.string()),
+    pinyinAlts: v.optional(v.string()),
+    nameFold: v.optional(v.string()),
     mirroredAt: v.number(),
   })
     .index("by_openId", ["openId"])

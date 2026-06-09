@@ -76,7 +76,7 @@ describe("getTenantAccessToken", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(1_000_000));
     mockFetch.mockResolvedValue({ tenant_access_token: "tok", expire: 7200 });
-    const runMutation = vi.fn(async () => undefined);
+    const runMutation = vi.fn(async (_ref: unknown, _args: unknown) => undefined);
     const ctx = fakeCtx({ cached: null, runMutation });
 
     await expect(getTenantAccessToken(ctx)).resolves.toBe("tok");

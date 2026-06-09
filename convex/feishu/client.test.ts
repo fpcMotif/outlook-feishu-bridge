@@ -1,6 +1,6 @@
 /* eslint-disable require-await, max-lines-per-function */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { feishuFetch, FeishuError } from "./client";
+import { feishuFetch, FeishuError, rateLimitResetMs } from "./client";
 
 function mockFetch(payload: unknown, init: { status?: number; headers?: Record<string, string> } = {}) {
   const rawText = JSON.stringify(payload);
@@ -76,5 +76,27 @@ describe("feishuFetch", () => {
     const init = fn.mock.calls[0][1] as RequestInit;
     expect(init.body).toBe(form);
     expect((init.headers as Record<string, string>)["Content-Type"]).toBeUndefined();
+  });
+
+  it("surfaces retryAfterMs from x-ogw-ratelimit-reset on a throttle", async () => {
+    mockFetch({ code: 99991400, msg: "rate limited" }, { status: 429, headers: { "x-ogw-ratelimit-reset": "3" } });
+    await expect(feishuFetch({ url: "https://x/y", label: "T" })).rejects.toMatchObject({
+      name: "FeishuError",
+      code: 99991400,
+      retryAfterMs: 3000,
+    });
+  });
+});
+
+describe("rateLimitResetMs", () => {
+  it("reads x-ogw-ratelimit-reset seconds as ms", () => {
+    expect(rateLimitResetMs((n) => (n === "x-ogw-ratelimit-reset" ? "3" : null))).toBe(3000);
+  });
+  it("falls back to Retry-After", () => {
+    expect(rateLimitResetMs((n) => (n === "Retry-After" ? "2" : null))).toBe(2000);
+  });
+  it("is undefined when absent or non-numeric", () => {
+    expect(rateLimitResetMs(() => null)).toBeUndefined();
+    expect(rateLimitResetMs(() => "soon")).toBeUndefined();
   });
 });

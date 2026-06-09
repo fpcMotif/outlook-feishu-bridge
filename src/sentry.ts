@@ -1,5 +1,9 @@
 import * as Sentry from "@sentry/react";
 import { subscribeDebug, getDebugEntries, type DebugEntry } from "./debug";
+import {
+  isRetryableUploadError,
+  isUnreadableFileError,
+} from "./office/attachmentUpload";
 
 // Error + performance monitoring. The DSN is a build-time public value
 // (VITE_SENTRY_DSN, set in .env.deploy); without it this is a no-op, so dev and
@@ -74,6 +78,45 @@ export function initSentry(): void {
 export function reportSyncError(err: unknown): void {
   Sentry.captureException(err instanceof Error ? err : new Error(String(err)), {
     tags: { feature: "base-sync" },
+  });
+}
+
+export type UploadErrorKind =
+  | "unreadable"
+  | "transport"
+  | "server"
+  | "malformed"
+  | "unknown";
+
+export function classifyUploadError(err: unknown): UploadErrorKind {
+  if (isUnreadableFileError(err)) return "unreadable";
+  if (isRetryableUploadError(err)) return "transport";
+  const message = err instanceof Error ? err.message : String(err);
+  if (/\((4\d\d|5\d\d)\)/.test(message)) return "server";
+  if (/invalid JSON/i.test(message)) return "malformed";
+  return "unknown";
+}
+
+// Report a TERMINAL attachment-upload failure (after uploadBlobWithRetry's
+// in-flight retries are exhausted) as a HANDLED Sentry event — so it stops
+// surfacing as an unhandled rejection and carries the size/type/kind needed to
+// chart failures (by file size, type, and Sentry's own geo) WITHOUT leaking the
+// filename (which can carry customer info). An unreadable cloud-file pick is a
+// client-environment issue the user fixes with Re-add, so it logs at "warning";
+// genuine upload failures log at "error".
+export function reportUploadError(
+  err: unknown,
+  context: { bytes: number; ext: string; attempts: number },
+): void {
+  const kind = classifyUploadError(err);
+  Sentry.captureException(err instanceof Error ? err : new Error(String(err)), {
+    level: kind === "unreadable" ? "warning" : "error",
+    tags: {
+      feature: "attachment-upload",
+      uploadErrorKind: kind,
+      ext: context.ext || "(none)",
+    },
+    extra: { bytes: context.bytes, attempts: context.attempts },
   });
 }
 

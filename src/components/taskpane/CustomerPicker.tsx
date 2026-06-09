@@ -21,16 +21,16 @@ import {
   ownerFilter,
 } from "./customerSearchHelpers";
 import { CustomerSearchEmptyState } from "./CustomerSearchEmptyState";
-import { CustomerPickerNoMatch } from "./CustomerPickerNoMatch";
 import { dlog, dtime } from "../../debug";
 import { TaskpaneSearchDropdown } from "./TaskpaneSearchDropdown";
 import { TaskpaneSelectionRow } from "./TaskpaneSelectionRow";
 import {
   TASKPANE_SEARCH_PANEL_HEADER,
   TASKPANE_SEARCH_PANEL_SHELL,
+  TASKPANE_SEARCH_PANEL_SHELL_HEADER,
   TASKPANE_SEARCH_PANEL_TITLE,
 } from "./taskpaneSearchPanelLayout";
-import { customerSearchBoundaryRef, useCustomerSearchSession } from "./useCustomerSearchSession";
+import { useCustomerSearchSession } from "./useCustomerSearchSession";
 
 export interface CustomerPickerProps {
   directory: CustomerDirectoryState;
@@ -52,7 +52,6 @@ export interface CustomerPickerProps {
 
 export function CustomerPicker({
   directory,
-  emailDomain,
   selectedCustomer,
   currentUserOpenId,
   embedded = false,
@@ -61,7 +60,9 @@ export function CustomerPicker({
   searchCustomers,
   triggerRefresh,
 }: CustomerPickerProps) {
-  const session = useCustomerSearchSession(embedded);
+  const session = useCustomerSearchSession();
+  const defaultOpenedAt = useRef<number | null>(null);
+  if (defaultOpenedAt.current === null) defaultOpenedAt.current = performance.now();
 
   const openSearch = () => {
     dlog(
@@ -71,17 +72,17 @@ export function CustomerPicker({
     session.openSearch();
   };
 
-  if (session.searchSession) {
+  if (!selectedCustomer || session.searchSession) {
     return (
       <SearchPanel
         directory={directory}
         searchCustomers={searchCustomers}
-        openedAt={session.searchSession.openedAt}
+        openedAt={session.searchSession?.openedAt ?? defaultOpenedAt.current}
         currentUserOpenId={currentUserOpenId}
         embedded={embedded}
         exiting={session.exiting}
-        boundaryRef={customerSearchBoundaryRef(embedded, session.standaloneBoundaryRef)}
-        onDismiss={session.dismissSearch}
+        boundaryRef={session.searchSession ? session.searchPanelBoundaryRef : undefined}
+        onDismiss={session.searchSession ? session.dismissSearch : undefined}
         onSelect={(customer) => {
           onChange(customer);
           session.closeSearch();
@@ -92,34 +93,13 @@ export function CustomerPicker({
   }
 
   return (
-    <section
-      ref={embedded ? undefined : session.standaloneBoundaryRef}
-      className={embedded ? "" : "bg-card-soft rounded-xl shadow-edge"}
-    >
-      {selectedCustomer ? (
-        <TaskpaneSelectionRow
-          dataRow="customer"
-          icon={<UserRound className="size-4" />}
-          label={selectedCustomer.name}
-          onChange={openSearch}
-        />
-      ) : (
-        <div className="flex min-h-14 min-w-0 items-center gap-3 px-3 py-2" data-customer-row="true">
-          <span
-            className="text-muted-foreground flex size-8 shrink-0 items-center justify-center"
-            aria-hidden="true"
-          >
-            <UserRound className="size-4" />
-          </span>
-          {directory.status === "loading" || directory.status === "idle" ? (
-            <span className="text-muted-foreground min-w-0 flex-1 whitespace-normal break-words text-xs leading-4">
-              Resolving customer for {emailDomain}...
-            </span>
-          ) : (
-            <CustomerPickerNoMatch onSearch={openSearch} />
-          )}
-        </div>
-      )}
+    <section className={embedded ? "" : "bg-card-soft rounded-xl shadow-edge"}>
+      <TaskpaneSelectionRow
+        dataRow="customer"
+        icon={<UserRound className="size-4" />}
+        label={selectedCustomer.name}
+        onChange={openSearch}
+      />
     </section>
   );
 }
@@ -149,7 +129,7 @@ function SearchPanel({
   embedded?: boolean;
   exiting?: boolean;
   boundaryRef?: RefObject<HTMLElement | null>;
-  onDismiss: () => void;
+  onDismiss?: () => void;
   onSelect: (customer: CustomerRecord) => void;
   onCreateCustomer?: (name: string) => void;
 }) {
@@ -178,7 +158,7 @@ function SearchPanel({
     }
     const searchId = latestSearch.current + 1;
     latestSearch.current = searchId;
-    void searchCustomers(nextQ, ownerFilter(nextShowMine, currentUserOpenId))
+    void searchCustomers(nextQ, ownerFilter(nextShowMine, currentUserOpenId, nextQ))
       .then((rows) => {
         if (latestSearch.current === searchId) setServerMatches(rows);
       })
@@ -201,19 +181,25 @@ function SearchPanel({
   const matches = localMatches.length > 0 ? localMatches : serverMatches;
   const emptyKind = getCustomerSearchEmptyKind(q, showMine, matches.length);
   const resultsOpen = Boolean(q || showMine || matches.length > 0 || emptyKind);
-
-  const disableShowMine = () => {
-    setShowMine(false);
-    runServerSearch(query, false);
+  const handlePanelBlur = () => {
+    if (!onDismiss) return;
+    window.setTimeout(() => {
+      const activeElement = document.activeElement;
+      if (activeElement && boundaryRef?.current?.contains(activeElement)) return;
+      onDismiss();
+    }, 0);
   };
+
+  const shell = embedded ? TASKPANE_SEARCH_PANEL_SHELL_HEADER : TASKPANE_SEARCH_PANEL_SHELL;
 
   return (
     <section
       ref={boundaryRef}
+      onBlur={handlePanelBlur}
       className={
         embedded
-          ? `${TASKPANE_SEARCH_PANEL_SHELL}${exiting ? " panel-exit" : ""}`
-          : `bg-card-soft rounded-xl ${TASKPANE_SEARCH_PANEL_SHELL} shadow-edge${exiting ? " panel-exit" : ""}`
+          ? `${shell}${exiting ? " panel-exit" : ""}`
+          : `bg-card-soft rounded-xl ${shell} shadow-edge${exiting ? " panel-exit" : ""}`
       }
     >
       <div className={TASKPANE_SEARCH_PANEL_HEADER}>
@@ -240,7 +226,7 @@ function SearchPanel({
         open={resultsOpen}
         listLabel="Customer results"
         emptyMessage={customerSearchEmptyMessage(q, showMine, query)}
-        onEscape={() => (q ? handleQueryChange("") : onDismiss())}
+        onEscape={() => (q ? handleQueryChange("") : onDismiss?.())}
       >
         {matches.length > 0 ? (
           matches.slice(0, 8).map((customer) => (
@@ -248,12 +234,11 @@ function SearchPanel({
               key={customer.recordId}
               type="button"
               data-search-option=""
-              aria-selected={false}
               onClick={() => {
                 dtime(`customer picker: picked "${customer.name}"`, openedAt);
                 onSelect(customer);
               }}
-              className="bg-card hover:bg-accent aria-selected:bg-accent sync-enter flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-xs shadow-edge transition-transform active:scale-[0.96]"
+              className="bg-card hover:bg-accent data-[keyboard-active=true]:bg-accent sync-enter flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-xs shadow-edge transition-transform active:scale-[0.96]"
             >
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-semibold">{customer.name}</span>
@@ -274,20 +259,17 @@ function SearchPanel({
         ) : emptyKind ? (
           <CustomerSearchEmptyState
             kind={emptyKind}
-            query={query}
-            onShowAll={disableShowMine}
             onClearSearch={() => handleQueryChange("")}
           />
         ) : q ? (
           <button
             type="button"
             data-search-option=""
-            aria-selected={false}
             onClick={() => {
               dtime(`customer picker: create requested "${q}"`, openedAt);
               onCreateCustomer?.(query.trim());
             }}
-            className="bg-card hover:bg-accent aria-selected:bg-accent flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-xs font-semibold shadow-edge transition-transform active:scale-[0.96]"
+            className="bg-card hover:bg-accent data-[keyboard-active=true]:bg-accent flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-xs font-semibold shadow-edge transition-transform active:scale-[0.96]"
           >
             <Plus className="text-primary size-4 shrink-0" />
             <span className="min-w-0 flex-1 truncate">Create customer task "{query.trim()}"</span>

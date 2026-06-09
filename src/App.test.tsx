@@ -25,10 +25,11 @@ import { useOffice } from './office/useOffice'
 const mockUseOffice = vi.mocked(useOffice)
 
 describe('App loading and error states', () => {
-  it('shows loading state when Office is not ready', () => {
+  it('renders no duplicate loading state when Office is not ready', () => {
     mockUseOffice.mockReturnValue({ isReady: false, host: null, error: null })
-    render(<App />)
-    expect(screen.getByText(/Loading Office Add-in/)).toBeInTheDocument()
+    const { container } = render(<App />)
+    expect(screen.queryByText(/Loading Office Add-in/)).not.toBeInTheDocument()
+    expect(container).toBeEmptyDOMElement()
   })
 
   it('shows error message when Office fails to initialize', () => {
@@ -52,7 +53,7 @@ describe('App loading and error states', () => {
     expect(errorEl).toHaveClass('text-destructive')
   })
 
-  it('does not render TaskPane while loading', () => {
+  it('does not render TaskPane before Office is ready', () => {
     mockUseOffice.mockReturnValue({ isReady: false, host: null, error: null })
     render(<App />)
     expect(screen.queryByTestId('task-pane')).not.toBeInTheDocument()

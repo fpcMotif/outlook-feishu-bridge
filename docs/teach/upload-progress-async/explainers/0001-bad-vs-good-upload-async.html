@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Upload fill restart — bad vs good async</title>
+<style>
+  :root{
+    --bg:#0b1220; --panel:#111a2e; --panel2:#0e1730; --ink:#e8eefc; --muted:#9fb0d0;
+    --line:#1f2c49; --blue:#3b82f6; --blue2:#60a5fa; --good:#34d399; --bad:#f87171;
+    --radius:14px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:linear-gradient(180deg,#0a1020,#0b1220 40%);color:var(--ink);
+    font:16px/1.65 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial}
+  .wrap{max-width:920px;margin:0 auto;padding:48px 22px 96px}
+  .kick{color:var(--blue2);font-weight:600;letter-spacing:.12em;text-transform:uppercase;font-size:12px}
+  h1{font-size:28px;line-height:1.2;margin:.3em 0 .2em}
+  h2{font-size:20px;margin:2em 0 .5em}
+  p{color:var(--ink)} .muted{color:var(--muted)}
+  .lead{font-size:17px;color:var(--muted)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:18px 20px;margin:16px 0}
+  .answer{border-left:4px solid var(--blue);background:linear-gradient(90deg,rgba(59,130,246,.10),transparent)}
+  .grid{display:grid;gap:16px}
+  @media(min-width:720px){.grid.cols2{grid-template-columns:1fr 1fr}}
+  .col h3{font-size:15px;margin:0 0 10px}
+  .col.bad h3{color:var(--bad)}
+  .col.good h3{color:var(--good)}
+  code,kbd{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em}
+  code{background:#0a1428;border:1px solid var(--line);border-radius:6px;padding:1px 6px;color:#cfe0ff}
+  pre{background:#0a1428;border:1px solid var(--line);border-radius:10px;padding:12px 14px;overflow:auto;margin:8px 0 0;font-size:13px;line-height:1.5}
+  pre code{background:none;border:none;padding:0;color:#d4e4ff}
+  .pill{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;border:1px solid;margin-right:6px}
+  .pill.bad{color:var(--bad);border-color:#7a2f2f}
+  .pill.good{color:var(--good);border-color:#1d6e54}
+  .mermaid-wrap{background:var(--panel2);border:1px solid var(--line);border-radius:var(--radius);padding:16px;overflow:auto}
+  .foot{font-size:13px;color:var(--muted);margin-top:2em}
+  a{color:var(--blue2)}
+  hr{border:none;border-top:1px solid var(--line);margin:32px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="kick">LR-0001 · Outlook taskpane uploads</div>
+  <h1>Why the icon fill restarted near 30%</h1>
+  <p class="lead">Not a wrong Convex “route” — a <b>race on the normal path</b>: two async starts for the same file id, then state/UI accepted a lower <code>progress</code> than XHR had already reported.</p>
+
+  <div class="card answer">
+    <strong>One line:</strong> Register the in-flight <code>Promise</code> <em>synchronously</em>, merge progress with <code>Math.max</code>, show indeterminate fill only while <code>pending</code>, and smooth display with a monotonic target.
+  </div>
+
+  <h2>Sequence: duplicate start (bad) vs dedupe (good)</h2>
+  <div class="mermaid-wrap">
+<pre class="mermaid">
+sequenceDiagram
+  participant UI as addFiles / queue
+  participant Orch as uploadIntakeFile
+  participant Map as inFlight Map
+  participant XHR as postBytes + onProgress
+  participant Red as intakeReducer
+  participant Icon as icon fill
+
+  Note over UI,Icon: BAD — late Map.set (TOCTOU)
+  UI->>Orch: start upload id=u1
+  Orch->>Map: get → empty
+  UI->>Orch: start upload id=u1 again
+  Orch->>Map: get → still empty
+  Orch->>Red: status uploading progress 0
+  XHR->>Red: progress 30
+  Orch->>Red: status uploading progress 0
+  Red->>Icon: fill drops ~30% → 0
+
+  Note over UI,Icon: GOOD — sync set, same promise
+  UI->>Orch: start u1
+  Orch->>Map: set tracked (sync)
+  UI->>Orch: start u1 again
+  Orch->>Map: get → return tracked
+  XHR->>Red: progress 30
+  Orch->>Red: duplicate status ignored
+  Red->>Icon: Math.max keeps ≥ 30
+</pre>
+  </div>
+
+  <h2>1 · In-flight dedupe (orchestration)</h2>
+  <div class="grid cols2">
+    <div class="card col bad">
+      <h3><span class="pill bad">BAD</span> Late <code>inFlight.set</code></h3>
+      <p class="muted">Gap after check lets two uploads start; second dispatch can pass <code>progress: 0</code>.</p>
+<pre><code>export async function uploadBad(id, dispatch) {
+  if (inFlight.has(id)) return inFlight.get(id)!;
+  await generateUploadUrl(); // gap — TOCTOU
+  const p = runXHR(id, dispatch);
+  inFlight.set(id, p);
+  return p;
+}</code></pre>
+    </div>
+    <div class="card col good">
+      <h3><span class="pill good">GOOD</span> Sync promise registration</h3>
+      <p class="muted">From <code>uploadIntakeFile.ts</code> — check, create IIFE promise, <code>set</code> before caller awaits.</p>
+<pre><code>export function uploadIntakeFileToStorage(...) {
+  const existing = inFlight.get(upload.id);
+  if (existing) return existing;
+
+  const tracked = (async () => {
+    dispatch({ type: "uploadStatusChanged",
+      id: upload.id, status: "uploading" });
+    // ... XHR onProgress → uploadProgressUpdated
+  })().finally(() => inFlight.delete(upload.id));
+
+  inFlight.set(upload.id, tracked);
+  return tracked;
+}</code></pre>
+    </div>
+  </div>
+
+  <h2>2 · <code>void</code> + non-async starter (routing)</h2>
+  <div class="grid cols2">
+    <div class="card col bad">
+      <h3><span class="pill bad">BAD</span> <code>async</code> wrapper re-enters</h3>
+<pre><code>export async function queueBad(uploads, dispatch) {
+  for (const u of uploads) {
+    await uploadBad(u.id, dispatch);
+  }
+}</code></pre>
+      <p class="muted">Serializes picks; still racy if <code>uploadBad</code> awaits before <code>set</code>.</p>
+    </div>
+    <div class="card col good">
+      <h3><span class="pill good">GOOD</span> Fire-and-forget same promise</h3>
+<pre><code>export function queueIntakeFileUploads(...) {
+  for (const upload of uploads) {
+    if (inFlight.has(upload.id)) continue;
+    void uploadIntakeFileToStorage(deps, upload, dispatch);
+  }
+}</code></pre>
+      <p class="muted">Second queue pass hits <code>inFlight.has</code> — test: one XHR call.</p>
+    </div>
+  </div>
+
+  <h2>3 · Reducer: monotonic <code>progress</code></h2>
+  <div class="grid cols2">
+    <div class="card col bad">
+      <h3><span class="pill bad">BAD</span> Blind assign</h3>
+<pre><code>case "uploadProgressUpdated":
+  return map(file =>
+    file.id === action.id
+      ? { ...file, progress: action.progress }
+      : file);</code></pre>
+      <p class="muted">30 then 5 → bar jumps backward.</p>
+    </div>
+    <div class="card col good">
+      <h3><span class="pill good">GOOD</span> <code>Math.max</code></h3>
+<pre><code>case "uploadProgressUpdated":
+  progress: Math.max(file.progress ?? 0, action.progress),
+
+case "uploadStatusChanged":
+  progress: action.status === "uploading"
+    ? Math.max(file.progress ?? 0, action.progress)
+    : action.progress,</code></pre>
+      <p class="muted">Re-enter <code>uploading</code> with <code>0</code> keeps 30 — see <code>intakeReducer.test.ts</code>.</p>
+    </div>
+  </div>
+
+  <h2>4 · Row UI: indeterminate only while <code>pending</code></h2>
+  <div class="grid cols2">
+    <div class="card col bad">
+      <h3><span class="pill bad">BAD</span> Indeterminate for whole upload</h3>
+<pre><code>// AttachmentSectionRows (anti-pattern)
+const uploadIndeterminate = uploadActive;</code></pre>
+      <p class="muted">XHR hits 30% but fill stays pulsing — then switches → feels like restart.</p>
+    </div>
+    <div class="card col good">
+      <h3><span class="pill good">GOOD</span> Pending pulse, then determinate</h3>
+<pre><code>const uploadActive =
+  status === "pending" || status === "uploading" || ...;
+const uploadIndeterminate = status === "pending";
+
+&lt;FileTypeIconWithUploadProgress
+  progress={progress ?? 0}
+  active={uploadActive}
+  indeterminate={uploadIndeterminate}
+/&gt;</code></pre>
+    </div>
+  </div>
+
+  <h2>5 · Display layer: ignore spurious zero</h2>
+  <div class="grid cols2">
+    <div class="card col bad">
+      <h3><span class="pill bad">BAD</span> Reset display on any 0</h3>
+<pre><code>// useSmoothedUploadProgress (anti-pattern)
+if (progress <= 0) {
+  displayRef.current = 0;
+  setDisplay(0);
+}</code></pre>
+      <p class="muted">Reducer still 30, prop flickers 0 → fill restarts.</p>
+    </div>
+    <div class="card col good">
+      <h3><span class="pill good">GOOD</span> Monotonic target + ease</h3>
+<pre><code>// uploadDisplayProgress.ts
+export function uploadDisplayProgressTarget(prev, incoming, active) {
+  if (!active) return incoming;
+  if (incoming <= 0 && prev > 0) return prev;
+  return Math.max(prev, clamped(incoming));
+}
+
+// AttachmentSectionPrimitives — merge XHR + simulated cap, then ease</code></pre>
+    </div>
+  </div>
+
+  <hr />
+  <h2>Regression tests to remember</h2>
+  <ul class="muted">
+    <li><code>uploadIntakeFile.test.ts</code> — duplicate <code>uploadIntakeFileToStorage</code> returns same promise; progress stays 30.</li>
+    <li><code>intakeReducer.test.ts</code> — <code>uploadProgressUpdated</code> never decreases; <code>uploadStatusChanged</code> with 0 keeps 30.</li>
+    <li><code>uploadDisplayProgress.test.ts</code> — <code>uploadDisplayProgressTarget(30, 0, true) === 30</code>.</li>
+  </ul>
+
+  <p class="foot">Open locally (repo root): <code>start docs\teach\upload-progress-async\explainers\0001-bad-vs-good-upload-async.html</code> (Windows) or double-click the HTML file.</p>
+
+</div>
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+  mermaid.initialize({ startOnLoad: true, theme: "dark", securityLevel: "loose" });
+</script>
+</body>
+</html>

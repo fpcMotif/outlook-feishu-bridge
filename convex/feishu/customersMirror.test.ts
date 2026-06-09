@@ -10,7 +10,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { callFeishu } from "./call";
-import { applyPage, buildSearchBlob, kick, search, searchAndCacheMiss } from "./customersMirror";
+import { applyPage, buildSearchBlob, fullSync, kick, search, searchAndCacheMiss } from "./customersMirror";
 
 vi.mock("./call", () => ({
   callFeishu: vi.fn(),
@@ -43,9 +43,22 @@ type KickHandler = (
   unchanged: number;
   duplicateRows: number;
   stopReason: string;
+  pruneScanned: number;
+  deletedStale: number;
 }>;
 
 const kickHandler = (kick as unknown as { _handler: KickHandler })._handler;
+// fullSync shares the single-flight lease with kick (ADR-0021); the handler is
+// exercised directly to prove two concurrent cron/kick runs cannot both page.
+const fullSyncHandler = (fullSync as unknown as {
+  _handler: (
+    ctx: {
+      runMutation: (fn: unknown, args: Record<string, unknown>) => Promise<unknown>;
+      runQuery: (fn: unknown, args?: Record<string, unknown>) => Promise<unknown>;
+    },
+    args: Record<string, never>,
+  ) => Promise<{ pages: number; pruneScanned: number; deletedStale: number }>;
+})._handler;
 const searchAndCacheMissHandler = (searchAndCacheMiss as unknown as {
   _handler: (
     ctx: {
@@ -102,7 +115,12 @@ const originalConvexDeployment = process.env.CONVEX_DEPLOYMENT;
 const originalFixturesFlag = process.env.ENABLE_DEV_CUSTOMER_FIXTURES;
 const originalAppToken = process.env.FEISHU_BITABLE_APP_TOKEN;
 
-function feishuPage(index: number, hasMore: boolean) {
+function feishuPage(index: number, hasMore: boolean): {
+  items: Array<{ record_id: string; fields: Record<string, Array<{ text: string; type: string }>> }>;
+  has_more: boolean;
+  page_token: string | undefined;
+  total?: number;
+} {
   return {
     items: [
       {
@@ -122,14 +140,24 @@ function makeCtx() {
     if (Array.isArray(args.rows)) {
       return { inserted: args.rows.length, updated: 0, unchanged: 0, duplicateRows: 0 };
     }
-    // markRefreshStarted (Mirror Kick rate-limit, ADR-0016) stamps a start time;
-    // it is not a watermark completion, so keep it out of `completions`.
+    // deleteRowsById (Mirror Prune) — never called for an empty mirror, but keep
+    // it out of `completions` so a populated-table test does not see a phantom.
+    if (Array.isArray(args.ids)) return { deleted: args.ids.length };
+    // Defensive guard for a bare {startedAt} mutation; the refresh start lease
+    // now stamps the start via the cooldownMs branch above (ADR-0021). Not a
+    // watermark completion, so keep it out of `completions`.
     if (typeof args.startedAt === "number") return null;
     completions.push(args);
     return null;
   });
-  // getMirrorRefreshStartedAt — no prior refresh, so the kick gate never skips.
-  const runQuery = vi.fn(async () => null);
+  // listRowsForPrune — empty mirror in the unit ctx, so the prune scans and
+  // deletes nothing. (The legacy getMirrorRefreshStartedAt path returns null.)
+  const runQuery = vi.fn(async (_fn: unknown, args?: Record<string, unknown>) => {
+    if (args && "paginationOpts" in args) {
+      return { page: [], isDone: true, continueCursor: "" };
+    }
+    return null;
+  });
   return { ctx: { runMutation, runQuery }, completions };
 }
 
@@ -456,7 +484,7 @@ describe("customer mirror full sync pagination", () => {
 
   it("flags an incompleteTotal shortfall when paged rows fall short of Feishu total", async () => {
     // Feishu reports a table total of 5, but pagination cleanly ends after 3 rows.
-    const page = (id, hasMore, token) => ({
+    const page = (id: string, hasMore: boolean, token: string | undefined) => ({
       items: [{ record_id: id, fields: { "Account Name": [{ text: id, type: "text" }] } }],
       has_more: hasMore,
       page_token: token,
@@ -477,6 +505,88 @@ describe("customer mirror full sync pagination", () => {
       lastSourceRowCount: 3,
       lastStopReason: "incompleteTotal",
     });
+  });
+
+  it("tombstones mirror rows whose recordId was not seen during a complete sync", async () => {
+    // Feishu returns one live row; the mirror also holds two orphans left behind
+    // by earlier Feishu deletes/re-imports that the upsert-only mirror never removed.
+    mockCallFeishu.mockResolvedValueOnce({
+      items: [{ record_id: "rec_live", fields: { "Account Name": [{ text: "Live", type: "text" }] } }],
+      has_more: false,
+      total: 1,
+    });
+    const mirrorRows = [
+      { _id: "d_live", recordId: "rec_live" },
+      { _id: "d_orphan1", recordId: "rec_old1" },
+      { _id: "d_orphan2", recordId: "rec_old2" },
+    ];
+    const deleted: string[][] = [];
+    const completions: Record<string, unknown>[] = [];
+    const runMutation = vi.fn(async (_fn: unknown, args: Record<string, unknown>) => {
+      if (typeof args.cooldownMs === "number") return { started: true };
+      if (Array.isArray(args.rows)) {
+        return { inserted: args.rows.length, updated: 0, unchanged: 0, duplicateRows: 0 };
+      }
+      if (Array.isArray(args.ids)) {
+        deleted.push(args.ids as string[]);
+        return { deleted: args.ids.length };
+      }
+      if (typeof args.startedAt === "number") return null;
+      completions.push(args);
+      return null;
+    });
+    const runQuery = vi.fn(async (_fn: unknown, args?: Record<string, unknown>) =>
+      args && "paginationOpts" in args
+        ? { page: mirrorRows, isDone: true, continueCursor: "" }
+        : null,
+    );
+
+    const result = await kickHandler({ runMutation, runQuery }, {});
+
+    expect(result.stopReason).toBe("complete");
+    expect(deleted).toEqual([["d_orphan1", "d_orphan2"]]);
+    expect(result.pruneScanned).toBe(3);
+    expect(result.deletedStale).toBe(2);
+    expect(completions[0]).toMatchObject({
+      lastPruneScannedCount: 3,
+      lastDeletedStaleCount: 2,
+      lastStopReason: "complete",
+    });
+  });
+
+  it("never prunes when the sync stops incomplete, so a partial fetch cannot wipe the mirror", async () => {
+    // has_more=true with no page_token -> missingPageToken (incomplete). An orphan
+    // is present in the mirror, but the prune MUST be skipped entirely.
+    mockCallFeishu.mockResolvedValueOnce({
+      items: [{ record_id: "rec_1", fields: { "Account Name": [{ text: "One", type: "text" }] } }],
+      has_more: true,
+    });
+    const deleted: string[][] = [];
+    const runMutation = vi.fn(async (_fn: unknown, args: Record<string, unknown>) => {
+      if (typeof args.cooldownMs === "number") return { started: true };
+      if (Array.isArray(args.rows)) {
+        return { inserted: args.rows.length, updated: 0, unchanged: 0, duplicateRows: 0 };
+      }
+      if (Array.isArray(args.ids)) {
+        deleted.push(args.ids as string[]);
+        return { deleted: args.ids.length };
+      }
+      if (typeof args.startedAt === "number") return null;
+      return null;
+    });
+    const runQuery = vi.fn(async (_fn: unknown, args?: Record<string, unknown>) =>
+      args && "paginationOpts" in args
+        ? { page: [{ _id: "d_orphan", recordId: "rec_old" }], isDone: true, continueCursor: "" }
+        : null,
+    );
+
+    await expect(kickHandler({ runMutation, runQuery }, {})).rejects.toThrow(
+      "Customers mirror stopped before completion",
+    );
+
+    // The prune scan never ran and nothing was deleted (safety gate held).
+    expect(runQuery).not.toHaveBeenCalled();
+    expect(deleted).toEqual([]);
   });
 
   it("allows only one full re-page when two mirror kicks race before the cooldown stamp is visible", async () => {
@@ -501,6 +611,7 @@ describe("customer mirror full sync pagination", () => {
       if (Array.isArray(args.rows)) {
         return { inserted: args.rows.length, updated: 0, unchanged: 0, duplicateRows: 0 };
       }
+      if (Array.isArray(args.ids)) return { deleted: args.ids.length };
       if (typeof args.startedAt === "number") return null;
       completions.push(args);
       return null;
@@ -508,8 +619,13 @@ describe("customer mirror full sync pagination", () => {
     const ctx = {
       runMutation,
       // Current implementation reads the timestamp outside the mutation. Return
-      // stale state for both racing actions to reproduce the production burst.
-      runQuery: vi.fn(async () => null),
+      // stale state for both racing actions to reproduce the production burst;
+      // the prune scan (listRowsForPrune) sees an empty mirror.
+      runQuery: vi.fn(async (_fn: unknown, qArgs?: Record<string, unknown>) =>
+        qArgs && "paginationOpts" in qArgs
+          ? { page: [], isDone: true, continueCursor: "" }
+          : null,
+      ),
     };
 
     const results = await Promise.all([kickHandler(ctx, {}), kickHandler(ctx, {})]);
@@ -517,5 +633,129 @@ describe("customer mirror full sync pagination", () => {
     expect(mockCallFeishu).toHaveBeenCalledTimes(1);
     expect(results.map((result) => result.pages).sort()).toEqual([0, 1]);
     expect(completions).toHaveLength(1);
+  });
+});
+
+describe("customer mirror identity key", () => {
+  // ADR-0021: the mirror must upsert on the immutable API `record_id`, never the
+  // user-facing "Record Id" column. This captures the rows handed to `applyPage`
+  // from a Feishu page whose "Record Id" column DIVERGES from the API id and
+  // pins that the persisted dedup key is the API id.
+  it("upserts on the API record_id even when the human `Record Id` column diverges", async () => {
+    mockCallFeishu.mockResolvedValueOnce({
+      items: [
+        {
+          record_id: "recAPIimmutable",
+          fields: {
+            "Account Name": [{ text: "Divergent Co", type: "text" }],
+            "Record Id": [{ text: "recHumanColumn", type: "text" }],
+          },
+        },
+      ],
+      has_more: false,
+      total: 1,
+    });
+
+    const appliedRows: Array<{ recordId: string }> = [];
+    const runMutation = vi.fn(async (_fn: unknown, args: Record<string, unknown>) => {
+      if (typeof args.cooldownMs === "number") return { started: true };
+      if (Array.isArray(args.rows)) {
+        appliedRows.push(...(args.rows as Array<{ recordId: string }>));
+        return { inserted: args.rows.length, updated: 0, unchanged: 0, duplicateRows: 0 };
+      }
+      if (Array.isArray(args.ids)) return { deleted: args.ids.length };
+      if (typeof args.startedAt === "number") return null;
+      return null;
+    });
+    // Empty mirror scan so the now-active prune deletes nothing — this test only
+    // asserts the persisted identity key.
+    const runQuery = vi.fn(async (_fn: unknown, args?: Record<string, unknown>) =>
+      args && "paginationOpts" in args
+        ? { page: [], isDone: true, continueCursor: "" }
+        : null,
+    );
+
+    await kickHandler({ runMutation, runQuery }, {});
+
+    expect(appliedRows).toHaveLength(1);
+    expect(appliedRows[0].recordId).toBe("recAPIimmutable");
+    expect(appliedRows[0].recordId).not.toBe("recHumanColumn");
+  });
+});
+
+describe("customer mirror full sync single-flight (ADR-0021)", () => {
+  it("backs off a second concurrent full sync so only one pages — no prune race", async () => {
+    mockCallFeishu.mockResolvedValue({
+      items: [{ record_id: "rec_sf", fields: { "Account Name": [{ text: "SF", type: "text" }] } }],
+      has_more: false,
+      total: 1,
+    });
+    // The shared start lease grants exactly one holder; the second concurrent
+    // fullSync sees the lease held and skips its entire page walk.
+    let leaseHeld = false;
+    const runMutation = vi.fn(async (_fn: unknown, args: Record<string, unknown>) => {
+      if (typeof args.cooldownMs === "number") {
+        if (leaseHeld) return { started: false, remainingMs: args.cooldownMs };
+        leaseHeld = true;
+        return { started: true };
+      }
+      if (Array.isArray(args.rows)) {
+        return { inserted: args.rows.length, updated: 0, unchanged: 0, duplicateRows: 0 };
+      }
+      if (Array.isArray(args.ids)) return { deleted: args.ids.length };
+      if (typeof args.startedAt === "number") return null;
+      return null;
+    });
+    const runQuery = vi.fn(async (_fn: unknown, args?: Record<string, unknown>) =>
+      args && "paginationOpts" in args
+        ? { page: [], isDone: true, continueCursor: "" }
+        : null,
+    );
+
+    const results = await Promise.all([
+      fullSyncHandler({ runMutation, runQuery }, {}),
+      fullSyncHandler({ runMutation, runQuery }, {}),
+    ]);
+
+    // Only the lease holder pages Feishu; the other returns the skipped result.
+    expect(mockCallFeishu).toHaveBeenCalledTimes(1);
+    expect(results.map((r) => r.pages).sort()).toEqual([0, 1]);
+  });
+});
+
+describe("customer mirror drift alarm (ADR-0021)", () => {
+  it("logs a DRIFT ALARM when the retained mirror count still exceeds the source total after prune", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockCallFeishu.mockResolvedValueOnce({
+      items: [{ record_id: "rec_live", fields: { "Account Name": [{ text: "Live", type: "text" }] } }],
+      has_more: false,
+      total: 1,
+    });
+    // The mirror still holds many DUPLICATE docs for the one live recordId (the
+    // exact overcount that an upsert-only re-key drift produced). None are stale
+    // (all seen), so the prune deletes nothing and the retained count stays far
+    // above the source total — the alarm must fire.
+    const dupDocs = Array.from({ length: 40 }, (_, i) => ({ _id: `d_${i}`, recordId: "rec_live" }));
+    const runMutation = vi.fn(async (_fn: unknown, args: Record<string, unknown>) => {
+      if (typeof args.cooldownMs === "number") return { started: true };
+      if (Array.isArray(args.rows)) {
+        return { inserted: args.rows.length, updated: 0, unchanged: 0, duplicateRows: 0 };
+      }
+      if (Array.isArray(args.ids)) return { deleted: args.ids.length };
+      if (typeof args.startedAt === "number") return null;
+      return null;
+    });
+    const runQuery = vi.fn(async (_fn: unknown, args?: Record<string, unknown>) =>
+      args && "paginationOpts" in args
+        ? { page: dupDocs, isDone: true, continueCursor: "" }
+        : null,
+    );
+
+    const result = await kickHandler({ runMutation, runQuery }, {});
+
+    expect(result.stopReason).toBe("complete");
+    expect(result.pruneScanned).toBe(40);
+    expect(result.deletedStale).toBe(0);
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("DRIFT ALARM"));
   });
 });

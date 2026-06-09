@@ -57,7 +57,36 @@ export const bitableSyncStatusValidator = v.union(
   v.literal("pending"),
   v.literal("synced"),
   v.literal("failed"),
+  // Terminal: retries exhausted (MAX attempts) or a permanent/poison error. A
+  // distinct status — not `failed` + an undefined next-retry — so termination is
+  // enforced by status, never by the fragile "undefined sorts lowest" index trick.
+  v.literal("abandoned"),
 );
+
+// ADR-0022 (deferred attachment fill): a staged Convex blob handed to the server
+// to mint a Feishu Drive token from, AFTER the row is created. storageId is an
+// OPAQUE string, not v.id('_storage') — the staged blob is deleted once minted /
+// GC'd, so a real FK on this long-lived row would dangle (dead-source = skipped).
+export const attachmentSourceValidator = v.object({
+  storageId: v.string(),
+  fileName: v.string(),
+});
+
+export type AttachmentSource = Infer<typeof attachmentSourceValidator>;
+
+// Lifecycle of the deferred attachment fill — INDEPENDENT of bitableSyncStatus.
+// The row exists (synced) the moment it is created with an empty Sales Files
+// cell; attachments are then filled in the background. pending → filling →
+// filled, or failed (retryable until exhausted, then terminal via undefined
+// attachmentNextRetryAt).
+export const bitableAttachmentStatusValidator = v.union(
+  v.literal("pending"),
+  v.literal("filling"),
+  v.literal("filled"),
+  v.literal("failed"),
+);
+
+export type BitableAttachmentStatus = Infer<typeof bitableAttachmentStatusValidator>;
 
 export type BitableSyncStatus = Infer<typeof bitableSyncStatusValidator>;
 
@@ -92,6 +121,10 @@ export const emailRecordFields = {
   sentToBitable: v.boolean(),
   sentToContacts: v.optional(v.array(v.string())),
   sentToGroups: v.optional(v.array(v.string())),
+  // ADR-0022: the salesperson's single consolidated note. Replaces the per-
+  // category requestSelections on new rows; requestSelections stays optional
+  // below only so historical Email Records still validate.
+  requestNote: v.optional(v.string()),
   requestSelections: v.optional(v.array(requestSelectionValidator)),
   selectedCoworkers: v.optional(v.array(selectedCoworkerValidator)),
   selectedCustomer: v.optional(selectedCustomerValidator),
@@ -108,6 +141,35 @@ export const emailRecordFields = {
   bitableLastAttemptAt: v.optional(v.number()),
   bitableAttemptCount: v.optional(v.number()),
   bitableNextRetryAt: v.optional(v.number()),
+  // When THIS flow minted the Bitable row (set on first create success). The
+  // freshness clock for mayUpdateOwnedBitableRow — bounds the deferred
+  // attachment patch so it can never touch an ancient/historical row.
+  bitableRowMintedAt: v.optional(v.number()),
+  // Deferred attachment fill (ADR-0022 amendment). Its own lifecycle, separate
+  // from bitableSyncStatus, so a stuck fill on an already-created row is still
+  // recoverable (the create-side rearm short-circuits once bitableRecordId is set).
+  bitableAttachmentSources: v.optional(v.array(attachmentSourceValidator)),
+  bitableAttachmentStatus: v.optional(bitableAttachmentStatusValidator),
+  // Cumulative file_tokens minted so far — persisted BEFORE the PUT so a mid-fill
+  // crash replays the same tokens (Drive upload_all is NOT idempotent) and the
+  // "partial insert" PUT re-writes the same cumulative cell.
+  bitableAttachmentFileTokens: v.optional(v.array(v.string())),
+  // fileNames that could not be attached (dead/GC'd source, >20MB, exhausted).
+  bitableAttachmentSkipped: v.optional(v.array(v.string())),
+  attachmentAttemptCount: v.optional(v.number()),
+  attachmentNextRetryAt: v.optional(v.number()),
+  // Upload-latency instrumentation (click → fully-written). `syncTraceId` is
+  // minted on the client at Submit-click and threaded through so every server
+  // fill log line can be correlated back to one submit. `submitClickedAt` is the
+  // CLIENT wall clock at click; `syncReceivedAt` is the SERVER wall clock when the
+  // sync mutation first armed the row; `attachmentsFilledAt` is stamped when the
+  // deferred fill fences `filled`. The [fillTotal] log (markAttachmentsFilled)
+  // derives the click→filled duration from these. All optional — older rows lack
+  // them and read as null spans.
+  syncTraceId: v.optional(v.string()),
+  submitClickedAt: v.optional(v.number()),
+  syncReceivedAt: v.optional(v.number()),
+  attachmentsFilledAt: v.optional(v.number()),
 };
 
 export const emailRecordValidator = v.object(emailRecordFields);
@@ -130,10 +192,20 @@ export interface EmailRecordInput {
   conversationId?: string;
   userEmail?: string;
   dateTimeCreated?: number;
-  requestSelections?: RequestSelection[];
+  // ADR-0022: single consolidated note (replaces requestSelections as the input).
+  requestNote?: string;
   selectedCoworkers?: SelectedCoworker[];
   selectedCustomer?: SelectedCustomer;
   initiator?: Initiator;
+  // Staged Convex blobs for the deferred Attachment Fill (ADR-0027) — persisted
+  // on the backup so the server can mint Drive tokens after the user leaves.
+  attachmentSources?: AttachmentSource[];
+  // Upload-latency instrumentation: trace id minted at Submit-click + the client
+  // wall-clock click time, threaded through so the server [fillTotal] log can
+  // report the true click→fully-written duration (the server-stamped legs are set
+  // by beginBitableSync / markAttachmentsFilled, not carried from the client).
+  syncTraceId?: string;
+  submitClickedAt?: number;
 }
 
 // The Feishu handle produced during sync.
@@ -167,7 +239,10 @@ export function toEmailRecord(
     sentToBitable: ids.sentToBitable ?? true,
     sentToContacts: undefined,
     sentToGroups: undefined,
-    requestSelections: input.requestSelections,
+    requestNote: input.requestNote,
+    // ADR-0022: new rows no longer populate the per-category selections; the
+    // field stays in the schema only for historical rows.
+    requestSelections: undefined,
     selectedCoworkers: input.selectedCoworkers,
     selectedCustomer: input.selectedCustomer,
     initiator: input.initiator,
@@ -183,5 +258,21 @@ export function toEmailRecord(
     bitableLastAttemptAt: undefined,
     bitableAttemptCount: undefined,
     bitableNextRetryAt: undefined,
+    bitableRowMintedAt: undefined,
+    // Sources ride the backup; the rest of the attachment lifecycle is set by
+    // the fill mutations (beginBitableSync arms the status when sources exist).
+    bitableAttachmentSources: input.attachmentSources,
+    bitableAttachmentStatus: undefined,
+    bitableAttachmentFileTokens: undefined,
+    bitableAttachmentSkipped: undefined,
+    attachmentAttemptCount: undefined,
+    attachmentNextRetryAt: undefined,
+    // Client-minted trace + click time ride the backup; the server-stamped legs
+    // (syncReceivedAt, attachmentsFilledAt) are set later by the sync/fill
+    // mutations, never carried from the client.
+    syncTraceId: input.syncTraceId,
+    submitClickedAt: input.submitClickedAt,
+    syncReceivedAt: undefined,
+    attachmentsFilledAt: undefined,
   };
 }

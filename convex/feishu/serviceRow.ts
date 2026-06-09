@@ -16,20 +16,51 @@
 // duplicated the Feishu-managed value (live cells showed extra "+N" chips), so
 // the mapping was removed. Do not re-add a Request Type write.
 
-// Request-card title -> its note Text column.
-const NOTE_FIELD: Record<string, string> = {
-  Quotation: "Quotation Note",
-  Sample: "Sample Note",
-  "R&D Support": "R&D Support Note",
-};
+// Bitable column name for the consolidated salesperson note. ADR-0022 collapsed
+// the three per-category Note columns (Quotation/Sample/R&D Support) into one;
+// the live Base column is `Service Note` (Text, type 1).
+// CONFIRMED against the live schema via listFields (2026-06-08). MUST match the
+// live Base column exactly — the add-in cannot create columns, so a mismatch
+// fails the create with 1254045 FieldNameNotFound.
+const REQUEST_NOTE_COLUMN = "Service Note";
+
+// Bitable column for the plain-text mail body (ADR-0022). Live column is
+// `Email Content` (Text, type 1). CONFIRMED via listFields (2026-06-03).
+const EMAIL_BODY_COLUMN = "Email Content";
+
+// Bitable Attachment column (Feishu field type 17) carrying the staged Feishu
+// Drive `file_token`s (ADR-0022). Live column is `Sales Files` (Attachment,
+// type 17). CONFIRMED via listFields (2026-06-03).
+const ATTACHMENTS_COLUMN = "Sales Files";
+
+// Intake source on the Service row — SingleSelect (type 3), NOT Text. CONFIRMED
+// via listFields (2026-06-03): fld0yFgPbj, options `Email ` (trailing space) and
+// `Form`. Outlook add-in writes the `Email ` option on create (source = email
+// intake), never the real clientEmail — that address is used only for Client
+// DuplexLink resolution (domain match via bitable.ts) or the user-selected link.
+const DATA_FROM_COLUMN = "Data From";
+const DATA_FROM_EMAIL_OPTION = "Email ";
 
 export interface ServiceRowInput {
   subject?: string;
   clientEmail?: string;
   clientRecordId?: string;
   dateOfOffer?: number;
-  requestSelections?: { requestType: string; note: string }[];
+  // The salesperson's single consolidated note (ADR-0022). Replaces the retired
+  // per-category requestSelections[]; written to the `Service Note` column.
+  requestNote?: string;
+  // The Mail Item's plain-text body via Office.js CoercionType.Text (excludes
+  // attachments/inline images). Written in full to `Email Content` — no cap, since
+  // inbound is a single received message (ADR-0022).
+  body?: string;
+  // Feishu Drive `file_token`s for the selected mail attachments + uploaded files
+  // (already staged via Convex storage and uploaded to Drive). Written to the
+  // single `Attachments` column as [{ file_token }] (ADR-0022).
+  attachments?: { fileToken: string }[];
   selectedCoworkers?: { openId: string; name: string; avatarUrl?: string }[];
+  /** Sales rep on the row (picker override; defaults to signed-in user in the SPA). */
+  selectedSales?: { openId: string; name?: string };
+  /** @deprecated Use selectedSales — kept for reconcile rows stored before the picker. */
   initiator?: { openId: string; name?: string };
   // Outlook `item.conversationId` — the salesperson-mailbox-local thread id for
   // the original client email. Lands in the Service row's `Email Conversation ID`
@@ -53,14 +84,39 @@ function readSkipSet(): Set<string> {
   );
 }
 
+// Set an optional plain-Text column only when it has non-whitespace content and
+// the diagnostic skip switch isn't suppressing it. Shared by every Text column so
+// buildServiceFields stays a flat list of column writes.
+function setText(
+  fields: Record<string, unknown>,
+  skip: Set<string>,
+  column: string,
+  value: string | undefined,
+): void {
+  if (value && value.trim() && !skip.has(column)) fields[column] = value;
+}
+
+/** Sets the `Data From` SingleSelect to the email-intake option (not clientEmail). */
+function setDataFromEmailSource(fields: Record<string, unknown>, skip: Set<string>): void {
+  if (!skip.has(DATA_FROM_COLUMN)) fields[DATA_FROM_COLUMN] = DATA_FROM_EMAIL_OPTION;
+}
+
+function resolveSelectedSales(
+  input: ServiceRowInput,
+): { openId: string; name?: string } | undefined {
+  return input.selectedSales ?? input.initiator;
+}
+
+function shouldPatchSalesAfterCreate(input: ServiceRowInput): boolean {
+  return Boolean(resolveSelectedSales(input)?.openId);
+}
+
 /**
- * Build the Service row's `fields` — "derivable only" (ADR-0010) plus the
- * additions ADR-0014 introduced (`Sales` Initiator + `Email Subject`).
- * Business Branch / Service Type are intentionally left blank (filled
- * manually in Bitable). The `Request Type` MultiSelect is likewise NOT written
- * — Feishu owns that column (see the FORBIDDEN note at the top of the file).
+ * Phase-1 create fields: everything except `Sales` (including `Data From` =
+ * `Email `). Sales is patched in a follow-up PUT (bitable.ts) so Feishu Base
+ * automations can settle on the row before the User column is set.
  */
-export function buildServiceFields(
+export function buildServiceCreateFields(
   input: ServiceRowInput,
   clientRecordId: string | null,
 ): Record<string, unknown> {
@@ -68,11 +124,14 @@ export function buildServiceFields(
   const skip = readSkipSet();
   if (skip.size > 0) console.log(`[bitable] DIAG_SKIP_FIELDS active: ${[...skip].join("|")}`);
 
-  // Request Type is FORBIDDEN to write from here — Feishu owns that column.
-  // Only the per-card Note Text columns are derived from the selections.
-  for (const r of input.requestSelections ?? []) {
-    const noteField = NOTE_FIELD[r.requestType];
-    if (noteField && r.note.trim() && !skip.has(noteField)) fields[noteField] = r.note;
+  setDataFromEmailSource(fields, skip);
+  setText(fields, skip, REQUEST_NOTE_COLUMN, input.requestNote);
+  setText(fields, skip, EMAIL_BODY_COLUMN, input.body);
+  setText(fields, skip, "Email Subject", input.subject);
+  setText(fields, skip, "Email Conversation ID", input.emailConversationId);
+
+  if (input.attachments && input.attachments.length > 0 && !skip.has(ATTACHMENTS_COLUMN)) {
+    fields[ATTACHMENTS_COLUMN] = input.attachments.map((a) => ({ file_token: a.fileToken }));
   }
 
   if (!input.selectedCoworkers || input.selectedCoworkers.length !== 1) {
@@ -84,22 +143,47 @@ export function buildServiceFields(
 
   if (input.dateOfOffer !== undefined && !skip.has("Date of Offer")) fields["Date of Offer"] = input.dateOfOffer;
 
-  // The Client DuplexLink is the business-critical customer link. It must not
-  // be disabled by the temporary diagnostic skip switch.
   if (clientRecordId) fields["Client"] = [clientRecordId];
 
-  // ADR-0014 additions:
-  if (input.subject && input.subject.trim() && !skip.has("Email Subject")) fields["Email Subject"] = input.subject;
-  if (input.initiator?.openId && !skip.has("Sales")) fields["Sales"] = [{ id: input.initiator.openId }];
-
-  // ADR-0017: Outlook conversationId as the Bitable→Outlook join key.
-  if (
-    input.emailConversationId &&
-    input.emailConversationId.trim() &&
-    !skip.has("Email Conversation ID")
-  ) {
-    fields["Email Conversation ID"] = input.emailConversationId;
-  }
-
   return fields;
+}
+
+/**
+ * Phase-3 patch: the `Sales Files` Attachment column only (ADR-0027). Deferred
+ * **Attachment Fill** PUTs the cumulative `file_token`s onto the just-created row
+ * after the create — modeled on the phase-2 Sales patch. An empty list writes
+ * nothing (never clears the cell). The DIAG skip switch suppresses it like the
+ * create path.
+ */
+export function buildServiceAttachmentFields(
+  attachments: { fileToken: string }[],
+): Record<string, unknown> {
+  if (attachments.length === 0) return {};
+  const skip = readSkipSet();
+  if (skip.has(ATTACHMENTS_COLUMN)) return {};
+  return { [ATTACHMENTS_COLUMN]: attachments.map((a) => ({ file_token: a.fileToken })) };
+}
+
+/** Phase-2 patch: `Sales` User column only (after `Data From` on create). */
+export function buildServiceSalesFields(input: ServiceRowInput): Record<string, unknown> {
+  if (!shouldPatchSalesAfterCreate(input)) return {};
+
+  const skip = readSkipSet();
+  const sales = resolveSelectedSales(input);
+  if (!sales?.openId || skip.has("Sales")) return {};
+
+  return { Sales: [{ id: sales.openId }] };
+}
+
+/**
+ * Full correction payload (create fields + Sales). Used by bounded PUT updates.
+ */
+export function buildServiceFields(
+  input: ServiceRowInput,
+  clientRecordId: string | null,
+): Record<string, unknown> {
+  return {
+    ...buildServiceCreateFields(input, clientRecordId),
+    ...buildServiceSalesFields(input),
+  };
 }

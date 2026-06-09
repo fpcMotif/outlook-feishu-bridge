@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Choosing the sync key — Convex ↔ Bitable mirror</title>
+<style>
+  :root{
+    --bg:#0b1220; --panel:#111a2e; --panel2:#0e1730; --ink:#e8eefc; --muted:#9fb0d0;
+    --line:#1f2c49; --blue:#3b82f6; --blue2:#60a5fa; --good:#34d399; --bad:#f87171; --warn:#fbbf24;
+    --radius:14px;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:linear-gradient(180deg,#0a1020,#0b1220 40%);color:var(--ink);
+    font:16px/1.65 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial}
+  .wrap{max-width:860px;margin:0 auto;padding:48px 22px 96px}
+  .kick{color:var(--blue2);font-weight:600;letter-spacing:.12em;text-transform:uppercase;font-size:12px}
+  h1{font-size:30px;line-height:1.2;margin:.3em 0 .2em}
+  h2{font-size:21px;margin:2.2em 0 .5em;padding-top:.3em}
+  h3{font-size:16px;margin:1.6em 0 .3em;color:var(--blue2)}
+  p{color:var(--ink)} .muted{color:var(--muted)}
+  .lead{font-size:18px;color:var(--muted);margin-top:.2em}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:20px 22px;margin:18px 0}
+  .answer{border-left:4px solid var(--blue);background:linear-gradient(90deg,rgba(59,130,246,.10),transparent)}
+  code,kbd{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:.92em}
+  code{background:#0a1428;border:1px solid var(--line);border-radius:6px;padding:1px 6px;color:#cfe0ff}
+  pre{background:#0a1428;border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow:auto}
+  pre code{background:none;border:none;padding:0;color:#cfe0ff}
+  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:14.5px}
+  th,td{border:1px solid var(--line);padding:10px 12px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);color:var(--blue2)}
+  .pill{display:inline-block;font-size:12px;font-weight:600;padding:2px 9px;border-radius:999px;border:1px solid}
+  .pill.good{color:var(--good);border-color:#1d6e54;background:rgba(52,211,153,.08)}
+  .pill.bad{color:var(--bad);border-color:#7a2f2f;background:rgba(248,113,113,.08)}
+  .test{display:flex;gap:14px;align-items:flex-start;margin:10px 0}
+  .test .n{flex:0 0 28px;height:28px;border-radius:8px;background:var(--blue);color:#04132e;font-weight:800;
+    display:grid;place-items:center}
+  ul.check{list-style:none;padding-left:0}
+  ul.check li{padding:6px 0 6px 28px;position:relative}
+  ul.check li::before{content:"✓";position:absolute;left:0;color:var(--good);font-weight:800}
+  .quiz button{display:block;width:100%;text-align:left;margin:8px 0;padding:11px 14px;border-radius:10px;
+    border:1px solid var(--line);background:var(--panel2);color:var(--ink);cursor:pointer;font:inherit;transition:.15s}
+  .quiz button:hover{border-color:var(--blue)}
+  .quiz button.right{border-color:var(--good);background:rgba(52,211,153,.12)}
+  .quiz button.wrong{border-color:var(--bad);background:rgba(248,113,113,.12)}
+  .fb{margin-top:8px;font-size:14.5px;color:var(--muted);display:none}
+  .fb.show{display:block}
+  a{color:var(--blue2)}
+  hr{border:none;border-top:1px solid var(--line);margin:36px 0}
+  .foot{font-size:13px;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="kick">Customer Mirror · Learning record 0001</div>
+  <h1>Which field do you key the mirror on?</h1>
+  <p class="lead">Best practice for the unique key that keeps the Convex <code>customers</code> table in lockstep with the Feishu Bitable customer-info table — and never drifts to 3× again.</p>
+
+  <div class="card answer">
+    <strong>The one-line answer:</strong> key the mirror on the <b>source system's own immutable id</b> — the Feishu API <code>record_id</code> — never on a human-editable / formula column like the <code>Record&nbsp;Id</code> field. Then pair that key with a <b>reconcile</b> step (the prune) so deletes in the source propagate. Key alone is not enough.
+  </div>
+
+  <h2>1 · The principle: stable identity vs. business meaning</h2>
+  <p>Every row needs an identity to upsert on. You have two kinds of candidate:</p>
+  <table>
+    <tr><th>Kind</th><th>What it is</th><th>Good sync key?</th></tr>
+    <tr><td><b>Natural key</b></td><td>A value with business meaning — email, account no., the <code>Record Id</code> column.</td><td><span class="pill bad">risky</span> meaning changes</td></tr>
+    <tr><td><b>Surrogate key</b></td><td>A system-assigned id with <i>no</i> meaning outside the system — Feishu's API <code>record_id</code>.</td><td><span class="pill good">yes</span> immutable by design</td></tr>
+  </table>
+  <p>The trap is that "immutable" business identifiers usually aren't. The classic cautionary tale: a startup keyed everything on the user's email — then aliases arrived and they couldn't change an email without breaking every linked row. Apply the <b>"never changes" test</b> skeptically: <i>"never"</i> has a way of becoming <i>"well, once."</i></p>
+
+  <h2>2 · Your exact case</h2>
+  <p>The Bitable customer table exposes two things that <i>look</i> like an id:</p>
+  <table>
+    <tr><th>Candidate</th><th>Source</th><th>Stable?</th></tr>
+    <tr><td><code>item.record_id</code><br><span class="muted">e.g. <code>recvl0iItb47Dh</code></span></td><td>Assigned by Feishu. The system of record's own surrogate key.</td><td><span class="pill good">immutable</span> never changes while the row exists</td></tr>
+    <tr><td><code>fields["Record Id"]</code> column</td><td>A <code>RECORD_ID()</code> <b>formula</b> column — equals the API id <i>today</i>, but a human could switch it to a manual field.</td><td><span class="pill bad">mutable</span> a "smart" value with business meaning</td></tr>
+  </table>
+  <p>Your old code keyed on the <i>column</i>:</p>
+  <pre><code>// before — keyed on a mutable formula column
+recordId: recordIdFromCustomerInfoRow(item)   // fields["Record Id"] ?? item.record_id
+
+// after (ADR-0021) — keyed on the immutable surrogate
+recordId: item.record_id</code></pre>
+  <p class="muted">Why this caused 3×: when source rows are deleted &amp; re-imported, Feishu mints <i>fresh</i> <code>record_id</code>s. An upsert-only mirror inserts the new generation but can't see that the old keys are gone — so generations stack up. (The column choice is a <i>second</i>, latent re-key trigger on top of that.)</p>
+
+  <h2>3 · The "never changes" test — how to pick a key for any source</h2>
+  <div class="test"><div class="n">1</div><div>Does the source system assign its own id that is stable for the life of the row? → <b>use it.</b> (<code>record_id</code>, a Git SHA, a Stripe <code>cus_…</code>.)</div></div>
+  <div class="test"><div class="n">2</div><div>Is your candidate something a <i>human can edit</i>, a formula, or derived from business data (email, name, code)? → <b>do not key on it.</b> Keep it as a display/alternate field instead.</div></div>
+  <div class="test"><div class="n">3</div><div>Could the answer to "does it ever change?" be <i>"once in a blue moon"</i>? → treat that as <b>yes, it changes</b>. Pick the surrogate.</div></div>
+
+  <h2>4 · Key alone isn't enough: the upsert + reconcile pair</h2>
+  <p>A stable key gives you <b>idempotent upsert</b> — re-running the sync can't duplicate rows. But upsert never <i>deletes</i>. To stay in lockstep you need the second half: <b>reconcile</b> (your Mirror Prune).</p>
+  <ul class="check">
+    <li><b>Upsert</b> each source row by <code>record_id</code> (insert if new, patch if changed) — safe to retry.</li>
+    <li><b>Reconcile</b>: after a <i>complete</i> pass, delete any mirror row whose <code>record_id</code> wasn't seen this run. Those are orphans from source deletes/re-imports.</li>
+    <li><b>Gate the delete</b> on a verified-complete sync, so a half-finished fetch can never wipe live rows.</li>
+  </ul>
+  <div class="card">
+    <h3 style="margin-top:0">Convex gotcha — don't reconcile by timestamp</h3>
+    <p class="muted">A Convex query is re-run when its <i>data</i> changes, not when the clock ticks — so a "<code>mirroredAt</code> older than X" staleness check is unreliable. Track liveness as a <b>set of ids seen this run</b> (or a generation number) instead. That's exactly why your prune builds an in-run <code>seenRecordIds</code> set rather than comparing timestamps.</p>
+  </div>
+
+  <h2>5 · Quick check</h2>
+  <div class="card quiz" id="quiz"></div>
+
+  <hr/>
+  <p class="foot"><b>Sources:</b>
+    <a href="https://agiledata.org/essays/keys.html">Ambler — Natural or Surrogate?</a> ·
+    <a href="https://www.baeldung.com/sql/keys-natural-vs-surrogate">Baeldung — Natural vs Surrogate</a> ·
+    <a href="https://docs.convex.dev/understanding/best-practices/">Convex Best Practices</a> ·
+    <a href="https://www.startdataengineering.com/post/why-how-idempotent-data-pipeline/">Idempotent pipelines</a> ·
+    in-repo <code>docs/adr/0021-customer-mirror-prune-and-event-sync.md</code>
+  </p>
+</div>
+
+<script>
+const Q=[
+ {q:"A teammate switches the Bitable <code>Record&nbsp;Id</code> column from a RECORD_ID() formula to a manual field. What should happen to your mirror?",
+  a:["Every row re-keys and risks drift — which is why we DON'T key on it","Nothing, because we key on the immutable API <code>record_id</code>","The search index rebuilds automatically"],
+  correct:1,
+  why:"Right reason, right field: identity is the API <code>record_id</code>, so a human editing the column can't re-key the mirror. (Keying on the column is exactly what made the old code fragile.)"},
+ {q:"You add the upsert-on-<code>record_id</code> but skip the prune. What breaks?",
+  a:["Duplicate rows on every retry","Deleted/re-imported source rows leave orphans → the mirror drifts up over time","CJK search stops matching"],
+  correct:1,
+  why:"Upsert is idempotent so retries are fine — but with no delete path, source deletes/re-imports accumulate as orphans. The key fixes duplication; the prune fixes drift."},
+ {q:"Why not detect stale rows by 'mirroredAt older than the last sync'?",
+  a:["Timestamps are too large to index","Convex re-runs queries on data change, not on the clock, so time-based staleness is unreliable — use an in-run seen-set","Feishu doesn't return timestamps"],
+  correct:1,
+  why:"Convex reactivity ignores Date.now(); liveness must come from data. That's why the prune collects the set of record_ids seen this run instead of comparing timestamps."}
+];
+const el=document.getElementById('quiz');
+Q.forEach((item,i)=>{
+  const box=document.createElement('div'); box.style.margin="6px 0 18px";
+  box.innerHTML=`<p style="font-weight:600">${i+1}. ${item.q}</p>`;
+  const fb=document.createElement('div'); fb.className='fb';
+  item.a.forEach((txt,j)=>{
+    const b=document.createElement('button'); b.innerHTML=txt;
+    b.onclick=()=>{
+      if(b.dataset.done) return;
+      [...box.querySelectorAll('button')].forEach(x=>x.dataset.done=1);
+      b.classList.add(j===item.correct?'right':'wrong');
+      if(j!==item.correct){ box.querySelectorAll('button')[item.correct].classList.add('right'); }
+      fb.textContent=item.why; fb.classList.add('show');
+    };
+    box.appendChild(b);
+  });
+  box.appendChild(fb); el.appendChild(box);
+});
+</script>
+</body>
+</html>

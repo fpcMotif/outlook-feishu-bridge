@@ -33,9 +33,14 @@ vi.mock("../hooks/useAttachmentStaging", () => ({
 }));
 
 vi.mock("../hooks/useCoworkerSearch", () => {
+  // Real Feishu directory search returns real openIds. The browser-preview flow
+  // runs with devPreview=true, where canSubmitSync blocks the fixture openIds
+  // (ou_jenny/ou_michael, etc. — isPreviewCoworkerOpenId) so preview fixtures
+  // cannot sync to Base. To exercise the happy path to a successful sync, these
+  // mock results must use non-fixture openIds, mirroring a live Feishu search.
   const coworkers = [
-    { openId: "ou_jenny", name: "Jenny Xu", avatarUrl: "https://example.test/jenny.png" },
-    { openId: "ou_michael", name: "Michael Chen", avatarUrl: "https://example.test/michael.png" },
+    { openId: "ou_real_jenny", name: "Jenny Xu", avatarUrl: "https://example.test/jenny.png" },
+    { openId: "ou_real_michael", name: "Michael Chen", avatarUrl: "https://example.test/michael.png" },
   ];
   return {
     useCoworkerSearch: () =>

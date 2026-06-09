@@ -303,7 +303,6 @@ function deepCopy<T>(value: T): T {
 export const EMAIL_RECORD_INDEXES: Record<string, readonly string[]> = {
   by_internetMessageId: ["internetMessageId"],
   by_conversationId: ["conversationId"],
-  by_userEmail: ["userEmail"],
   by_requestSyncKey: ["requestSyncKey"],
   by_bitableSyncStatus_and_bitableNextRetryAt: [
     "bitableSyncStatus",

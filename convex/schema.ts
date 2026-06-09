@@ -29,7 +29,6 @@ export default defineSchema({
   })
     .index("by_internetMessageId", ["internetMessageId"])
     .index("by_conversationId", ["conversationId"])
-    .index("by_userEmail", ["userEmail"])
     .index("by_requestSyncKey", ["requestSyncKey"])
     .index("by_bitableSyncStatus_and_bitableNextRetryAt", [
       "bitableSyncStatus",
@@ -184,30 +183,4 @@ export default defineSchema({
     lastPruneScannedCount: v.optional(v.number()),
     lastDeletedStaleCount: v.optional(v.number()),
   }),
-
-  returnRequests: defineTable({
-    internetMessageId: v.string(),
-    subject: v.string(),
-    from: v.string(),
-    orderNumber: v.optional(v.string()),
-    returnReason: v.string(),
-    returnItems: v.array(
-      v.object({
-        itemName: v.string(),
-        quantity: v.number(),
-        amount: v.optional(v.number()),
-      }),
-    ),
-    status: v.union(
-      v.literal("draft"),
-      v.literal("submitted"),
-      v.literal("processing"),
-      v.literal("completed"),
-    ),
-    pdfFileKey: v.optional(v.string()),
-    bitableRecordId: v.optional(v.string()),
-    createdAt: v.number(),
-  })
-    .index("by_internetMessageId", ["internetMessageId"])
-    .index("by_status", ["status"]),
 });

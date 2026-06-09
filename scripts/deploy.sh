@@ -45,8 +45,12 @@ require_tool() {
 }
 
 deploy_frontend() {
+  # ADDIN_ECS_HOST is the public host the SPA is served from — the single source
+  # of truth for the host (see .env.deploy.example; also consumed by
+  # provision-ecs.sh and `bun run manifest:ecs`). DEPLOY_HOST is the SSH target
+  # (it may be an IP); ADDIN_ECS_HOST is the HTTPS domain reported below.
   require_vars \
-    DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_KEY \
+    ADDIN_ECS_HOST DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_KEY \
     VITE_CONVEX_URL VITE_CONVEX_SITE_URL VITE_FEISHU_APP_ID
   require_tool ssh "ssh is part of OpenSSH — install Git for Windows or enable the OpenSSH client."
   require_tool tar "tar ships with Git Bash / WSL / macOS / Linux."
@@ -75,7 +79,7 @@ deploy_frontend() {
       echo "deployed $TS"
     '
 
-  echo "OK frontend -> https://$DEPLOY_HOST/addin/"
+  echo "OK frontend -> https://$ADDIN_ECS_HOST/addin/"
 }
 
 deploy_backend() {
@@ -190,24 +194,17 @@ Usage: bash scripts/deploy.sh <frontend|backend|auth|cloudflare|all>
 Reads .env.deploy (gitignored). Copy .env.deploy.example to start.
 
 One-time setup NOT done by this script:
-  - ECS box: nginx serving /var/www/addin under location /addin/ ; the SPA is
-    built with base=/addin/ so all asset paths are /addin/-prefixed.
-  - Fallback auth server (for `auth`): install Bun on the box
-    (curl -fsSL https://bun.sh/install | bash ; sudo cp "$HOME/.bun/bin/bun"
-    /usr/local/bin/bun  # COPY, not symlink-into-home), install the systemd unit
-    (deploy/feishu-auth.service ->
-    /etc/systemd/system/, then `sudo systemctl enable --now feishu-auth`), and add
-    `include snippets/feishu-auth.conf;` to the wmdev server block (deploy/nginx/).
-    Register https://$DEPLOY_HOST/feishu/oauth/callback as a Feishu redirect URL.
-    Assumes the deploy user has passwordless sudo.
-  - nginx response headers: Content-Security-Policy. The frame-ancestors
-    directive is load-bearing for Outlook (it must be an HTTP header, not a
-    <meta> tag). Copy the policy from git history (public/_headers, pre-refactor).
-  - nginx SPA fallback: try_files ... /addin/index.html; (client-side routing).
-  - TLS: cert for DEPLOY_HOST (Aliyun free SSL or certbot on the box).
-  - SSH: DEPLOY_SSH_KEY is a path to a private key whose public half is in the
-    deploy user's ~/.ssh/authorized_keys on the ECS box.
-  - Convex: generate prod deploy key (Dashboard -> Settings -> Deploy Keys).
+  - ECS box: run `bash scripts/provision-ecs.sh` ONCE against a fresh box (it
+    connects as PROVISION_SSH_TARGET=root@<ip>). It creates the deploy user +
+    key + scoped sudo, installs nginx + the rendered site/snippets/gzip + Bun,
+    obtains the TLS cert (certbot), enables the feishu-auth unit, owns /var/www to
+    deploy, and hardens sshd. See docs/adr/0028-reproducible-ecs-provisioning.md
+    and docs/DEPLOY.md §2. Prereqs it does NOT do: the DNS A record for
+    ADDIN_ECS_HOST and the security-group inbound 80/443 (both needed by certbot).
+  - Feishu (for `auth`): register https://$ADDIN_ECS_HOST/feishu/oauth/callback as
+    a redirect URL in the Feishu console. provision-ecs.sh leaves feishu-auth
+    enabled-but-stopped; `deploy.sh auth` writes /etc/feishu-auth.env and starts it.
+  - Convex: generate a prod deploy key (Dashboard -> Settings -> Deploy Keys).
   - Cloudflare (for `cloudflare`): re-auth before deploying with
     `bunx wrangler logout && bunx wrangler login` (interactive). The first deploy may
     need `bunx wrangler pages project create outlook-feishu-bridge`. The Global Host's

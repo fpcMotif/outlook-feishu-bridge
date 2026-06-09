@@ -37,6 +37,12 @@
       "skillPath": "skills/convex-setup-auth/SKILL.md",
       "computedHash": "b1a940758751c5b2fdc6ced105b19927a1655f0c1d4bd2fd5536dc3264202c00"
     },
+    "effect-v4": {
+      "source": "teeverc/effect-ts",
+      "sourceType": "github",
+      "skillPath": "skills/effect-v4/SKILL.md",
+      "computedHash": "9e5553b06ccd7247c69c23e92cbe79d7b9082729d9bd906bfff5c2f54333dc4b"
+    },
     "emil-design-eng": {
       "source": "emilkowalski/skill",
       "sourceType": "github",

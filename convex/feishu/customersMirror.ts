@@ -37,6 +37,7 @@ import {
 } from "./customerMirrorSync";
 import {
   canonicalCustomerDomain,
+  emailDomain,
   mapFeishuItemToCustomer,
   type CustomerRecord,
 } from "./customers";
@@ -845,13 +846,6 @@ export const matchByEmail = query({
     return { customer: fixture };
   },
 });
-
-function emailDomain(email: string): string | null {
-  const at = email.lastIndexOf("@");
-  if (at < 0 || at === email.length - 1) return null;
-  const domain = email.slice(at + 1).trim().toLowerCase();
-  return domain || null;
-}
 
 // Public ranked search query. Uses Convex's `withSearchIndex` for prefix +
 // score ranking on the `searchBlob` column. Optional `mineFor` filters to

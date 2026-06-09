@@ -30,21 +30,44 @@ bash scripts/deploy.sh frontend
   `/var/www/addin` symlink, keep the last 3.
 - **Rollback**: on the box, repoint `/var/www/addin` at an older release dir.
 
-## 2. One-time ECS setup (not done by deploy.sh)
+## 2. One-time ECS setup — `scripts/provision-ecs.sh` (ADR-0028)
 
-nginx serves `/var/www/addin` under `location /addin/`. Required pieces — the
-reference config lives in [`deploy/nginx/`](../deploy/nginx/):
+`deploy.sh` assumes a box that already has nginx, TLS, the `deploy` user, Bun, and
+the systemd unit. `scripts/provision-ecs.sh` puts all of that in place **once**, over
+SSH, on a fresh Aliyun Ubuntu 24 box — idempotent, so a re-run is a no-op.
 
-- **SPA fallback**: `try_files $uri $uri/ /addin/index.html;`
-- **CSP header** — *load-bearing for Outlook*. `deploy/nginx/addin-headers.conf`
-  is `include`d into the `/addin/` location. Its `frame-ancestors` must allow
-  `*.office.com *.office365.com *.outlook.com *.microsoft.com`, or Outlook
-  refuses to frame the taskpane. (`connect-src` must allow `*.convex.cloud`
-  + `wss://*.convex.cloud` + `*.convex.site` + `open.feishu.cn`.)
-- **`index.html` → `Cache-Control: no-cache`** — without it, Outlook serves a
-  stale (possibly crashing) bundle after a redeploy.
-- **TLS**: `certbot --nginx -d <host>` (Let's Encrypt; auto-renews) or Aliyun
-  free SSL. Needs DNS A record + security-group inbound **80 and 443** open.
+```bash
+bash scripts/provision-ecs.sh
+```
+
+- **Bootstrap identity.** It connects as `PROVISION_SSH_TARGET=root@<ip>` — Aliyun's
+  initial root over the box IP — **not** `deploy.sh`'s `DEPLOY_USER`/`DEPLOY_SSH_KEY`:
+  the `deploy` user does not exist yet (the script creates it). `.env.deploy` adds
+  `ADDIN_ECS_HOST`, `CERTBOT_EMAIL`, `DEPLOY_PUBKEY` (the public half of
+  `DEPLOY_SSH_KEY`), and `PROVISION_SSH_TARGET`.
+- **What it does, in order** (each step guarded): (1) create the `deploy` user +
+  `authorized_keys` + scoped passwordless sudoers; (2) `apt install` nginx + certbot,
+  install Bun as a binary **copy** at `/usr/local/bin/bun`; (3) render
+  `deploy/nginx/wmdev.conf` (`__ADDIN_DOMAIN__` → `ADDIN_ECS_HOST`) into
+  `sites-available`/`sites-enabled`, copy the `{addin-headers,addin-assets-cache,`
+  `feishu-auth,sentry-tunnel}` snippets, enable gzip for JS/CSS; (4) `certbot --nginx`
+  for the cert (Let's Encrypt, auto-renews); (5) install + **enable** the
+  `feishu-auth` unit (not started — its env file is written by `deploy.sh auth`);
+  (6) `mkdir /var/www` + `chown deploy`; (7) **last**, harden `sshd`
+  (`PermitRootLogin no`, `PasswordAuthentication no`). After step 7, root@<ip> can no
+  longer log in — reconnect as `deploy`.
+- **Two prereqs it does NOT do** — both needed before certbot (step 4): a **DNS A
+  record** for `ADDIN_ECS_HOST`, and a security-group inbound rule for ports **80 and
+  443**.
+
+The reference configs it renders live in [`deploy/nginx/`](../deploy/nginx/) +
+[`deploy/feishu-auth.service`](../deploy/feishu-auth.service). The load-bearing pieces
+they encode: the SPA fallback (`try_files $uri $uri/ /addin/index.html;`), the **CSP
+header** (`addin-headers.conf` — its `frame-ancestors` must allow `*.office.com
+*.office365.com *.outlook.com *.microsoft.com *.cloud.microsoft` or Outlook refuses to
+frame the taskpane; `connect-src` must reach `*.convex.cloud` + `wss://*.convex.cloud`
++ `*.convex.site` + `open.feishu.cn`), and `index.html` → `Cache-Control: no-cache`
+(without it Outlook serves a stale, possibly crashing, bundle after a redeploy).
 
 ## 3. Sideload the Outlook add-in
 

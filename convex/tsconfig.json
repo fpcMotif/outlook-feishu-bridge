@@ -8,7 +8,8 @@
     "types": ["node"],
     "strict": true,
     "noEmit": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "plugins": [{ "name": "@effect/language-service" }]
   },
   "include": ["./**/*"],
   "exclude": ["_generated"]

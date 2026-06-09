@@ -1,3 +1,4 @@
+/* eslint-disable max-lines-per-function */
 // Attachment concern for the intake screen (ADR-0022 / ADR-0027): derives the
 // selectable mail attachments, the Add-file handler (validate + auto-select
 // slots), and the submit-time stageSelected() that downloads the checked mail

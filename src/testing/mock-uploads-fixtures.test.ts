@@ -24,7 +24,7 @@ describe("buildMockUploadedFiles", () => {
   it("seeds a batch exercising every row state, including an unreadable (Re-add) row", () => {
     const files = buildMockUploadedFiles("failed-uploads");
     const errored = files.filter((f) => f.status === "error" && f.rejection === null);
-    expect(errored.length).toBeGreaterThan(1); // drives "Retry all (N)"
+    expect(errored.length).toBeGreaterThan(1);
 
     // A network-failed row keeps selected:true to prove it is PARKED, not staged.
     expect(errored.every((f) => f.selected)).toBe(true);

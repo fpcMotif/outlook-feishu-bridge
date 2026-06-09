@@ -18,12 +18,11 @@
 
 // Bitable column name for the consolidated salesperson note. ADR-0022 collapsed
 // the three per-category Note columns (Quotation/Sample/R&D Support) into one;
-// the live Base reuses the existing `Quotation Note` Text column for it.
-// CONFIRMED against the live schema via listFields (2026-06-03). MUST match the
-// live Base column exactly — the add-in cannot create columns, so a rename
-// without a matching Base column silently drops the write / fails the create
-// with 1254045 FieldNameNotFound (which is exactly what the assumed names did).
-const REQUEST_NOTE_COLUMN = "Quotation Note";
+// the live Base column is `Service Note` (Text, type 1).
+// CONFIRMED against the live schema via listFields (2026-06-08). MUST match the
+// live Base column exactly — the add-in cannot create columns, so a mismatch
+// fails the create with 1254045 FieldNameNotFound.
+const REQUEST_NOTE_COLUMN = "Service Note";
 
 // Bitable column for the plain-text mail body (ADR-0022). Live column is
 // `Email Content` (Text, type 1). CONFIRMED via listFields (2026-06-03).
@@ -48,7 +47,7 @@ export interface ServiceRowInput {
   clientRecordId?: string;
   dateOfOffer?: number;
   // The salesperson's single consolidated note (ADR-0022). Replaces the retired
-  // per-category requestSelections[]; written to the `Quotation Note` column.
+  // per-category requestSelections[]; written to the `Service Note` column.
   requestNote?: string;
   // The Mail Item's plain-text body via Office.js CoercionType.Text (excludes
   // attachments/inline images). Written in full to `Email Content` — no cap, since

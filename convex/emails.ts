@@ -17,7 +17,7 @@ import {
   resolveBitableNextRetryAt,
   shouldRearmStaleSync,
 } from "./feishu/bitableSyncRetry";
-import { shouldRearmAttachmentFill } from "./feishu/attachmentFill";
+import { buildFillTotal, shouldRearmAttachmentFill } from "./feishu/attachmentFill";
 import { buildConfiguredBitableRecordDetailUrl } from "./feishu/bitableUrl";
 import { poisonedOutboxReason } from "./feishu/previewFixtures";
 
@@ -144,6 +144,10 @@ export const beginBitableSync = internalMutation({
       bitableNextRetryAt: now,
       bitableAttemptCount: existing?.bitableAttemptCount ?? 0,
       sentToBitable: args.sentToBitable,
+      // Server-stamped start of the click→filled span; set once on first arm so a
+      // retry/reopen never resets the clock (the client-minted submitClickedAt +
+      // syncTraceId ride in via ...args).
+      syncReceivedAt: existing?.syncReceivedAt ?? now,
       bitableAttachmentStatus: hasAttachmentSources ? ("pending" as const) : undefined,
       bitableAttachmentFileTokens: undefined,
       bitableAttachmentSkipped: undefined,
@@ -308,24 +312,27 @@ export const listDueAttachmentFills = internalQuery({
   args: { now: v.number(), limit: v.optional(v.number()) },
   handler: async (ctx, args) => {
     const limit = Math.min(Math.max(args.limit ?? RECONCILE_BATCH_LIMIT, 1), RECONCILE_BATCH_LIMIT);
+    // The three non-terminal statuses index independently — query them in
+    // parallel (one indexed read each) rather than a sequential scan.
+    const perStatus = await Promise.all(
+      (["pending", "filling", "failed"] as const).map((status) =>
+        ctx.db
+          .query("emailRecords")
+          .withIndex("by_attachmentStatus_and_attachmentNextRetryAt", (q) =>
+            q
+              .eq("bitableAttachmentStatus", status)
+              .gte("attachmentNextRetryAt", BITABLE_NEXT_RETRY_MIN)
+              .lte("attachmentNextRetryAt", args.now),
+          )
+          .take(limit),
+      ),
+    );
     const due: { internetMessageId: string; requestSyncKey?: string }[] = [];
-    for (const status of ["pending", "filling", "failed"] as const) {
-      const rows = await ctx.db
-        .query("emailRecords")
-        .withIndex("by_attachmentStatus_and_attachmentNextRetryAt", (q) =>
-          q
-            .eq("bitableAttachmentStatus", status)
-            .gte("attachmentNextRetryAt", BITABLE_NEXT_RETRY_MIN)
-            .lte("attachmentNextRetryAt", args.now),
-        )
-        .take(limit);
-      for (const row of rows) {
-        // Only rows that actually have a created Base row + remaining work.
-        if (row.bitableRecordId && (row.bitableAttachmentSources?.length ?? 0) > 0) {
-          due.push({ internetMessageId: row.internetMessageId, requestSyncKey: row.requestSyncKey });
-        }
+    for (const row of perStatus.flat()) {
+      // Only rows that actually have a created Base row + remaining work.
+      if (row.bitableRecordId && (row.bitableAttachmentSources?.length ?? 0) > 0) {
+        due.push({ internetMessageId: row.internetMessageId, requestSyncKey: row.requestSyncKey });
       }
-      if (due.length >= limit) break;
     }
     return due.slice(0, limit);
   },
@@ -336,10 +343,18 @@ export const markAttachmentsFilled = internalMutation({
   handler: async (ctx, args) => {
     const existing = await findExistingEmailRecord(ctx, args);
     if (!existing) return;
+    const filledAt = Date.now();
     await ctx.db.patch(existing._id, {
       bitableAttachmentStatus: "filled",
       attachmentNextRetryAt: undefined,
+      attachmentsFilledAt: existing.attachmentsFilledAt ?? filledAt,
     });
+    // One structured, grep-able line measuring the TRUE click→fully-written
+    // latency — the per-Feishu-call logs cannot, because the client pane is long
+    // gone by the time the deferred fill fences. Surfaces in `bunx convex logs`
+    // as `[fillTotal] … totalMs=…` (buildFillTotal reads the tokens/skips that
+    // recordAttachmentProgress already persisted before this fence).
+    console.log(buildFillTotal(existing, filledAt).line);
   },
 });
 

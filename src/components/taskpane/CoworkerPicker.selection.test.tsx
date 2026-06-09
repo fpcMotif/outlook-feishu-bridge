@@ -54,7 +54,7 @@ describe("CoworkerPicker selected row", () => {
     expect(row.querySelector('[data-slot="avatar"]')).toBeInTheDocument();
   });
 
-  it("keeps coworker icon when avatarUrl is missing", () => {
+  it("renders the avatar with a person fallback when avatarUrl is missing", () => {
     render(
       <CoworkerPicker
         sessionId="sess"
@@ -65,11 +65,11 @@ describe("CoworkerPicker selected row", () => {
 
     const row = document.querySelector('[data-coworker-row="true"]') as HTMLElement;
     expect(row).not.toBeNull();
-    expect(row.querySelector(':scope > span[aria-hidden="true"]')).toHaveClass(
-      "text-muted-foreground",
-    );
-    expect(row.querySelector('[data-slot="avatar"]')).toBeNull();
-    expect(row.querySelector("svg")).toBeInTheDocument();
+    // Matches SalesPicker: the selected row always shows a circular avatar whose
+    // fallback is the UserRound person glyph, even with no avatarUrl.
+    expect(row.querySelector('[data-slot="avatar"]')).toBeInTheDocument();
+    expect(row.querySelector('[data-slot="avatar-image"]')).toBeNull();
+    expect(row.querySelector(".lucide-user-round")).toBeInTheDocument();
     expect(within(row as HTMLElement).getByText("Sales Ops")).toBeInTheDocument();
   });
 

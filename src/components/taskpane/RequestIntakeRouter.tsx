@@ -23,6 +23,8 @@ export interface IntakeRouterProps {
   syncError: string | null;
   bitableRecordId: string | null;
   bitableDetailUrl: string | null;
+  /** Deferred attachment-fill status from getBitableSyncByConversation; gates the open_feishu CTA (ADR-0027). */
+  attachmentStatus?: "pending" | "filling" | "filled" | "failed" | null;
   syncPreview: SyncPreviewPayload;
   onRetrySelfForward: () => void;
   onRetrySync: () => void;
@@ -45,6 +47,7 @@ export function resolveIntakeScreen(props: IntakeRouterProps): ReactNode | null 
         detailUrl={props.bitableDetailUrl}
         selfForwardStatus={props.selfForwardStatus}
         onRetrySelfForward={props.onRetrySelfForward}
+        attachmentStatus={props.attachmentStatus}
       />
     );
   }

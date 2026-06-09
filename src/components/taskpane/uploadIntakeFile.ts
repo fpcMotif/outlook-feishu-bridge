@@ -1,11 +1,16 @@
 // Eager Convex storage upload for a picked intake file (ADR-0022). Keeps React
 // out of the orchestration so progress + reducer transitions stay unit-testable.
 
+import { fileExtension } from "../../office/attachments";
 import {
   mimeFromName,
   postBytesToConvexWithProgress,
+  readFileBytesWithRetry,
+  uploadBlobWithRetry,
   type AttachmentStagingDeps,
 } from "../../office/attachmentUpload";
+import { reportUploadError } from "../../sentry";
+import { runWithConcurrency, UPLOAD_CONCURRENCY } from "./runWithConcurrency";
 import type { IntakeAction, UploadedFile } from "./intakeReducer";
 
 const inFlight = new Map<string, Promise<void>>();
@@ -47,8 +52,13 @@ export function intakeUploadInFlight(id: string): Promise<void> | undefined {
 }
 
 export async function awaitIntakeUploads(ids: string[]): Promise<void> {
+  // Best-effort: a tracked upload promise REJECTS when its upload fails (the
+  // inner .catch re-throws). Swallow each rejection here so one late failure at
+  // submit time can't reject Promise.all and abort the whole sync — the reducer
+  // already recorded the error row and gatherAttachmentSources skips the failed
+  // pick, so the sync proceeds with the rest (the documented best-effort path).
   await Promise.all(
-    ids.map((id) => inFlight.get(id) ?? Promise.resolve()),
+    ids.map((id) => (inFlight.get(id) ?? Promise.resolve()).catch(() => {})),
   );
 }
 
@@ -63,13 +73,25 @@ async function performIntakeUpload(
     status: "uploading",
     uploadError: null,
   });
-  const url = await deps.generateUploadUrl();
-  const blob = new Blob([upload.file], {
+  // Read the bytes ONCE, up front, with retry — the first read of a cloud
+  // placeholder (Dropbox / OneDrive "Files On-Demand") triggers Windows to hydrate
+  // the file, so a short retry usually succeeds with no user action. A handle that
+  // stays unreadable throws a tagged error the row surfaces with a Re-add button.
+  const bytes = await readFileBytesWithRetry(upload.file);
+  const blob = new Blob([bytes], {
     type: upload.file.type || mimeFromName(upload.file.name),
   });
-  const { storageId } = await postBytesToConvexWithProgress(url, blob, (progress) => {
-    dispatch({ type: "uploadProgressUpdated", id: upload.id, progress });
-  });
+  // Re-mints a fresh upload URL per attempt and retries transport errors with
+  // backoff (Convex URLs are single-use); a single cross-border reset no longer
+  // dead-ends the upload. Server (4xx/5xx) and read failures are NOT retried.
+  const { storageId } = await uploadBlobWithRetry(
+    deps.generateUploadUrl,
+    blob,
+    (progress) => {
+      dispatch({ type: "uploadProgressUpdated", id: upload.id, progress });
+    },
+    postBytesToConvexWithProgress,
+  );
   completedStorage.set(upload.id, storageId);
   dispatch({
     type: "uploadStatusChanged",
@@ -98,6 +120,15 @@ export function uploadIntakeFileToStorage(
         status: "error",
         uploadError: message,
       });
+      // Report the TERMINAL failure (uploadBlobWithRetry already exhausted its
+      // in-flight transport retries) as a handled Sentry event with size/type/kind
+      // — no longer an unhandled rejection, and now chartable. attempts is the
+      // transport-retry budget; read/server failures terminate on the first try.
+      reportUploadError(e, {
+        bytes: upload.file.size,
+        ext: fileExtension(upload.file.name),
+        attempts: 3,
+      });
       throw e;
     })
     .finally(() => {
@@ -113,11 +144,21 @@ export function queueIntakeFileUploads(
   uploads: { id: string; file: File; rejection: string | null }[],
   dispatch: (action: IntakeAction) => void,
 ): void {
-  for (const upload of uploads) {
-    if (upload.rejection !== null) continue;
-    if (inFlight.has(upload.id) || completedStorage.has(upload.id)) continue;
-    void uploadIntakeFileToStorage(deps, upload, dispatch);
-  }
+  const pending = uploads.filter(
+    (upload) =>
+      upload.rejection === null &&
+      !inFlight.has(upload.id) &&
+      !completedStorage.has(upload.id),
+  );
+  if (pending.length === 0) return;
+  // Cap concurrency so a big batch (e.g. 15 screenshots) does not saturate the
+  // WebView's per-origin connection pool and self-inflict "network" failures.
+  // runWithConcurrency owns each item's errors; the inner .catch in
+  // uploadIntakeFileToStorage still drives the reducer's error row + retry, so a
+  // failed upload is surfaced without escaping to window.onunhandledrejection.
+  void runWithConcurrency(pending, UPLOAD_CONCURRENCY, (upload) =>
+    uploadIntakeFileToStorage(deps, upload, dispatch),
+  );
 }
 
 export function retryIntakeFileUpload(
@@ -127,5 +168,41 @@ export function retryIntakeFileUpload(
 ): void {
   clearIntakeUploadCache(upload.id);
   dispatch({ type: "uploadRetryRequested", id: upload.id });
-  void uploadIntakeFileToStorage(deps, upload, dispatch);
+  // Same fire-and-forget contract as queueIntakeFileUploads: the inner .catch
+  // already drives the row's error state, so swallow here to avoid an unhandled
+  // rejection on a retry that also fails.
+  void uploadIntakeFileToStorage(deps, upload, dispatch).catch(() => {});
+}
+
+// Retry a whole batch of failed uploads at once (the "Retry all" affordance).
+// Resets each row to pending, then drives them through the SAME concurrency cap
+// as the initial queue — so retrying 15 files does NOT re-create the burst that
+// caused the failures in the first place.
+export function retryIntakeFileUploads(
+  deps: Pick<AttachmentStagingDeps, "generateUploadUrl">,
+  uploads: { id: string; file: File; rejection: string | null }[],
+  dispatch: (action: IntakeAction) => void,
+): void {
+  const retryable = uploads.filter((upload) => upload.rejection === null);
+  if (retryable.length === 0) return;
+  for (const upload of retryable) {
+    clearIntakeUploadCache(upload.id);
+    dispatch({ type: "uploadRetryRequested", id: upload.id });
+  }
+  queueIntakeFileUploads(deps, retryable, dispatch);
+}
+
+// Re-add affordance for an UNREADABLE pick (Dropbox/OneDrive placeholder): the
+// user re-selects the file, which hands us a FRESH File handle (hydrated by now,
+// or with a current mtime), so unlike Retry — which re-reads the same dead handle
+// — this can actually succeed. Swaps the row's file in place (preserving its id +
+// selection) and re-queues. The caller (useIntakeAttachments) has already
+// validated the pick and dispatched `uploadFileReplaced`.
+export function replaceIntakeFileUpload(
+  deps: Pick<AttachmentStagingDeps, "generateUploadUrl">,
+  upload: { id: string; file: File },
+  dispatch: (action: IntakeAction) => void,
+): void {
+  clearIntakeUploadCache(upload.id);
+  void uploadIntakeFileToStorage(deps, upload, dispatch).catch(() => {});
 }

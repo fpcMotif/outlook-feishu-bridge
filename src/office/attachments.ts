@@ -6,7 +6,24 @@ import type { AttachmentInfo } from "./mailItem";
 // ADR-0022 decision #4: single-shot Feishu Drive upload caps a file at 20 MB, and
 // v1 caps the selected cell payload at 10 files.
 export const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
-export const MAX_ATTACHMENT_COUNT = 10;
+
+// The COUNT cap is the single knob the upload-latency experiment turns: set
+// VITE_ATTACHMENT_CAP=50 (build-time) to lift the picker to 50 files and measure
+// the click-to-fully-written time at scale. Absent/unparseable → the conservative
+// default. The 20 MB per-file BYTE cap above is orthogonal and never moves. The
+// server enforces the same default+override via ATTACHMENT_CAP (convex/feishu/
+// attachmentLimits.ts) so the cap is one source of truth across both runtimes.
+export const DEFAULT_ATTACHMENT_COUNT = 10;
+
+function resolveAttachmentCount(): number {
+  const raw = import.meta.env.VITE_ATTACHMENT_CAP as string | undefined;
+  const parsed = raw === undefined || raw === "" ? NaN : Number(raw);
+  return Number.isInteger(parsed) && parsed >= 1
+    ? parsed
+    : DEFAULT_ATTACHMENT_COUNT;
+}
+
+export const MAX_ATTACHMENT_COUNT = resolveAttachmentCount();
 
 // Extensions accepted for user uploads. Existing mail attachments are offered
 // as-is because they are already real files from the inbox.

@@ -116,6 +116,41 @@ describe("AttachmentSection", () => {
     expect(onRetryUpload).toHaveBeenCalledWith("u1");
   });
 
+  it("pins retry and remove together on a failed upload, folding failure into the subtitle (no hover swap)", () => {
+    setup({
+      uploadedFiles: [
+        {
+          ...upload("u1", "quote.xlsx"),
+          status: "error",
+          uploadError: "Convex storage upload failed (network)",
+        },
+      ],
+      onRetryUpload: vi.fn(),
+    });
+
+    // FAILED is no longer a trailing badge — failure shows on the icon + as a
+    // humanized, destructive subtitle, freeing the row width for the filename.
+    expect(screen.queryByText("Failed")).not.toBeInTheDocument();
+    expect(
+      screen.getByText("Couldn't upload — check your connection, then Retry"),
+    ).toBeInTheDocument();
+
+    // Retry stays put — its wrapper must NOT carry the hover-hide class.
+    const retry = screen.getByRole("button", { name: /^Retry$/i });
+    expect(retry.parentElement?.className).not.toContain(
+      "group-hover/attachment:opacity-0",
+    );
+
+    // Trash is always visible (not gated behind hover) so Retry + trash coexist.
+    const removeButton = screen.getByRole("button", {
+      name: /remove quote\.xlsx/i,
+    });
+    expect(removeButton.parentElement?.className).toContain("opacity-100");
+    expect(removeButton.parentElement?.className).not.toContain(
+      "group-hover/attachment:opacity-100",
+    );
+  });
+
   it("uses only the checkbox for selected attachment state", () => {
     setup({
       mailAttachments: [mail("a1", "RFQ-2026-Q1.pdf")],

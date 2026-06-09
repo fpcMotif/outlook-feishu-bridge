@@ -8,6 +8,18 @@ import { useRequestIntakeScreen } from "./useRequestIntakeScreen";
 
 type IntakeVm = ReturnType<typeof useRequestIntakeScreen>;
 
+// The reactive attachment-fill status lives only on the authoritative query
+// result (getBitableSyncByConversation), not on the localStorage snapshot used
+// as the brief cold-open fallback. Pull it out of the union defensively — a
+// snapshot (or null) reads as "no gate" until the live query resolves.
+function liveAttachmentStatus(
+  existingSync: IntakeVm["existingSync"],
+): "pending" | "filling" | "filled" | "failed" | null {
+  return existingSync && "attachmentStatus" in existingSync
+    ? existingSync.attachmentStatus ?? null
+    : null;
+}
+
 function resolveExistingSyncOverlay({
   existingSync,
   existingSyncStatus,
@@ -24,6 +36,7 @@ function resolveExistingSyncOverlay({
         detailUrl={existingSync.detailUrl}
         submittedAt={existingSync.syncedAt}
         alreadySynced={true}
+        attachmentStatus={liveAttachmentStatus(existingSync)}
       />
     );
   }
@@ -32,7 +45,9 @@ function resolveExistingSyncOverlay({
   ) : null;
 }
 
-export function RequestIntakeScreenCore(props: RequestIntakeScreenProps & { syncApi: RequestIntakeSyncApi }) {
+export function RequestIntakeScreenCore(
+  props: RequestIntakeScreenProps & { mailKey: string; syncApi: RequestIntakeSyncApi },
+) {
   const vm = useRequestIntakeScreen(props);
   const {
     props: screenProps,
@@ -56,6 +71,7 @@ export function RequestIntakeScreenCore(props: RequestIntakeScreenProps & { sync
     syncError: state.syncError,
     bitableRecordId: state.bitableRecordId,
     bitableDetailUrl: state.bitableDetailUrl,
+    attachmentStatus: liveAttachmentStatus(existingSync),
     syncPreview,
     onRetrySelfForward: fireSelfForward,
     onRetrySync: runSync,

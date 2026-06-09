@@ -4,13 +4,13 @@
   xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
   xmlns:mailappor="http://schemas.microsoft.com/office/mailappversionoverrides/1.0" xsi:type="MailApp">
   <Id>a616d519-99f8-4cd4-8b94-d97e3e38225e</Id>
-  <Version>1.0.0.0</Version>
+  <Version>1.0.0.3</Version>
   <ProviderName>fpcMotif</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
-  <DisplayName DefaultValue="feishu-sync (Dev)"/>
+  <DisplayName DefaultValue="Sales Service"/>
   <Description DefaultValue="Forward Outlook emails to Feishu via bot webhook, group chat, or Bitable."/>
-  <IconUrl DefaultValue="https://localhost:3000/assets/icon-64.png"/>
-  <HighResolutionIconUrl DefaultValue="https://localhost:3000/assets/icon-128.png"/>
+  <IconUrl DefaultValue="https://localhost:3000/assets/icon-32.png"/>
+  <HighResolutionIconUrl DefaultValue="https://localhost:3000/assets/icon-64.png"/>
   <SupportUrl DefaultValue="https://github.com/fpcMotif/outlook-feishu-addin"/>
   <AppDomains>
     <AppDomain>https://localhost:3000</AppDomain>
@@ -111,8 +111,8 @@
         <bt:Url id="Taskpane.Url" DefaultValue="https://localhost:3000/"/>
       </bt:Urls>
       <bt:ShortStrings>
-        <bt:String id="CommandsGroup.Label" DefaultValue="feishu-sync"/>
-        <bt:String id="TaskpaneButton.Label" DefaultValue="feishu-sync"/>
+        <bt:String id="CommandsGroup.Label" DefaultValue="Sales Service"/>
+        <bt:String id="TaskpaneButton.Label" DefaultValue="Sales Service"/>
         <bt:String id="TaskpaneButton.SupertipTitle" DefaultValue="Forward to Feishu"/>
       </bt:ShortStrings>
       <bt:LongStrings>

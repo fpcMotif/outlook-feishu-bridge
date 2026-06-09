@@ -56,6 +56,7 @@ const originalMail: MailItemData = {
 };
 
 import { RequestIntakeScreen } from "./RequestIntakeScreen";
+import { clearIntakeDraftCache } from "./intakeDraftCache";
 
 function renderLoggedIn(mailItem: MailItemData) {
   render(
@@ -71,6 +72,7 @@ function renderLoggedIn(mailItem: MailItemData) {
 
 describe("RequestIntakeScreen already-synced fast reopen", () => {
   beforeEach(() => {
+    clearIntakeDraftCache();
     localStorage.clear();
     vi.restoreAllMocks();
     mockUseAction.mockReturnValue(

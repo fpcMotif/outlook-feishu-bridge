@@ -1,5 +1,7 @@
 import { type ReactNode } from "react";
 
+import { AlertCircle } from "lucide-react";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -48,6 +50,27 @@ function FileTypeIcon({ name }: { name: string }) {
       aria-hidden="true"
     >
       <Icon className={cn("size-5", tint)} strokeWidth={1.75} />
+    </span>
+  );
+}
+
+/**
+ * Failed-upload icon tile: the file glyph dimmed inside a destructive-tinted
+ * tile with a small AlertCircle badge in the corner. Signals failure at the
+ * icon — costing zero row width — so the trailing cluster is just Retry + trash
+ * and the filename keeps its space.
+ */
+export function FileTypeIconErrored({ name }: { name: string }) {
+  const { Icon, tint } = iconFor(name);
+
+  return (
+    <span className="relative size-10 shrink-0" aria-hidden="true">
+      <span className="border-destructive/40 bg-destructive/5 flex size-10 items-center justify-center rounded-xl border">
+        <Icon className={cn("size-5 opacity-50", tint)} strokeWidth={1.75} />
+      </span>
+      <span className="bg-card absolute -right-0.5 -bottom-0.5 flex size-4 items-center justify-center rounded-full">
+        <AlertCircle className="text-destructive size-4" strokeWidth={2.25} />
+      </span>
     </span>
   );
 }
@@ -152,12 +175,20 @@ function AttachmentTrailing({
   status,
   onRemove,
   removeLabel,
+  pinControls = false,
 }: {
   status?: ReactNode;
   onRemove?: () => void;
   removeLabel?: string;
+  pinControls?: boolean;
 }) {
-  const hideStatusOnHover = onRemove !== undefined;
+  // Normally the status badge fades out on hover while the trash fades in, so a
+  // row shows either state, never both. A failed upload needs all three at once
+  // — Retry button, Failed badge, and trash — so the user can actually reach
+  // Retry (under the old swap it vanished the instant the pointer entered the
+  // row). pinControls cancels the hover swap: status stays put and trash is
+  // always visible.
+  const hideStatusOnHover = onRemove !== undefined && !pinControls;
   return (
     <div className="relative flex min-h-10 shrink-0 items-center justify-end gap-0.5">
       {status ? (
@@ -173,9 +204,10 @@ function AttachmentTrailing({
       {onRemove && removeLabel ? (
         <div
           className={cn(
-            "flex items-center gap-0.5 opacity-0 transition-opacity duration-150 ease-[var(--ease-out-strong)]",
-            ROW_HOVER_FINE_TRASH_SHOW,
-            "focus-within:opacity-100",
+            "flex items-center gap-0.5 transition-opacity duration-150 ease-[var(--ease-out-strong)] focus-within:opacity-100",
+            pinControls
+              ? "opacity-100"
+              : cn("opacity-0", ROW_HOVER_FINE_TRASH_SHOW),
           )}
         >
           <RowTrashAction label={removeLabel} onRemove={onRemove} />
@@ -195,6 +227,9 @@ interface AttachmentRowProps {
   fileIcon?: ReactNode;
   onRemove?: () => void;
   removeLabel?: string;
+  pinControls?: boolean;
+  /** Native hover tooltip — used to surface the raw upload error on a failed row. */
+  title?: string;
 }
 
 export function AttachmentRow({
@@ -207,9 +242,12 @@ export function AttachmentRow({
   fileIcon,
   onRemove,
   removeLabel,
+  pinControls = false,
+  title,
 }: AttachmentRowProps) {
   return (
     <div
+      title={title}
       className={cn(
         "group/attachment relative flex items-center gap-3 px-4 py-3 transition-colors duration-150 ease-[var(--ease-out-strong)]",
         selected ? "bg-primary/5" : ROW_HOVER_BG,
@@ -226,6 +264,7 @@ export function AttachmentRow({
         status={status}
         onRemove={onRemove}
         removeLabel={removeLabel}
+        pinControls={pinControls}
       />
     </div>
   );

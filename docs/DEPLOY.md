@@ -14,9 +14,10 @@ The backend is the same Convex deployment for both, called directly (not proxied
 
 ## 1. Deploy the SPA to the ECS Host (CN)
 
-`.env.deploy` (gitignored) must define `DEPLOY_HOST`, `DEPLOY_USER`,
-`DEPLOY_SSH_KEY` (path to the private key), and the build vars `VITE_CONVEX_URL`,
-`VITE_CONVEX_SITE_URL`, `VITE_FEISHU_APP_ID`.
+`.env.deploy` (gitignored) must define `DEPLOY_HOST` (the SSH target — an IP is fine),
+`DEPLOY_USER` (`deploy`), `DEPLOY_SSH_KEY` (path to the private key), `ADDIN_ECS_HOST`
+(the public domain baked into the manifest — e.g. `wmdev.zeuja.com`), and the build vars
+`VITE_CONVEX_URL`, `VITE_CONVEX_SITE_URL`, `VITE_FEISHU_APP_ID`.
 
 ```bash
 bash scripts/deploy.sh frontend
@@ -30,41 +31,83 @@ bash scripts/deploy.sh frontend
   `/var/www/addin` symlink, keep the last 3.
 - **Rollback**: on the box, repoint `/var/www/addin` at an older release dir.
 
-## 2. One-time ECS setup (not done by deploy.sh)
+## 2. Provision a fresh ECS box (reproducible)
 
-nginx serves `/var/www/addin` under `location /addin/`. Required pieces — the
-reference config lives in [`deploy/nginx/`](../deploy/nginx/):
+Standing up the **ECS Host** (e.g. migrating to a new Aliyun tenant) splits into a short
+account-bound console prefix and an idempotent in-box bootstrap codified in
+`scripts/provision-ecs.sh` ([ADR-0028](adr/0028-reproducible-ecs-provisioning.md)). The
+script is safe to re-run on an existing box.
 
-- **SPA fallback**: `try_files $uri $uri/ /addin/index.html;`
-- **CSP header** — *load-bearing for Outlook*. `deploy/nginx/addin-headers.conf`
-  is `include`d into the `/addin/` location. Its `frame-ancestors` must allow
-  `*.office.com *.office365.com *.outlook.com *.microsoft.com`, or Outlook
-  refuses to frame the taskpane. (`connect-src` must allow `*.convex.cloud`
-  + `wss://*.convex.cloud` + `*.convex.site` + `open.feishu.cn`.)
-- **`index.html` → `Cache-Control: no-cache`** — without it, Outlook serves a
-  stale (possibly crashing) bundle after a redeploy.
-- **TLS**: `certbot --nginx -d <host>` (Let's Encrypt; auto-renews) or Aliyun
-  free SSL. Needs DNS A record + security-group inbound **80 and 443** open.
+**2a. Aliyun console (manual — 3 steps, not scriptable):**
+
+1. Create an ECS instance (**Ubuntu 24**).
+2. Open the security group for inbound **80 and 443** (80 is required for certbot HTTP-01).
+3. Point a DNS **A record** for `ADDIN_ECS_HOST` (e.g. `wmdev.zeuja.com`) at the instance IP.
+
+**2b. Bootstrap the box.** Set these in `.env.deploy`, then run the provisioner:
+
+```bash
+ADDIN_ECS_HOST=wmdev.zeuja.com          # public domain: certbot -d, nginx server_name, manifest host
+CERTBOT_EMAIL=you@example.com           # Let's Encrypt account / renewal notices
+DEPLOY_PUBKEY=~/.ssh/addin_deploy.pub   # operator PUBLIC key, installed for the deploy user
+PROVISION_SSH_TARGET=root@<instance-ip> # ONE-TIME bootstrap identity (Aliyun's initial root),
+                                        # distinct from deploy.sh's DEPLOY_USER / DEPLOY_SSH_KEY
+```
+
+`provision-ecs.sh` then runs, idempotently and **in this order**:
+
+1. Creates the **`deploy`** user, installs `DEPLOY_PUBKEY` into its `authorized_keys`, and grants
+   scoped passwordless sudo (nginx, `systemctl`, `/var/www`). Set `DEPLOY_USER=deploy` afterward —
+   this is the account `deploy.sh` SSHes in as, and what its `sudo` calls (§4 fallback) assume.
+2. `apt install nginx certbot python3-certbot-nginx`; installs Bun → `/usr/local/bin` (copy, not
+   a symlink into `$HOME`).
+3. Lays down the nginx config from [`deploy/nginx/`](../deploy/nginx/): renders the `wmdev.conf`
+   server block (`__ADDIN_DOMAIN__` → `ADDIN_ECS_HOST`) into `sites-available` + a `sites-enabled`
+   symlink, copies the snippets (`addin-headers`, `addin-assets-cache`, `feishu-auth`,
+   `sentry-tunnel`) into `/etc/nginx/snippets/`, and enables gzip for JS/CSS.
+4. `certbot --nginx -d $ADDIN_ECS_HOST -m $CERTBOT_EMAIL --agree-tos -n` — adds the `listen 443`
+   block, the http→https redirect, and a systemd auto-renew timer.
+5. Installs the [`feishu-auth.service`](../deploy/feishu-auth.service) unit and `systemctl enable`s
+   it. The **start is deferred** — `deploy.sh auth` writes `/etc/feishu-auth.env` first (§4 / ADR-0008).
+6. `mkdir -p /var/www && chown deploy /var/www`.
+7. **Last** (so a bad key can't lock you out): disables root SSH and password auth
+   (`PermitRootLogin no`, `PasswordAuthentication no`) and reloads sshd.
+
+What the nginx config provides: the SPA fallback `try_files $uri $uri/ /addin/index.html`;
+the **CSP header** — *load-bearing for Outlook* (`frame-ancestors` must allow
+`*.office.com *.office365.com *.outlook.com *.microsoft.com *.cloud.microsoft` or Outlook
+refuses to frame the taskpane; `connect-src` must reach `*.convex.cloud` +
+`wss://*.convex.cloud` + `*.convex.site` + `open.feishu.cn`); and `Cache-Control: no-cache`
+on `index.html` so Outlook never serves a stale — possibly crashing — bundle after a redeploy.
+
+> The `*.convex.*` CSP wildcards mean a Convex team/deployment swap needs **no nginx change**.
+> See [ADR-0028](adr/0028-reproducible-ecs-provisioning.md) for why the box is bootstrapped
+> this way (not Terraform) and why the OSS/CDN/RAM env vars were retired.
 
 ## 3. Sideload the Outlook add-in
 
-`public/manifest.xml` ships with two placeholders — **`__ADDIN_DOMAIN__`** (host)
-and **`__ADDIN_BASE__`** (path prefix) — which you **must** substitute before
-sideloading. `scripts/manifest.sh <domain> [base]` does both. There are two
-manifests, one per host (ADR-0009):
+`public/manifest.xml` ships with three placeholders — **`__ADDIN_DOMAIN__`** (host),
+**`__ADDIN_BASE__`** (path prefix), and **`__ADDIN_VERSION__`** — which you **must**
+substitute before sideloading. The `bun` scripts do all three and **write the file
+themselves** (don't redirect stdout — `> file` would capture the log lines instead
+of the manifest). There are two manifests, one per host (ADR-0009):
 
 ```bash
 # Global Host (everyone outside Mainland China) — served at root
-bun run manifest:global > manifest-sideload.xml
+bun run manifest:global   # -> manifest-sideload.xml
 # ECS Host (Mainland China) — served under /addin/
-bun run manifest:ecs > manifest-sideload-cn.xml
-
-# The Bash helper is equivalent when you already have Bash:
-# ECS Host (CN) — served under /addin/
-bash scripts/manifest.sh <host> addin/ > manifest-sideload.xml
-# Global Host (Cloudflare Pages) — served at root (empty base)
-bash scripts/manifest.sh outlook-feishu-bridge.pages.dev "" > manifest-sideload.xml
+bun run manifest:ecs      # -> manifest-sideload-cn.xml
 ```
+
+Each run **auto-bumps the 4th version segment** from the git-tracked
+[`manifest.version`](../manifest.version) and writes the new baseline back —
+**commit `manifest.version`**. The baseline is shared across both host manifests, so
+versions only ever increase (never reset to `1.0.0.0` on a fresh checkout). Pin an
+exact value with `MANIFEST_VERSION=1.2.3.4 bun run manifest:global` when needed.
+
+> The legacy `bash scripts/manifest.sh <domain> [base]` writes to stdout but does
+> **not** track or bump the version — it emits `1.0.0.0` unless you pass
+> `MANIFEST_VERSION`. Prefer the `bun` scripts above for anything you'll re-sideload.
 
 Then Outlook → **Get Add-ins → My add-ins → Custom Addins → Add from file** →
 pick `manifest-sideload.xml`. CN users get the ECS manifest; everyone else the
@@ -72,6 +115,57 @@ Global one.
 
 > Sideloading the raw manifest (tokens not replaced) makes Outlook try to resolve
 > the literal host `__addin_domain__` → *"server IP address could not be found."*
+
+### Updating a sideloaded add-in (the "update the version number" failure)
+
+Outlook keys an add-in by its **`<Id>` GUID** ([Id element](https://learn.microsoft.com/javascript/api/manifest/id)
+— *"the unique ID of your Office Add-in"*). **Every manifest in this repo shares one
+Id**, so to Outlook the Global, ECS, and localhost manifests are the **same add-in**:
+you can't install two of them on one mailbox, and a second upload is treated as an
+*update*. That's fine in production (CN and non-CN audiences are different mailboxes),
+but a developer testing both on one mailbox will collide.
+
+An update is accepted **only if `<Version>` is strictly greater** than the installed
+one ([Version element](https://learn.microsoft.com/javascript/api/manifest/version):
+1–4 parts, each ≤5 digits / 0–99999). A same-or-lower version fails with
+**"Failed. Please update the version number in the manifest file and try again."**
+The auto-bump + shared `manifest.version` baseline prevents this — but only if you
+**regenerate** (don't hand-edit the version down, as a 1.0.1.0 CN file below an
+installed 1.0.1.1 global will be rejected).
+
+If a correctly-bumped manifest *still* fails, Outlook has cached the old one. Outlook
+supports **manual cache-clear only** ([Clear the Office cache](https://learn.microsoft.com/office/dev/add-ins/testing/clear-cache)):
+
+1. **Remove** the installed add-in: Get Add-ins → My add-ins → (the add-in) → Remove.
+2. **Clear the cache**:
+   - **Classic Outlook (Windows):** delete the *contents* of
+     `%LOCALAPPDATA%\Microsoft\Office\16.0\Wef\` (clear it completely — don't delete
+     individual manifest files).
+   - **New Outlook (Windows):** close Outlook, run `olk.exe --devtools`, then in the
+     Edge DevTools **Network** tab right-click → **Clear browser cache**.
+   - **Outlook on the web:** remove the add-in (step 1), then hard-reload the page.
+3. **Re-add** the freshly generated manifest (now at a higher version).
+
+#### Hosted manifest vs. add-from-file
+
+There are two ways the add-in's manifest reaches Outlook, and they fail differently:
+
+- **Add from file** — you upload `manifest-sideload.xml` / `-cn.xml` directly. This
+  is the fastest unblock: it ignores anything hosted. Remove → clear cache → re-add
+  the file.
+- **Hosted URL / update** — Outlook re-fetches `https://<host>/manifest.xml` (the
+  *"Update failed — Please update the version number"* dialog is this path). The
+  catch: `public/manifest.xml` is a **template**, and Vite copies it verbatim into
+  `dist/`, so a plain build serves the raw `__ADDIN_DOMAIN__` placeholders at version
+  `1.0.0.0` — an invalid manifest Outlook can never update to. **`scripts/deploy.sh`
+  now bakes a valid, host-specific `dist/manifest.xml` at the tracked
+  `manifest.version`** (`bake_manifest`), replacing that template. So a hosted update
+  only works **after a redeploy** with a higher version.
+
+**To push a hosted update:** `bun run manifest:ecs` (or `manifest:global`) to bump +
+commit `manifest.version`, then `bash scripts/deploy.sh frontend` (or `cloudflare`) —
+the deploy bakes the bumped version into the hosted `/manifest.xml`. Until you
+redeploy, use **add-from-file** with the freshly generated sideload manifest.
 
 If DevTools shows the taskpane frame at `chrome-error://chromewebdata/` and an
 unsafe-load message for `https://wmdev.zeuja.com/addin/?et=`, Outlook failed to

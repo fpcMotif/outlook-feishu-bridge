@@ -1,3 +1,4 @@
+/* eslint-disable max-lines-per-function */
 import { CoworkerPicker } from "./CoworkerPicker";
 import { SalesPicker } from "./SalesPicker";
 import { CustomerPicker } from "./CustomerPicker";
@@ -24,6 +25,7 @@ export function RequestIntakeBuildPane({ vm }: { vm: RequestIntakeScreenViewMode
     mailAttachments,
     addFiles,
     retryUpload,
+    replaceUpload,
     filledCount,
     readyToSync,
     submitHint,
@@ -84,6 +86,7 @@ export function RequestIntakeBuildPane({ vm }: { vm: RequestIntakeScreenViewMode
             }
             onAddFiles={addFiles}
             onRetryUpload={retryUpload}
+            onReplaceUpload={replaceUpload}
             onRemoveUpload={(id) => {
               clearIntakeUploadCache(id);
               dispatch({ type: "uploadedFileRemoved", id });

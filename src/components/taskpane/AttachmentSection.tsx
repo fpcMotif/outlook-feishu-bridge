@@ -1,3 +1,6 @@
+/* eslint-disable max-lines, max-lines-per-function */
+import type { ReactNode } from "react";
+
 import { formatBytes, MAX_ATTACHMENT_COUNT } from "../../office/attachments";
 import type { AttachmentInfo } from "../../office/mailItem";
 import { attachmentCount, canAddMore } from "./attachmentSelection";
@@ -20,6 +23,7 @@ import {
 } from "./AttachmentSourceHeader";
 import { UploadDropZone } from "./AttachmentUploadDropZone";
 import type { UploadedFile } from "./intakeReducer";
+import { collectFailedUploadIds } from "./uploadError";
 import { SectionLabel } from "./SectionLabel";
 
 function AttachmentSourceGroup({
@@ -27,11 +31,13 @@ function AttachmentSourceGroup({
   rows,
   selectAllLabel,
   onSelectAll,
+  notice,
 }: {
   source: AttachmentSourceKind;
   rows: AttachmentRowItem[];
   selectAllLabel: string;
   onSelectAll: () => void;
+  notice?: ReactNode;
 }) {
   if (rows.length === 0) return null;
 
@@ -43,12 +49,25 @@ function AttachmentSourceGroup({
         onSelectAll={onSelectAll}
         selectAllLabel={selectAllLabel}
       />
+      {notice}
       <div className="divide-y divide-border">
         {rows.map((row) => (
           <AttachmentItemRow key={row.id} {...row} />
         ))}
       </div>
     </>
+  );
+}
+
+// Failed uploads are parked out of the selection and synced-without, so the user
+// needs to know they won't be attached unless they act.
+function UploadedFailedNotice({ count }: { count: number }) {
+  return (
+    <p className="text-destructive/90 px-4 pb-2 text-[11px] leading-4">
+      {count === 1
+        ? "1 file couldn't upload and will be skipped — Retry or remove it."
+        : `${count} files couldn't upload and will be skipped — Retry or remove them.`}
+    </p>
   );
 }
 
@@ -108,6 +127,7 @@ function UploadedAttachmentGroup({
   onSetUploadedSelection,
   onRemoveUpload,
   onRetryUpload,
+  onReplaceUpload,
 }: {
   mailAttachments: AttachmentInfo[];
   selectedIds: string[];
@@ -117,18 +137,21 @@ function UploadedAttachmentGroup({
   onSetUploadedSelection: (ids: string[]) => void;
   onRemoveUpload: (id: string) => void;
   onRetryUpload?: (id: string) => void;
+  onReplaceUpload?: (id: string, file: File) => void;
 }) {
   const selectedMailCount = selectedMailAttachmentCount(
     mailAttachments,
     selectedIds,
   );
   const allSelected = allValidUploadsSelected(uploadedFiles);
+  const failedCount = collectFailedUploadIds(uploadedFiles).length;
   const rows = buildUploadRows({
     uploadedFiles,
     canSelectMore,
     onToggleUpload,
     onRemoveUpload,
     onRetryUpload,
+    onReplaceUpload,
   });
 
   return (
@@ -142,6 +165,11 @@ function UploadedAttachmentGroup({
             ? []
             : uploadedSelection({ uploadedFiles, selectedMailCount }),
         )
+      }
+      notice={
+        failedCount > 0 ? (
+          <UploadedFailedNotice count={failedCount} />
+        ) : undefined
       }
     />
   );
@@ -158,6 +186,7 @@ type AttachmentFileListProps = {
   onSetUploadedSelection: (ids: string[]) => void;
   onRemoveUpload: (id: string) => void;
   onRetryUpload?: (id: string) => void;
+  onReplaceUpload?: (id: string, file: File) => void;
 };
 
 function AttachmentFileList({
@@ -171,6 +200,7 @@ function AttachmentFileList({
   onSetUploadedSelection,
   onRemoveUpload,
   onRetryUpload,
+  onReplaceUpload,
 }: AttachmentFileListProps) {
   const hasMail = mailAttachments.length > 0;
   const hasUploads = uploadedFiles.length > 0;
@@ -199,6 +229,7 @@ function AttachmentFileList({
           onSetUploadedSelection={onSetUploadedSelection}
           onRemoveUpload={onRemoveUpload}
           onRetryUpload={onRetryUpload}
+          onReplaceUpload={onReplaceUpload}
         />
       ) : null}
     </AttachmentListCard>
@@ -238,6 +269,7 @@ export function AttachmentSection({
   onSetUploadedSelection,
   onAddFiles,
   onRetryUpload,
+  onReplaceUpload,
   onRemoveUpload,
 }: {
   mailAttachments: AttachmentInfo[];
@@ -249,6 +281,7 @@ export function AttachmentSection({
   onSetUploadedSelection: (ids: string[]) => void;
   onAddFiles: (files: File[]) => void;
   onRetryUpload?: (id: string) => void;
+  onReplaceUpload?: (id: string, file: File) => void;
   onRemoveUpload: (id: string) => void;
 }) {
   const count = attachmentCount(selectedIds, uploadedFiles);
@@ -268,6 +301,7 @@ export function AttachmentSection({
         onSetUploadedSelection={onSetUploadedSelection}
         onRemoveUpload={onRemoveUpload}
         onRetryUpload={onRetryUpload}
+        onReplaceUpload={onReplaceUpload}
       />
       <div className="border-t border-dashed border-border/60 pt-3">
         <UploadDropZone disabled={false} onPick={onAddFiles} />

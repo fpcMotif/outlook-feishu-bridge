@@ -7,6 +7,7 @@ import {
 } from "./intakeReducer";
 import type { Coworker } from "./coworkers";
 import type { CustomerRecord } from "./customers";
+import { MAX_ATTACHMENT_COUNT } from "../../office/attachments";
 
 const COWORKER: Coworker = { openId: "ou_jenny", name: "Jenny Xu" };
 const BAYER: CustomerRecord = {
@@ -289,14 +290,17 @@ describe("intakeReducer attachment selection", () => {
     expect(off.selectedAttachmentIds).toEqual([]);
   });
 
-  it("attachmentToggled refuses new selections at the 10-file cap", () => {
+  it("attachmentToggled refuses new selections at the count cap", () => {
     const full = {
       ...base,
-      selectedAttachmentIds: Array.from({ length: 10 }, (_, i) => `att_${i}`),
+      selectedAttachmentIds: Array.from(
+        { length: MAX_ATTACHMENT_COUNT },
+        (_, i) => `att_${i}`,
+      ),
     };
     const next = intakeReducer(full, {
       type: "attachmentToggled",
-      id: "att_10",
+      id: `att_${MAX_ATTACHMENT_COUNT}`,
     });
     expect(next.selectedAttachmentIds).toEqual(full.selectedAttachmentIds);
   });
@@ -331,10 +335,13 @@ describe("intakeReducer attachment selection", () => {
     expect(on.uploadedFiles).toMatchObject([{ id: "u1", selected: true }]);
   });
 
-  it("uploadedFileToggled refuses to select when all 10 slots are already used", () => {
+  it("uploadedFileToggled refuses to select when all slots are already used", () => {
     const full = {
       ...base,
-      selectedAttachmentIds: Array.from({ length: 10 }, (_, i) => `att_${i}`),
+      selectedAttachmentIds: Array.from(
+        { length: MAX_ATTACHMENT_COUNT },
+        (_, i) => `att_${i}`,
+      ),
       uploadedFiles: [
         { id: "u1", file: file("a.pdf"), rejection: null, selected: false },
       ],

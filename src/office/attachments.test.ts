@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { AttachmentInfo } from "./mailItem";
 import {
+  DEFAULT_ATTACHMENT_COUNT,
   MAX_ATTACHMENT_BYTES,
   MAX_ATTACHMENT_COUNT,
   fileExtension,
@@ -40,9 +41,12 @@ describe("selectableMailAttachments", () => {
 });
 
 describe("upload validation (ADR-0022 decision #4)", () => {
-  it("caps at 20 MB per file and 10 files total", () => {
+  it("caps each file at 20 MB and defaults the count cap to DEFAULT_ATTACHMENT_COUNT", () => {
     expect(MAX_ATTACHMENT_BYTES).toBe(20 * 1024 * 1024);
-    expect(MAX_ATTACHMENT_COUNT).toBe(10);
+    // The count cap is the env-toggled experiment knob (VITE_ATTACHMENT_CAP);
+    // with the env unset it resolves to the conservative default.
+    expect(DEFAULT_ATTACHMENT_COUNT).toBe(10);
+    expect(MAX_ATTACHMENT_COUNT).toBe(DEFAULT_ATTACHMENT_COUNT);
   });
 
   it("extracts the lowercased final extension", () => {

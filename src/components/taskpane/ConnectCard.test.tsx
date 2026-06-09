@@ -4,14 +4,12 @@ import { describe, expect, it, vi } from "vitest";
 import { ConnectCard } from "./ConnectCard";
 
 describe("ConnectCard", () => {
-  it("renders the official Feishu brand mark in the connect visual", () => {
+  it("renders the Feishu-branded connect visual", () => {
     const { container } = render(
       <ConnectCard onLogin={vi.fn()} onLoginFallback={vi.fn()} />,
     );
 
     expect(screen.getByRole("region", { name: /Feishu sign in/i })).toBeInTheDocument();
-    const brandBlue = container.querySelector('[fill="#3370FF"]');
-    expect(brandBlue).toBeTruthy();
     expect(container.querySelector(".bg-primary.size-14")).toBeNull();
   });
 

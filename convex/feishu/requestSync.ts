@@ -5,6 +5,7 @@ import { v } from "convex/values";
 import { attachmentSourceValidator, initiatorValidator, selectedCoworkerValidator, selectedCustomerValidator, toEmailRecord, type AttachmentSource, type SelectedCoworker } from "../emailRecord";
 import { assertRealCoworkerOpenIds, poisonedOutboxReason } from "./previewFixtures";
 import { buildConfiguredBitableRecordDetailUrl } from "./bitableUrl";
+import { assertWithinAttachmentCap } from "./attachmentLimits";
 import { driveUploadConcurrency, mintOneStagedSource } from "./drive";
 import { resolveFeishuToken } from "./call";
 
@@ -32,6 +33,11 @@ const intakeArgs = {
   // cell and these are minted + filled by the deferred Attachment Fill.
   attachmentSources: v.optional(v.array(attachmentSourceValidator)),
   selectedCoworkers: v.optional(v.array(selectedCoworkerValidator)),
+  // Upload-latency instrumentation: minted on the client at Submit-click and
+  // threaded through so the server [fillTotal] log reports the true click→filled
+  // duration (ADR-0027). Optional — an older client simply omits them.
+  syncTraceId: v.optional(v.string()),
+  submitClickedAt: v.optional(v.number()),
 };
 
 const RECONCILE_LIMIT = 20;
@@ -75,6 +81,8 @@ interface RequestSyncArgs {
   attachments?: { fileToken: string }[];
   attachmentSources?: AttachmentSource[];
   selectedCoworkers?: SelectedCoworker[];
+  syncTraceId?: string;
+  submitClickedAt?: number;
 }
 
 function buildEmailRecordBackup(args: RequestSyncArgs, sentToBitable: boolean) {
@@ -96,6 +104,8 @@ function buildEmailRecordBackup(args: RequestSyncArgs, sentToBitable: boolean) {
       selectedCustomer: args.selectedCustomer,
       initiator: args.selectedSales ?? args.initiator,
       attachmentSources: args.attachmentSources,
+      syncTraceId: args.syncTraceId,
+      submitClickedAt: args.submitClickedAt,
     },
     { sentToBitable },
   );
@@ -211,6 +221,10 @@ export const processPendingBitableSync = internalAction({
 export const syncRequest = action({
   args: intakeArgs,
   handler: async (ctx, args): Promise<SyncRequestResult> => {
+    // Server backstop for the attachment-count cap (the validator only checks
+    // element shape, not array length). Rejects an over-cap batch BEFORE any Base
+    // row is created — mirrors the client MAX_ATTACHMENT_COUNT via ATTACHMENT_CAP.
+    assertWithinAttachmentCap(args);
     const selectedCoworkers = requireExactlyOneCoworker(args.selectedCoworkers);
     const backup = buildEmailRecordBackup({ ...args, selectedCoworkers }, false);
     const poisonReason = poisonedOutboxReason({
@@ -333,7 +347,13 @@ export const reconcilePendingBitableSync = internalAction({
   ): Promise<{ checked: number; synced: number; failed: number; attachmentFills: number }> => {
     const now = Date.now();
     const due = await ctx.runQuery(internal.emails.listDueBitableSyncRecords, { now, limit: RECONCILE_LIMIT });
-    const outcomes = await Promise.all(due.map((record) => replayStoredOutboxRecord(ctx, record)));
+    // Serialize: never fire multiple Bitable creates in parallel — Feishu QPS
+    // budget is small and a burst of N rows triggers 1254290 TooManyRequest.
+    const outcomes: ("synced" | "failed")[] = [];
+    for (const record of due) {
+      // eslint-disable-next-line react-doctor/async-await-in-loop -- deliberate serialisation to respect Feishu QPS
+      outcomes.push(await replayStoredOutboxRecord(ctx, record));
+    }
     const synced = outcomes.filter((o) => o === "synced").length;
     const failed = outcomes.filter((o) => o === "failed").length;
     // Backstop the deferred Attachment Fill too (ADR-0027): re-drive any fill that
@@ -389,7 +409,7 @@ export const fillRowAttachments = internalAction({
     try {
       for (let i = 0; i < state.remainingSources.length; i += concurrency) {
         const batch = state.remainingSources.slice(i, i + concurrency);
-        // eslint-disable-next-line no-await-in-loop -- waves are sequential (coalesced PUT per wave)
+        // eslint-disable-next-line no-await-in-loop, react-doctor/async-await-in-loop -- waves are sequential by design: one coalesced cumulative PUT per wave (ADR-0027)
         const outcomes = await Promise.all(
           batch.map((s) => mintOneStagedSource(ctx, s, { appToken, tenantToken })),
         );
@@ -401,7 +421,7 @@ export const fillRowAttachments = internalAction({
         deferred += deferredNow.length;
         if (minted.length > 0 || skippedNow.length > 0) {
           // Persist BEFORE deleting the staged blobs.
-          // eslint-disable-next-line no-await-in-loop -- ordered: persist then delete then PUT
+          // eslint-disable-next-line no-await-in-loop, react-doctor/async-parallel -- ordered persist -> delete -> PUT is a correctness invariant, NOT independent work
           await ctx.runMutation(internal.emails.recordAttachmentProgress, {
             ...lookup,
             mintedTokens: minted.map((m) => m.fileToken),

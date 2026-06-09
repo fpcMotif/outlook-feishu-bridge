@@ -17,9 +17,9 @@ export type { RequestIntakeScreenProps } from "./requestIntakeScreenProps";
 // is idempotent (StrictMode double-invoke is harmless).
 //
 // NOTE: this clears only the per-ID completedStorage/inFlight maps. It must NOT
-// touch the per-conversation upload-draft cache (uploadDraftCache), which is keyed
-// by openId+userEmail+conversationId and is the RESTORE source — wiring
-// resetUploadDrafts() here would defeat restore-on-return entirely.
+// touch the per-conversation draft caches, which are keyed by account + mailbox
+// + conversation and are the RESTORE source — wiring their reset here would
+// defeat restore-on-return entirely.
 function useMailContextReset(mailKey: string): void {
   const previousKey = useRef(mailKey);
   if (previousKey.current !== mailKey) {
@@ -29,8 +29,9 @@ function useMailContextReset(mailKey: string): void {
 }
 
 export function RequestIntakeScreen(props: RequestIntakeScreenProps) {
-  // One key per conversation: switching threads remounts the intake tree (clean
-  // slate); sibling messages in a thread keep it (in-progress request survives).
+  // One key per mailbox conversation: switching threads remounts the intake tree
+  // (new page); sibling messages in a thread keep it. Returning to a previous
+  // conversation restores that page from the intake draft cache.
   const mailKey = deriveMailKey(props.mailItem);
   useMailContextReset(mailKey);
 
@@ -43,6 +44,7 @@ export function RequestIntakeScreen(props: RequestIntakeScreenProps) {
     <RequestIntakeScreenCore
       key={mailKey}
       {...props}
+      mailKey={mailKey}
       syncApi={loggedOutRequestIntakeSyncApi}
     />
   );

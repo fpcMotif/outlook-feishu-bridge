@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 
 import type { MailItemData } from "../../office/useMailItem";
+import type { AttachmentStagingDeps } from "../../office/attachmentUpload";
+import type { UploadedFile } from "./intakeReducer";
 
 export type RequestIntakeScreenProps = {
   isLoggedIn: boolean;
@@ -15,6 +17,10 @@ export type RequestIntakeScreenProps = {
   usePreviewCoworkers?: boolean;
   /** Browser dev host without Outlook mailbox — gates live Base sync for fixtures. */
   devPreview?: boolean;
+  /** DEV-only ("constra mode", ?mock=): seed fixture uploads to debug the failed/retry UI. */
+  mockUploads?: UploadedFile[];
+  /** DEV-only: deterministic staging deps so Retry behaves predictably under ?mock=. */
+  mockStagingDeps?: AttachmentStagingDeps;
   profileSlot?: ReactNode;
   onLogin: () => void;
   onLoginFallback: () => void;

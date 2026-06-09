@@ -10,6 +10,7 @@ import { useCallback, useMemo, useRef, type Dispatch } from "react";
 import {
   MAX_ATTACHMENT_COUNT,
   selectableMailAttachments,
+  uploadRejectionReason,
 } from "../../office/attachments";
 import type { AttachmentInfo } from "../../office/mailItem";
 import type { MailItemData } from "../../office/useMailItem";
@@ -24,7 +25,9 @@ import {
   awaitIntakeUploads,
   mergeStagedUploads,
   queueIntakeFileUploads,
+  replaceIntakeFileUpload,
   retryIntakeFileUpload,
+  retryIntakeFileUploads,
 } from "./uploadIntakeFile";
 import {
   useAttachmentSync,
@@ -35,6 +38,8 @@ type IntakeAttachmentApi = {
   mailAttachments: AttachmentInfo[];
   addFiles: (files: File[]) => void;
   retryUpload: (id: string) => void;
+  retryAllUploads: (ids: string[]) => void;
+  replaceUpload: (id: string, file: File) => void;
   stageSelected: () => Promise<AttachmentSyncResult>;
 };
 
@@ -122,9 +127,13 @@ export function useIntakeAttachments(
   mailItem: MailItemData,
   state: IntakeState,
   dispatch: Dispatch<IntakeAction>,
+  // DEV-only override (?mock=) so Retry/Re-add behave deterministically with no
+  // backend; production passes nothing and the live Convex deps are used.
+  stagingDepsOverride?: ReturnType<typeof useAttachmentStaging>,
 ): IntakeAttachmentApi {
   const stage = useAttachmentSync();
-  const stagingDeps = useAttachmentStaging();
+  const liveStagingDeps = useAttachmentStaging();
+  const stagingDeps = stagingDepsOverride ?? liveStagingDeps;
   const uploadsRef = useRef(state.uploadedFiles);
   uploadsRef.current = state.uploadedFiles;
   const mailAttachments = useMemo(
@@ -147,6 +156,34 @@ export function useIntakeAttachments(
     [state.uploadedFiles, dispatch, stagingDeps],
   );
 
+  const retryAllUploads = useCallback(
+    (ids: string[]) => {
+      const wanted = new Set(ids);
+      const targets = state.uploadedFiles.filter(
+        (file) => wanted.has(file.id) && file.rejection === null,
+      );
+      // Drives the batch through the same concurrency cap as the initial queue
+      // so "Retry all" can't reproduce the burst that caused the failures.
+      retryIntakeFileUploads(stagingDeps, targets, dispatch);
+    },
+    [state.uploadedFiles, dispatch, stagingDeps],
+  );
+
+  const replaceUpload = useCallback(
+    (id: string, file: File) => {
+      const target = state.uploadedFiles.find((u) => u.id === id);
+      if (!target) return;
+      // Re-validate the fresh pick (type/size) and swap it into the same row, then
+      // re-queue when valid. A rejected re-pick parks the row as blocked instead.
+      const rejection = uploadRejectionReason(file);
+      dispatch({ type: "uploadFileReplaced", id, file, rejection });
+      if (rejection === null) {
+        replaceIntakeFileUpload(stagingDeps, { id, file }, dispatch);
+      }
+    },
+    [state.uploadedFiles, dispatch, stagingDeps],
+  );
+
   const stageSelected = useCallback(async () => {
     const pendingIds = collectPendingUploadIds(state.uploadedFiles);
     if (pendingIds.length > 0) {
@@ -159,5 +196,12 @@ export function useIntakeAttachments(
     return stage(selectedMail, mergeStagedUploads(uploadsRef.current));
   }, [stage, mailAttachments, state]);
 
-  return { mailAttachments, addFiles, retryUpload, stageSelected };
+  return {
+    mailAttachments,
+    addFiles,
+    retryUpload,
+    retryAllUploads,
+    replaceUpload,
+    stageSelected,
+  };
 }

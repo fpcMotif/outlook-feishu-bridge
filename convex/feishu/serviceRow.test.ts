@@ -122,13 +122,13 @@ describe("buildServiceFields — Request Type is never written (Feishu owns it)"
   });
 
   // ADR-0022: the three per-category Note columns collapse to ONE consolidated
-  // `Quotation Note` Text column. The category concept is gone — a single note box.
-  it("writes the consolidated note to the single `Quotation Note` Text column", () => {
+  // `Service Note` Text column. The category concept is gone — a single note box.
+  it("writes the consolidated note to the single `Service Note` Text column", () => {
     const fields = buildServiceFields(
       { ...BASE, requestNote: "FOB Shanghai, 500kg, samples first" },
       null,
     );
-    expect(fields["Quotation Note"]).toBe("FOB Shanghai, 500kg, samples first");
+    expect(fields["Service Note"]).toBe("FOB Shanghai, 500kg, samples first");
     expect("Request Type" in fields).toBe(false);
   });
 
@@ -168,16 +168,16 @@ describe("buildServiceFields — Email Conversation ID column", () => {
 });
 
 // ADR-0022: the consolidated note is optional — an empty / whitespace / missing
-// note must not write the `Quotation Note` column (mirrors the other optional Text
+// note must not write the `Service Note` column (mirrors the other optional Text
 // columns; defensive against the SPA sending "" or "   ").
-describe("buildServiceFields — Quotation Note is optional", () => {
-  it("omits `Quotation Note` when the note is empty, whitespace, or missing", () => {
+describe("buildServiceFields — Service Note is optional", () => {
+  it("omits `Service Note` when the note is empty, whitespace, or missing", () => {
     const blank = buildServiceFields({ ...BASE, requestNote: "" }, null);
     const spaces = buildServiceFields({ ...BASE, requestNote: "   " }, null);
     const missing = buildServiceFields(BASE, null);
-    expect("Quotation Note" in blank).toBe(false);
-    expect("Quotation Note" in spaces).toBe(false);
-    expect("Quotation Note" in missing).toBe(false);
+    expect("Service Note" in blank).toBe(false);
+    expect("Service Note" in spaces).toBe(false);
+    expect("Service Note" in missing).toBe(false);
   });
 });
 

@@ -5,6 +5,7 @@ import {
   buildUploadedFiles,
   canAddMore,
   filterDuplicateUploadFiles,
+  occupiesSlot,
 } from "./attachmentSelection";
 import { MAX_ATTACHMENT_COUNT } from "../../office/attachments";
 import type { UploadedFile } from "./intakeReducer";
@@ -16,12 +17,35 @@ const upload = (name: string, rejection: string | null): UploadedFile => ({
   selected: rejection === null,
 });
 
+describe("occupiesSlot", () => {
+  it("counts a selected upload with no status yet, or complete/in-flight", () => {
+    expect(occupiesSlot(upload("a.pdf", null))).toBe(true);
+    expect(occupiesSlot({ ...upload("a.pdf", null), status: "complete" })).toBe(true);
+    expect(occupiesSlot({ ...upload("a.pdf", null), status: "uploading" })).toBe(true);
+    expect(occupiesSlot({ ...upload("a.pdf", null), status: "pending" })).toBe(true);
+  });
+
+  it("never counts a failed, rejected, or deselected upload", () => {
+    expect(occupiesSlot({ ...upload("a.pdf", null), status: "error" })).toBe(false);
+    expect(occupiesSlot(upload("c.exe", "unsupported type"))).toBe(false);
+    expect(occupiesSlot({ ...upload("a.pdf", null), selected: false })).toBe(false);
+  });
+});
+
 describe("attachmentCount", () => {
   it("counts checked mail ids plus selected valid uploads, excluding rejected and deselected uploads", () => {
     const uploads = [
       upload("a.pdf", null),
       { ...upload("b.png", null), selected: false },
       upload("c.exe", "unsupported type"),
+    ];
+    expect(attachmentCount(["m1", "m2"], uploads)).toBe(3);
+  });
+
+  it("does not count a selected upload that failed (it is parked, not staged)", () => {
+    const uploads = [
+      { ...upload("a.pdf", null), status: "complete" as const },
+      { ...upload("b.png", null), status: "error" as const },
     ];
     expect(attachmentCount(["m1", "m2"], uploads)).toBe(3);
   });

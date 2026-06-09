@@ -12,9 +12,22 @@
 
 set -euo pipefail
 
+# Git Bash on Windows can be started with a minimal PATH and missing temp dir.
+if [[ ! -d /tmp ]]; then
+  mkdir -p /tmp
+fi
+export TMPDIR="/tmp"
+
 cmd="${1:-help}"
-script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-repo_root="$(cd "$script_dir/.." && pwd)"
+# Resolve script directory without requiring external `dirname` (some Windows
+# bash invocations on this host don't expose coreutils in PATH).
+script_source="${BASH_SOURCE[0]}"
+script_dir="${script_source%/*}"
+if [[ "$script_dir" == "$script_source" ]]; then
+  script_dir="."
+fi
+script_dir="$(cd -- "$script_dir" && pwd)"
+repo_root="$(cd -- "$script_dir/.." && pwd)"
 cd "$repo_root"
 
 if [[ -f .env.deploy ]]; then
@@ -44,6 +57,26 @@ require_tool() {
   fi
 }
 
+# Bake a VALID, host-specific manifest into dist/manifest.xml, overwriting the raw
+# public/manifest.xml template that Vite copies verbatim. Without this, the hosted
+# /manifest.xml serves unsubstituted __ADDIN_DOMAIN__ placeholders at version
+# 1.0.0.0 — an invalid manifest that makes Outlook's add-in update fail with
+# "Please update the version number in the manifest file" (DEPLOY.md §3).
+# Bakes the CURRENT tracked version (no bump): bump explicitly with
+# `bun run manifest:ecs|manifest:global` + commit manifest.version BEFORE a release.
+bake_manifest() {
+  local preset="$1" ver
+  ver="$(cat manifest.version 2>/dev/null || echo 1.0.0.0)"
+  if [[ "$preset" == "global" ]]; then
+    MANIFEST_VERSION="$ver" bun scripts/manifest.mjs --global --output dist/manifest.xml
+  elif [[ -n "${ADDIN_ECS_HOST:-}" ]]; then
+    MANIFEST_VERSION="$ver" bun scripts/manifest.mjs --ecs "$ADDIN_ECS_HOST" --output dist/manifest.xml
+  else
+    MANIFEST_VERSION="$ver" bun scripts/manifest.mjs --ecs --output dist/manifest.xml
+  fi
+  echo "OK baked dist/manifest.xml @ $ver ($preset)"
+}
+
 deploy_frontend() {
   require_vars \
     DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_KEY \
@@ -56,6 +89,10 @@ deploy_frontend() {
   # VITE_SENTRY_TUNNEL routes Sentry through the box's same-origin nginx proxy
   # (ADR-0009); the `cloudflare` build omits it and ingests direct.
   MSYS_NO_PATHCONV=1 VITE_SENTRY_TUNNEL=/_sentry/ bun run build -- --base=/addin/
+
+  # Replace the placeholder template Vite copied into dist with a real manifest
+  # served at https://<ECS Host>/addin/manifest.xml.
+  bake_manifest ecs
 
   # Atomic release: unpack into a timestamped dir, flip the /var/www/addin
   # symlink, prune all but the newest 3 releases. Rollback = repoint the
@@ -162,6 +199,9 @@ deploy_cloudflare() {
   echo "==> vite build (base=/, direct Sentry ingest)"
   # MSYS_NO_PATHCONV stops Git Bash rewriting the bare / base into a Windows path.
   MSYS_NO_PATHCONV=1 bun run build -- --base=/
+  # Replace the placeholder template Vite copied into dist with a real manifest
+  # served at https://outlook-feishu-bridge.pages.dev/manifest.xml.
+  bake_manifest global
   echo "==> wrangler pages deploy dist (project: outlook-feishu-bridge)"
   bunx wrangler pages deploy dist
   echo "OK Global Host -> https://outlook-feishu-bridge.pages.dev/"

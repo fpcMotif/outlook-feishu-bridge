@@ -2,7 +2,7 @@
 import { internalAction, type ActionCtx } from "../_generated/server";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
-import { callFeishu } from "./call";
+import { callFeishu, withFeishuRateLimitRetry } from "./call";
 import {
   buildServiceAttachmentFields,
   buildServiceCreateFields,
@@ -169,24 +169,28 @@ export const createServiceRecord = internalAction({
     const clientRecordId = await resolveClientRecordId(ctx, appToken, args);
     const createFields = buildServiceCreateFields(args, clientRecordId);
     logServiceRecordIntake(args, clientRecordId, createFields);
-    const data = await callFeishu<{ record?: { record_id: string } }>(ctx, {
-      path: `/bitable/v1/apps/${appToken}/tables/${tableId}/records`,
-      method: "POST",
-      auth: "tenant",
-      json: { fields: createFields },
-      query: args.clientToken ? { client_token: args.clientToken } : undefined,
-      label: "Bitable create service row",
-    });
+    const data = await withFeishuRateLimitRetry(() =>
+      callFeishu<{ record?: { record_id: string } }>(ctx, {
+        path: `/bitable/v1/apps/${appToken}/tables/${tableId}/records`,
+        method: "POST",
+        auth: "tenant",
+        json: { fields: createFields },
+        query: args.clientToken ? { client_token: args.clientToken } : undefined,
+        label: "Bitable create service row",
+      }),
+    );
     const recordId = data.record?.record_id ?? "";
     const salesFields = buildServiceSalesFields(args);
     if (recordId && Object.keys(salesFields).length > 0) {
-      await callFeishu<{ record?: { record_id: string } }>(ctx, {
-        path: `/bitable/v1/apps/${appToken}/tables/${tableId}/records/${recordId}`,
-        method: "PUT",
-        auth: "tenant",
-        json: { fields: salesFields },
-        label: "Bitable patch Sales after create",
-      });
+      await withFeishuRateLimitRetry(() =>
+        callFeishu<{ record?: { record_id: string } }>(ctx, {
+          path: `/bitable/v1/apps/${appToken}/tables/${tableId}/records/${recordId}`,
+          method: "PUT",
+          auth: "tenant",
+          json: { fields: salesFields },
+          label: "Bitable patch Sales after create",
+        }),
+      );
     }
     return { recordId };
   },
@@ -201,13 +205,15 @@ export const correctServiceRecord = internalAction({
     const { appToken, tableId } = requireBitableEnv();
     const clientRecordId = await resolveClientRecordId(ctx, appToken, args);
     const fields = buildServiceFields(args, clientRecordId);
-    const data = await callFeishu<{ record?: { record_id: string } }>(ctx, {
-      path: `/bitable/v1/apps/${appToken}/tables/${tableId}/records/${args.recordId}`,
-      method: "PUT",
-      auth: "tenant",
-      json: { fields },
-      label: "Bitable correct service row",
-    });
+    const data = await withFeishuRateLimitRetry(() =>
+      callFeishu<{ record?: { record_id: string } }>(ctx, {
+        path: `/bitable/v1/apps/${appToken}/tables/${tableId}/records/${args.recordId}`,
+        method: "PUT",
+        auth: "tenant",
+        json: { fields },
+        label: "Bitable correct service row",
+      }),
+    );
     return { recordId: data.record?.record_id ?? args.recordId };
   },
 });
@@ -243,13 +249,15 @@ export const patchRowAttachments = internalAction({
       state.fileTokens.map((fileToken) => ({ fileToken })),
     );
     if (Object.keys(fields).length === 0) return { patched: false };
-    await callFeishu(ctx, {
-      path: `/bitable/v1/apps/${appToken}/tables/${tableId}/records/${state.bitableRecordId}`,
-      method: "PUT",
-      auth: "tenant",
-      json: { fields },
-      label: "Bitable patch Sales Files (attachment fill)",
-    });
+    await withFeishuRateLimitRetry(() =>
+      callFeishu(ctx, {
+        path: `/bitable/v1/apps/${appToken}/tables/${tableId}/records/${state.bitableRecordId}`,
+        method: "PUT",
+        auth: "tenant",
+        json: { fields },
+        label: "Bitable patch Sales Files (attachment fill)",
+      }),
+    );
     return { patched: true };
   },
 });

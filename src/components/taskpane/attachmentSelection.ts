@@ -8,16 +8,28 @@ import {
 } from "../../office/attachments";
 import type { UploadedFile } from "./intakeReducer";
 
+// Does this upload occupy a selection slot — i.e. will it actually be synced?
+// A FAILED (status === "error") upload never counts: it has no bytes staged, so
+// it is not selectable, not counted toward MAX_ATTACHMENT_COUNT, never gates the
+// dock, and is never gathered at submit. The user must Retry it to completion —
+// it then re-counts automatically because the underlying `selected` flag persists
+// across error → pending → complete — or remove it. In-flight (pending/uploading/
+// processing) and complete uploads DO occupy a slot. This single predicate keeps
+// "selected but failed" from ever being a real, troublesome state.
+export function occupiesSlot(upload: UploadedFile): boolean {
+  return (
+    upload.rejection === null && upload.selected && upload.status !== "error"
+  );
+}
+
 // Total attachments that will actually be staged: checked mail attachments plus
-// uploads that passed validation (rejected uploads are shown but never sent).
+// uploads that passed validation and are not failed (rejected/failed uploads are
+// shown but never sent).
 export function attachmentCount(
   selectedIds: string[],
   uploads: UploadedFile[],
 ): number {
-  return (
-    selectedIds.length +
-    uploads.filter((u) => u.rejection === null && u.selected).length
-  );
+  return selectedIds.length + uploads.filter((u) => occupiesSlot(u)).length;
 }
 
 export function canAddMore(count: number): boolean {

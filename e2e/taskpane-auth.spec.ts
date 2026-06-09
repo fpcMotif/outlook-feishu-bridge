@@ -33,7 +33,7 @@ test("browser preview keeps login separate and shows the request note", async ({
   });
 
   await page.goto("/?e2eCoworkers=1");
-  await expect(page).toHaveTitle("feishu-sync");
+  await expect(page).toHaveTitle("Sales Service");
   await expect(page.getByRole("region", { name: "Feishu sign in" })).toBeVisible({
     timeout: 12_000,
   });

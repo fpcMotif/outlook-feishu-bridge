@@ -5,7 +5,60 @@
 import type { ActionCtx } from "../_generated/server";
 import { getTenantAccessToken } from "./auth";
 import { getUserAccessToken } from "./userAuth";
-import { feishuFetch, FEISHU_BASE } from "./client";
+import { feishuFetch, FEISHU_BASE, FeishuError } from "./client";
+
+/** Feishu Bitable / generic API: too many requests (throttled). */
+export const FEISHU_TOO_MANY_REQUEST_CODE = 1254290;
+
+/** Feishu Bitable: same client_token request is still in-flight on the server. */
+export const FEISHU_DUPLICATE_REQUEST_CODE = 1254608;
+
+/** Feishu Drive / gateway frequency-limit code (99991400). */
+export const FEISHU_RATE_LIMIT_CODE = 99991400;
+
+const RATE_LIMIT_CODES = new Set([
+  FEISHU_TOO_MANY_REQUEST_CODE,
+  FEISHU_DUPLICATE_REQUEST_CODE,
+  FEISHU_RATE_LIMIT_CODE,
+]);
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+/**
+ * Run a Feishu API call, retrying ONLY rate-limit / in-flight dedup errors
+ * (1254290 TooManyRequest, 1254608 same request still in-flight, 99991400
+ * frequency limit) with exponential backoff (500ms · 1s · 2s …). Honors
+ * the server's `retryAfterMs` hint (x-ogw-ratelimit-reset / Retry-After)
+ * when present. Any other error, or exhausting maxAttempts, rethrows unchanged.
+ */
+export async function withFeishuRateLimitRetry<T>(
+  fn: () => Promise<T>,
+  opts: {
+    maxAttempts?: number;
+    backoffMs?: (attempt: number) => number;
+    sleep?: (ms: number) => Promise<void>;
+  } = {},
+): Promise<T> {
+  const maxAttempts = opts.maxAttempts ?? 4;
+  const backoffMs = opts.backoffMs ?? ((attempt) => 500 * 2 ** attempt);
+  const doSleep = opts.sleep ?? sleep;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      // eslint-disable-next-line react-doctor/async-await-in-loop -- retry loop is inherently sequential (rate-limit backoff)
+      return await fn();
+    } catch (e: unknown) {
+      const rateLimited = e instanceof FeishuError && RATE_LIMIT_CODES.has(e.code);
+      if (!rateLimited || attempt >= maxAttempts - 1) throw e;
+      // Honor the server's reset hint when present; else exp backoff.
+      const hinted = e instanceof FeishuError ? e.retryAfterMs : undefined;
+      await doSleep(hinted ?? backoffMs(attempt));
+    }
+  }
+}
 
 export interface CallFeishuOptions {
   /** Path under the Feishu open-apis base, e.g. "/im/v1/messages". */

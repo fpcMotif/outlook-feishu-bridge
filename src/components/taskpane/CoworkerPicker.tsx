@@ -3,8 +3,6 @@ import * as React from "react";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Check, UserRound } from "lucide-react";
 
-import { CoworkerIcon } from "./icons/CoworkerIcon";
-
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import type { Coworker } from "./coworkers";
 import { useCoworkerSearch } from "../../hooks/useCoworkerSearch";
@@ -63,7 +61,7 @@ function searchResultsReducer(state: Coworker[], results: Coworker[]) {
 }
 
 const COWORKER_FALLBACK_ICON = (
-  <CoworkerIcon className="size-4 translate-y-px" strokeWidth={2} />
+  <UserRound className="size-4" strokeWidth={1.8} aria-hidden="true" />
 );
 
 /** Search dropdown + image-error fallback — single person glyph (matches SalesPicker). */
@@ -71,10 +69,10 @@ const SEARCH_PERSON_FALLBACK_ICON = (
   <UserRound className="size-5" strokeWidth={1.8} aria-hidden="true" />
 );
 
-function CoworkerSelectedLeading({ avatarUrl }: { avatarUrl: string }) {
+function CoworkerSelectedLeading({ avatarUrl }: { avatarUrl?: string }) {
   return (
     <Avatar className="size-8 bg-secondary">
-      <AvatarImage src={avatarUrl} alt="" />
+      {avatarUrl ? <AvatarImage src={avatarUrl} alt="" /> : null}
       <AvatarFallback className="bg-secondary text-muted-foreground">
         {COWORKER_FALLBACK_ICON}
       </AvatarFallback>
@@ -257,10 +255,10 @@ export function CoworkerPicker({
 
   const selectedLeading = useMemo(
     () =>
-      selectedCoworker?.avatarUrl ? (
+      selectedCoworker ? (
         <CoworkerSelectedLeading avatarUrl={selectedCoworker.avatarUrl} />
       ) : undefined,
-    [selectedCoworker?.avatarUrl],
+    [selectedCoworker],
   );
 
   const coworkerContent =
@@ -268,7 +266,6 @@ export function CoworkerPicker({
       <TaskpaneSelectionRow
         dataRow="coworker"
         leading={selectedLeading}
-        icon={selectedCoworker.avatarUrl ? undefined : COWORKER_FALLBACK_ICON}
         label={selectedCoworker.name}
         onChange={() => {
           setChangingCoworker(true);

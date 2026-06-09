@@ -105,6 +105,7 @@ vi.mock("./useAttachmentSync", () => ({
 }));
 
 import { RequestIntakeScreen } from "./RequestIntakeScreen";
+import { clearIntakeDraftCache } from "./intakeDraftCache";
 import type { MailItemData } from "../../office/useMailItem";
 
 const SAMPLE: MailItemData = {
@@ -149,6 +150,7 @@ async function searchCoworker(name: string) {
 
 describe("RequestIntakeScreen sync wiring", () => {
   beforeEach(() => {
+    clearIntakeDraftCache();
     mockSync.mockClear();
     mockCorrect.mockClear();
     mockExistingSync = null;
@@ -637,6 +639,84 @@ describe("RequestIntakeScreen sync wiring", () => {
     expect(mockSync.mock.calls[0][0]).toMatchObject({
       attachmentSources: [{ storageId: "stFILE", fileName: "rfq.pdf" }],
     });
+  });
+
+  // Regression (rare repro): submit on conversation A, then switch to another
+  // conversation BEFORE the Base sync resolves, then return to A. The leaving
+  // Core unmounts mid-sync, so its in-flight success dispatch is a no-op; the
+  // draft snapshot must NOT persist the transient `screen:"sync"`, or the
+  // restored draft resurrects a DEAD sync overlay that never advances even
+  // though the server row is already synced. On return we must see the
+  // already-synced overlay, never the stuck "Syncing to Feishu Base" screen.
+  it("does not strand the sync screen when the user switches conversations mid-sync and returns", async () => {
+    // Sync stays pending forever for this submit (the action effectively dies
+    // when the Core unmounts on the conversation switch).
+    mockSync.mockImplementationOnce(
+      () => new Promise<SyncResult>(() => {}),
+    );
+    const { rerender } = render(
+      <RequestIntakeScreen
+        isLoggedIn={true}
+        mailItem={SAMPLE}
+        sessionId="test-session"
+        onLogin={vi.fn()}
+        onLoginFallback={vi.fn()}
+      />,
+    );
+    fireEvent.change(
+      screen.getByPlaceholderText(/Describe your requirements/i),
+      { target: { value: "Need a quarterly L-Carnitine quote." } },
+    );
+    fireEvent.click(await searchCoworker("Jenny Xu"));
+    fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
+
+    expect(
+      await screen.findByRole("heading", { name: /Syncing to Feishu Base/i }),
+    ).toBeInTheDocument();
+
+    // The server completes the row out-of-band (Base + self-forward succeeded).
+    mockExistingSync = {
+      status: "synced",
+      recordId: "rec_recovered",
+      detailUrl: "https://feishu.cn/base/app?table=tbl&record=rec_recovered",
+      syncedAt: Date.now(),
+    };
+
+    // Switch AWAY to a different conversation -> the conv-1 Core unmounts mid-sync.
+    rerender(
+      <RequestIntakeScreen
+        isLoggedIn={true}
+        mailItem={{
+          ...SAMPLE,
+          conversationId: "conv-2",
+          internetMessageId: "<y@acme.com>",
+          itemId: "item-2",
+          from: "buyer@acme.com",
+        }}
+        sessionId="test-session"
+        onLogin={vi.fn()}
+        onLoginFallback={vi.fn()}
+      />,
+    );
+
+    // Return to conv-1 -> remount restores its draft. It must land on the
+    // already-synced overlay, NOT a stranded "Syncing" screen.
+    rerender(
+      <RequestIntakeScreen
+        isLoggedIn={true}
+        mailItem={SAMPLE}
+        sessionId="test-session"
+        onLogin={vi.fn()}
+        onLoginFallback={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: /^Already synced$/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: /Syncing to Feishu Base/i }),
+    ).not.toBeInTheDocument();
   });
 
   it("shows an error and not the success screen when sync rejects", async () => {

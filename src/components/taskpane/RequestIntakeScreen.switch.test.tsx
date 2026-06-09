@@ -57,6 +57,7 @@ import {
   resetUploadDrafts,
   snapshotUploadDraft,
 } from "./uploadDraftCache";
+import { clearIntakeDraftCache } from "./intakeDraftCache";
 import type { UploadedFile } from "./intakeReducer";
 import type { MailItemData } from "../../office/useMailItem";
 
@@ -111,6 +112,7 @@ beforeEach(() => {
   // Keep the first-load Sales delay so the auto-default does not fire mid-test and
   // collapse the SalesPicker dropdown (the flag is module-global, ADR-0025).
   resetSalesDefaultForTests();
+  clearIntakeDraftCache();
   resetUploadDrafts();
   localStorage.clear();
   vi.restoreAllMocks();
@@ -172,6 +174,32 @@ describe("RequestIntakeScreen — pinned-pane email switch", () => {
         itemId: "item-a2",
       }),
     );
+
+    expect(salesRow()).toHaveTextContent("Michael Chen");
+  });
+
+  it("restores a reassigned Sales after leaving the conversation and returning", async () => {
+    const salesRow = () => document.querySelector('[data-sales-row="true"]');
+    const { rerender } = render(screenFor(BASE));
+
+    fireEvent.change(screen.getByLabelText("Search Feishu sales"), {
+      target: { value: "Michael" },
+    });
+    fireEvent.click(await screen.findByRole("button", { name: /Michael Chen/i }));
+    expect(salesRow()).toHaveTextContent("Michael Chen");
+
+    rerender(
+      screenFor({
+        ...BASE,
+        conversationId: "conv-B",
+        internetMessageId: "<msg-b@acme.com>",
+        itemId: "item-b",
+        from: "buyer@acme.com",
+      }),
+    );
+    expect(salesRow()).toBeNull();
+
+    rerender(screenFor(BASE));
 
     expect(salesRow()).toHaveTextContent("Michael Chen");
   });

@@ -3,6 +3,7 @@
 // transitions that must not regress during retry/start-over flows.
 
 import { MAX_ATTACHMENT_COUNT } from "../../office/attachments";
+import { occupiesSlot } from "./attachmentSelection";
 import type { IntakeAction, IntakeState, UploadedFile } from "./intakeTypes";
 
 export type {
@@ -15,9 +16,7 @@ export type {
 } from "./intakeTypes";
 
 function selectedUploadCount(uploadedFiles: UploadedFile[]): number {
-  return uploadedFiles.filter(
-    (file) => file.rejection === null && file.selected,
-  ).length;
+  return uploadedFiles.filter((f) => occupiesSlot(f)).length;
 }
 
 function selectedAttachmentCount(state: IntakeState): number {
@@ -251,6 +250,21 @@ export function intakeReducer(
                 storageId: undefined,
                 uploadError: null,
               }
+            : file,
+        ),
+      };
+    }
+    case "uploadFileReplaced": {
+      // A valid re-pick re-queues (pending); a rejected one parks as blocked.
+      const reset =
+        action.rejection === null
+          ? { rejection: null, status: "pending" as const, progress: 0 }
+          : { rejection: action.rejection, selected: false, status: undefined, progress: undefined };
+      return {
+        ...state,
+        uploadedFiles: state.uploadedFiles.map((file) =>
+          file.id === action.id
+            ? { ...file, file: action.file, storageId: undefined, uploadError: null, ...reset }
             : file,
         ),
       };

@@ -1,4 +1,5 @@
 import type { AttachmentInfo } from "../../office/mailItem";
+import { occupiesSlot } from "./attachmentSelection";
 import type { IntakeState } from "./intakeTypes";
 
 export type SyncPreviewNote = {
@@ -111,7 +112,9 @@ export function selectedAttachmentsForPreview(
   }
   const fromUpload: SyncPreviewAttachment[] = [];
   for (const upload of state.uploadedFiles) {
-    if (upload.rejection === null && upload.selected) {
+    // Mirror what actually stages: a failed upload is parked out of the
+    // selection, so the preview must not promise it.
+    if (occupiesSlot(upload)) {
       fromUpload.push({ name: upload.file.name });
     }
   }

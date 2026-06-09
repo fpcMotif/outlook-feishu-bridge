@@ -2,8 +2,9 @@ import type { MailItemData } from "../../office/useMailItem";
 
 /**
  * Stable React identity for "which intake context is on screen" while a PINNED
- * task pane stays mounted across email switches (SupportsPinning). Used as the
- * `key` on RequestIntakeScreenCore so that:
+ * task pane stays mounted across email switches (SupportsPinning). The mailbox
+ * is part of the key because Outlook conversation ids are mailbox-local. Used as
+ * the `key` on RequestIntakeScreenCore so that:
  *
  *  - moving to a DIFFERENT conversation thread changes the key → React remounts
  *    the intake tree → a clean slate (notes, customer, sales, attachments, sync
@@ -23,13 +24,14 @@ import type { MailItemData } from "../../office/useMailItem";
 export function deriveMailKey(
   mailItem: Pick<
     MailItemData,
-    "conversationId" | "internetMessageId" | "itemId"
+    "conversationId" | "internetMessageId" | "itemId" | "userEmail"
   >,
 ): string {
+  const user = mailItem.userEmail?.trim().toLowerCase() || "unknown-user";
   const conversation = mailItem.conversationId?.trim();
-  if (conversation) return `conv:${conversation}`;
+  if (conversation) return `conv:${user}\n${conversation}`;
   const message =
     mailItem.internetMessageId?.trim() || mailItem.itemId?.trim();
-  if (message) return `msg:${message}`;
-  return "mail:unknown";
+  if (message) return `msg:${user}\n${message}`;
+  return `mail:${user}\nunknown`;
 }

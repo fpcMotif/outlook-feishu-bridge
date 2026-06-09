@@ -1,12 +1,17 @@
-import { AlertCircle } from "lucide-react";
-import { useMemo, type ReactNode } from "react";
+/* eslint-disable max-lines, max-lines-per-function */
+import { AlertCircle, RotateCw } from "lucide-react";
+import { useMemo, useRef, type ReactNode } from "react";
 
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 
-import { formatAttachmentMeta } from "../../office/attachments";
+import {
+  ALLOWED_UPLOAD_EXTENSIONS,
+  formatAttachmentMeta,
+} from "../../office/attachments";
 import {
   AttachmentRow,
+  FileTypeIconErrored,
   FileTypeIconWithUploadProgress,
   StatusBadge,
   type StatusTone,
@@ -14,6 +19,9 @@ import {
 import type { UploadStatus } from "./intakeReducer";
 import { Button } from "@/components/ui/button";
 import { nameWithoutExt } from "./attachmentFileDisplay";
+import { humanizeUploadError, isUnreadableUploadError } from "./uploadError";
+
+const READD_ACCEPT = ALLOWED_UPLOAD_EXTENSIONS.map((e) => `.${e}`).join(",");
 
 function mailStatus(
   checked: boolean,
@@ -85,22 +93,15 @@ function AttachmentStatusBadge({
 }
 
 function AttachmentSubtitle({
-  blocked,
+  destructive,
   subtitle,
 }: {
-  blocked: boolean;
+  destructive: boolean;
   subtitle: string;
 }) {
-  if (blocked)
+  if (destructive)
     return <span className="text-destructive normal-case">{subtitle}</span>;
   return <span>{subtitle}</span>;
-}
-
-function uploadStatusBadge(status: UploadStatus | undefined): ReactNode {
-  if (status === "error") {
-    return <StatusBadge tone="blocked">Failed</StatusBadge>;
-  }
-  return null;
 }
 
 function uploadRowStatus({
@@ -115,7 +116,9 @@ function uploadRowStatus({
   uploadStatus?: UploadStatus;
 }): { label: string; tone: StatusTone } | null {
   if (blocked) return { label: "Blocked", tone: "blocked" };
-  if (uploadStatus === "error") return { label: "Failed", tone: "blocked" };
+  // A failed row carries NO trailing badge — failure shows on the icon + in the
+  // (destructive) subtitle, leaving the trailing cluster as just Retry + trash.
+  if (uploadStatus === "error") return null;
   if (
     uploadStatus === "pending" ||
     uploadStatus === "uploading" ||
@@ -130,29 +133,76 @@ type AttachmentRowSlotsArgs = {
   blocked: boolean;
   checked: boolean;
   disabled: boolean;
+  errored: boolean;
+  unreadable: boolean;
   name: string;
   onToggle: () => void;
   status: { label: string; tone: StatusTone } | null;
   subtitle: string;
   uploadStatus?: UploadStatus;
   onRetry?: () => void;
+  onReplace?: (file: File) => void;
 };
 
+// Minimal by default: just the retry glyph (the row is tight on a ~320px pane).
+// The "Retry" word reveals itself only when the pane is wide enough to spare the
+// room; the accessible name stays "Retry" either way via aria-label.
 function RowRetryButton({ onRetry }: { onRetry: () => void }) {
   return (
     <Button
       type="button"
       variant="outline"
       size="sm"
-      className="h-7 shrink-0 rounded-md px-2 text-[11px] font-medium"
+      aria-label="Retry"
+      title="Retry"
+      className="h-7 shrink-0 gap-1 rounded-md px-2 text-[11px] font-medium"
       onClick={(e) => {
         e.preventDefault();
         e.stopPropagation();
         onRetry();
       }}
     >
-      Retry
+      <RotateCw className="size-3.5" aria-hidden="true" />
+      <span className="hidden min-[480px]:inline">Retry</span>
     </Button>
+  );
+}
+
+// Re-add for an unreadable (cloud-placeholder) pick: a hidden file input re-opens
+// the picker so the user re-selects the file, handing us a FRESH File handle that
+// — unlike a Retry of the same dead handle — can actually be read once the file
+// has finished downloading. Same visual footprint as Retry.
+function RowReAddButton({ onReplace }: { onReplace: (file: File) => void }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  return (
+    <>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="h-7 shrink-0 rounded-md px-2 text-[11px] font-medium"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          inputRef.current?.click();
+        }}
+      >
+        Re-add
+      </Button>
+      <input
+        ref={inputRef}
+        type="file"
+        accept={READD_ACCEPT}
+        className="sr-only"
+        aria-hidden="true"
+        tabIndex={-1}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = "";
+          if (file) onReplace(file);
+        }}
+      />
+    </>
   );
 }
 
@@ -160,12 +210,15 @@ function useAttachmentRowSlots({
   blocked,
   checked,
   disabled,
+  errored,
+  unreadable,
   name,
   onToggle,
   status,
   subtitle,
   uploadStatus,
   onRetry,
+  onReplace,
 }: AttachmentRowSlotsArgs) {
   const leadNode = useMemo(
     () => (
@@ -178,21 +231,28 @@ function useAttachmentRowSlots({
     ),
     [checked, disabled, name, onToggle],
   );
-  const statusNode = useMemo(() => {
-    const uploadIndicator = uploadStatusBadge(uploadStatus);
-    if (uploadIndicator) return uploadIndicator;
-    return <AttachmentStatusBadge status={status} />;
-  }, [status, uploadStatus]);
-  const subtitleNode = useMemo(
-    () => <AttachmentSubtitle blocked={blocked} subtitle={subtitle} />,
-    [blocked, subtitle],
+  const statusNode = useMemo(
+    () => <AttachmentStatusBadge status={status} />,
+    [status],
   );
-  const retryNode =
-    uploadStatus === "error" && onRetry ? (
-      <RowRetryButton onRetry={onRetry} />
-    ) : null;
+  const subtitleNode = useMemo(
+    () => (
+      <AttachmentSubtitle destructive={blocked || errored} subtitle={subtitle} />
+    ),
+    [blocked, errored, subtitle],
+  );
+  // An unreadable (cloud-placeholder) failure shows Re-add — Retry would just
+  // re-read the same dead handle — while every other failure keeps Retry.
+  const actionNode =
+    uploadStatus === "error"
+      ? unreadable && onReplace
+        ? <RowReAddButton onReplace={onReplace} />
+        : onRetry
+          ? <RowRetryButton onRetry={onRetry} />
+          : null
+      : null;
 
-  return { leadNode, statusNode, subtitleNode, retryNode };
+  return { leadNode, statusNode, subtitleNode, actionNode };
 }
 
 export type AttachmentItemRowProps = {
@@ -207,6 +267,7 @@ export type AttachmentItemRowProps = {
   onToggle: () => void;
   onRemove: () => void;
   onRetry?: () => void;
+  onReplace?: (file: File) => void;
 };
 
 function deriveAttachmentRowModel({
@@ -218,17 +279,19 @@ function deriveAttachmentRowModel({
   uploadError = null,
 }: AttachmentItemRowProps) {
   const blocked = rejection !== null;
+  const errored = uploadStatus === "error";
+  const unreadable = errored && isUnreadableUploadError(uploadError);
   const checked = selected && !blocked;
   const subtitle = blocked
     ? (rejection ?? "")
-    : uploadStatus === "error"
-      ? (uploadError ?? "Upload failed")
+    : errored
+      ? humanizeUploadError(uploadError)
       : formatAttachmentMeta(size);
   const status =
     uploadStatus === undefined
       ? itemStatus({ blocked, checked, disabled })
       : uploadRowStatus({ blocked, checked, disabled, uploadStatus });
-  return { blocked, checked, subtitle, status };
+  return { blocked, checked, errored, unreadable, subtitle, status };
 }
 
 function buildAttachmentFileIcon(
@@ -237,6 +300,8 @@ function buildAttachmentFileIcon(
   uploadStatus: UploadStatus | undefined,
 ): ReactNode {
   if (uploadStatus === undefined) return undefined;
+  // A failed upload swaps the progress ring for the errored tile (AlertCircle).
+  if (uploadStatus === "error") return <FileTypeIconErrored name={name} />;
   const uploadActive =
     uploadStatus === "pending" ||
     uploadStatus === "uploading" ||
@@ -253,29 +318,42 @@ function buildAttachmentFileIcon(
 }
 
 export function AttachmentItemRow(props: AttachmentItemRowProps) {
-  const { name, disabled, onToggle, onRemove, onRetry, uploadStatus, progress } =
-    props;
-  const { blocked, checked, subtitle, status } = deriveAttachmentRowModel(props);
-  const { leadNode, statusNode, subtitleNode, retryNode } = useAttachmentRowSlots({
+  const {
+    name,
+    disabled,
+    onToggle,
+    onRemove,
+    onRetry,
+    onReplace,
+    uploadStatus,
+    progress,
+    uploadError,
+  } = props;
+  const { blocked, checked, errored, unreadable, subtitle, status } =
+    deriveAttachmentRowModel(props);
+  const { leadNode, statusNode, subtitleNode, actionNode } = useAttachmentRowSlots({
     blocked,
     checked,
     disabled,
+    errored,
+    unreadable,
     name,
     onToggle,
     status,
     subtitle,
     uploadStatus,
     onRetry,
+    onReplace,
   });
   const fileIcon = buildAttachmentFileIcon(name, progress, uploadStatus);
   const statusSlot = useMemo(
     () => (
       <>
-        {retryNode}
+        {actionNode}
         {statusNode}
       </>
     ),
-    [retryNode, statusNode],
+    [actionNode, statusNode],
   );
 
   return (
@@ -289,6 +367,9 @@ export function AttachmentItemRow(props: AttachmentItemRowProps) {
       status={statusSlot}
       removeLabel={`Remove ${name}`}
       onRemove={onRemove}
+      pinControls={errored}
+      // Keep the raw reason reachable for support without crowding the row.
+      title={errored ? (uploadError ?? undefined) : undefined}
     />
   );
 }

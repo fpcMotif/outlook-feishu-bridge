@@ -18,6 +18,11 @@ import {
   submittedAtForDevEmailFixture,
 } from "../../convex/feishu/devEmailFixtures";
 import { DEV_SYNC_PREVIEW } from "../testing/sync-preview-fixtures";
+import {
+  buildMockStagingDeps,
+  buildMockUploadedFiles,
+  isMockUploadsMode,
+} from "../testing/mock-uploads-fixtures";
 
 // Browser dev has no Office host or mailbox (useOffice falls back to host
 // "browser" after 3s). A sample item lets the full drawer flow render for
@@ -131,6 +136,19 @@ export function TaskPane({ host }: { host: string | null }) {
       ? normalizedDevScreen
       : null;
   const devFixtureKey = devPreview ? params.get("devFixture") : null;
+  // "constra mode": ?mock=failed-uploads seeds the intake with fixture uploads so
+  // the failed/retry/re-add attachment UI renders in `bun run dev` with no real
+  // network. DEV + non-Outlook only (devPreview), so production can never enter it.
+  const mockMode =
+    devPreview && isMockUploadsMode(params.get("mock")) ? params.get("mock") : null;
+  const mockUploads =
+    mockMode && isMockUploadsMode(mockMode)
+      ? buildMockUploadedFiles(mockMode)
+      : undefined;
+  const mockStagingDeps =
+    mockMode && isMockUploadsMode(mockMode)
+      ? buildMockStagingDeps(mockMode)
+      : undefined;
   const item = mailItem ?? (devPreview ? DEV_SAMPLE : null);
 
   // Dev-only: clicking "Log in" advances straight to the logged-in UI (profile +
@@ -196,6 +214,8 @@ export function TaskPane({ host }: { host: string | null }) {
             userAccessToken={feishuAuth.userAccessToken}
             usePreviewCoworkers={useCoworkerFixtures}
             devPreview={devPreview}
+            mockUploads={mockUploads}
+            mockStagingDeps={mockStagingDeps}
             profileSlot={profileHeader}
             onLogin={handleLogin}
             onLoginFallback={handleLoginFallback}

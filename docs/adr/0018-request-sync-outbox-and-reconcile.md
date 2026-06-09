@@ -17,7 +17,7 @@ Request intake writes a durable Convex Email Record before the Feishu create cal
 4. `processPendingBitableSync` calls `bitable.createServiceRecord` with that token as Feishu `client_token`, making retries idempotent.
 5. On success it patches the Email Record with `bitableRecordId`, `sentToBitable=true`, and `bitableSyncStatus="synced"`.
 6. On create failure it marks the backup `failed` and schedules retry with bounded backoff.
-7. A Convex cron runs every 15 minutes and replays due `pending` / `failed` backups in batches of 20 using the same stored `client_token`.
+7. A Convex cron runs every 15 minutes and replays due `pending` / `failed` backups in batches of 20 using the same stored `client_token`. The reconcile loop is **serial** (`for...of`) — never `Promise.all` — to avoid bursting Feishu's Bitable QPS budget and triggering `1254290` / `1254608` throttles.
 
 The taskpane subscribes to `getBitableSyncByConversation` and leaves the sync screen when the outbox becomes `synced` — it does not require `recordId` on the immediate `syncRequest` response.
 

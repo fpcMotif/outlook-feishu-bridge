@@ -1,6 +1,6 @@
 import { MAX_ATTACHMENT_COUNT } from "../../office/attachments";
 import type { AttachmentInfo } from "../../office/mailItem";
-import { attachmentCount } from "./attachmentSelection";
+import { attachmentCount, occupiesSlot } from "./attachmentSelection";
 import type { UploadedFile, UploadStatus } from "./intakeReducer";
 
 export type AttachmentRowItem = {
@@ -16,6 +16,7 @@ export type AttachmentRowItem = {
   onToggle: () => void;
   onRemove: () => void;
   onRetry?: () => void;
+  onReplace?: (file: File) => void;
 };
 
 export function selectedTotalBytes(
@@ -28,7 +29,7 @@ export function selectedTotalBytes(
     .filter((a) => selected.has(a.id))
     .reduce((n, a) => n + a.size, 0);
   const uploads = uploadedFiles
-    .filter((u) => u.rejection === null && u.selected)
+    .filter((u) => occupiesSlot(u))
     .reduce((n, u) => n + u.file.size, 0);
   return mail + uploads;
 }
@@ -106,23 +107,31 @@ export function buildUploadRows({
   onToggleUpload,
   onRemoveUpload,
   onRetryUpload,
+  onReplaceUpload,
 }: {
   uploadedFiles: UploadedFile[];
   canSelectMore: boolean;
   onToggleUpload: (id: string) => void;
   onRemoveUpload: (id: string) => void;
   onRetryUpload?: (id: string) => void;
+  onReplaceUpload?: (id: string, file: File) => void;
 }): AttachmentRowItem[] {
   return uploadedFiles.map((upload) => ({
     id: upload.id,
     name: upload.file.name,
     size: upload.file.size,
-    selected: upload.selected,
+    // A failed upload reads as UNCHECKED (occupiesSlot is false for status
+    // "error") even though `selected` stays true underneath, so Retry can restore
+    // it to the selection the moment it completes.
+    selected: occupiesSlot(upload),
     disabled:
       upload.rejection !== null ||
       upload.status === "uploading" ||
       upload.status === "pending" ||
       upload.status === "processing" ||
+      // Only a successfully-staged file can be selected; a failed one must be
+      // retried or removed, so its checkbox is locked until it recovers.
+      upload.status === "error" ||
       (!upload.selected && !canSelectMore),
     rejection: upload.rejection,
     uploadStatus: upload.status,
@@ -133,6 +142,10 @@ export function buildUploadRows({
     onRetry:
       upload.status === "error" && onRetryUpload
         ? () => onRetryUpload(upload.id)
+        : undefined,
+    onReplace:
+      upload.status === "error" && onReplaceUpload
+        ? (file: File) => onReplaceUpload(upload.id, file)
         : undefined,
   }));
 }
@@ -147,7 +160,11 @@ export function uploadedSelection({
   let slots = MAX_ATTACHMENT_COUNT - selectedMailCount;
   const ids: string[] = [];
   for (const upload of uploadedFiles) {
-    if (upload.rejection !== null || slots <= 0) continue;
+    // Skip rejected AND failed picks — neither can be staged, so "Select all"
+    // must not promise them.
+    if (upload.rejection !== null || upload.status === "error" || slots <= 0) {
+      continue;
+    }
     ids.push(upload.id);
     slots -= 1;
   }
@@ -157,10 +174,10 @@ export function uploadedSelection({
 export function allValidUploadsSelected(
   uploadedFiles: UploadedFile[],
 ): boolean {
-  const validUploads = uploadedFiles.filter(
-    (upload) => upload.rejection === null,
+  // Only selectable rows (not rejected, not failed) decide the header toggle;
+  // a failed row can't be selected, so it never holds the label on "Select all".
+  const selectable = uploadedFiles.filter(
+    (upload) => upload.rejection === null && upload.status !== "error",
   );
-  return (
-    validUploads.length > 0 && validUploads.every((upload) => upload.selected)
-  );
+  return selectable.length > 0 && selectable.every((u) => occupiesSlot(u));
 }

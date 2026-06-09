@@ -101,6 +101,7 @@ vi.mock("./useAttachmentSync", () => ({
 }));
 
 import { RequestIntakeScreen } from "./RequestIntakeScreen";
+import { clearIntakeDraftCache } from "./intakeDraftCache";
 import type { MailItemData } from "../../office/useMailItem";
 
 const SAMPLE: MailItemData = {
@@ -151,6 +152,7 @@ async function searchCoworker(name: string) {
 
 beforeEach(() => {
   resetSalesDefaultForTests();
+  clearIntakeDraftCache();
   localStorage.clear();
   customerDirectoryRecords = [FANPC, MICROSOFT];
   mockExistingSync = null;

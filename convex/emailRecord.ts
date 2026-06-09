@@ -158,6 +158,18 @@ export const emailRecordFields = {
   bitableAttachmentSkipped: v.optional(v.array(v.string())),
   attachmentAttemptCount: v.optional(v.number()),
   attachmentNextRetryAt: v.optional(v.number()),
+  // Upload-latency instrumentation (click → fully-written). `syncTraceId` is
+  // minted on the client at Submit-click and threaded through so every server
+  // fill log line can be correlated back to one submit. `submitClickedAt` is the
+  // CLIENT wall clock at click; `syncReceivedAt` is the SERVER wall clock when the
+  // sync mutation first armed the row; `attachmentsFilledAt` is stamped when the
+  // deferred fill fences `filled`. The [fillTotal] log (markAttachmentsFilled)
+  // derives the click→filled duration from these. All optional — older rows lack
+  // them and read as null spans.
+  syncTraceId: v.optional(v.string()),
+  submitClickedAt: v.optional(v.number()),
+  syncReceivedAt: v.optional(v.number()),
+  attachmentsFilledAt: v.optional(v.number()),
 };
 
 export const emailRecordValidator = v.object(emailRecordFields);
@@ -188,6 +200,12 @@ export interface EmailRecordInput {
   // Staged Convex blobs for the deferred Attachment Fill (ADR-0027) — persisted
   // on the backup so the server can mint Drive tokens after the user leaves.
   attachmentSources?: AttachmentSource[];
+  // Upload-latency instrumentation: trace id minted at Submit-click + the client
+  // wall-clock click time, threaded through so the server [fillTotal] log can
+  // report the true click→fully-written duration (the server-stamped legs are set
+  // by beginBitableSync / markAttachmentsFilled, not carried from the client).
+  syncTraceId?: string;
+  submitClickedAt?: number;
 }
 
 // The Feishu handle produced during sync.
@@ -249,5 +267,12 @@ export function toEmailRecord(
     bitableAttachmentSkipped: undefined,
     attachmentAttemptCount: undefined,
     attachmentNextRetryAt: undefined,
+    // Client-minted trace + click time ride the backup; the server-stamped legs
+    // (syncReceivedAt, attachmentsFilledAt) are set later by the sync/fill
+    // mutations, never carried from the client.
+    syncTraceId: input.syncTraceId,
+    submitClickedAt: input.submitClickedAt,
+    syncReceivedAt: undefined,
+    attachmentsFilledAt: undefined,
   };
 }

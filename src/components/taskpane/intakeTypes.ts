@@ -91,4 +91,8 @@ export type IntakeAction =
       uploadError?: string | null;
     }
   | { type: "uploadRetryRequested"; id: string }
+  // Re-add: swap an unreadable row's File for a freshly-picked one (preserving the
+  // row id). `rejection` is recomputed by the caller — a non-null value parks the
+  // row as blocked instead of re-queuing the upload.
+  | { type: "uploadFileReplaced"; id: string; file: File; rejection: string | null }
   | { type: "startedOver" };

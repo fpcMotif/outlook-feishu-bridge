@@ -74,6 +74,7 @@ export async function mapWithConcurrency<T, R>(
     while (next < items.length) {
       const index = next;
       next += 1;
+      // eslint-disable-next-line react-doctor/async-await-in-loop -- bounded-concurrency pool: each worker drains its share sequentially; parallelism is across the `width` workers (Promise.all below)
       results[index] = await fn(items[index], index);
     }
   };

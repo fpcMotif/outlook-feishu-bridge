@@ -114,3 +114,52 @@ describe("ReceivedScreen submitted timestamp", () => {
     expect(screen.queryByText("Just now")).not.toBeInTheDocument();
   });
 });
+
+describe("ReceivedScreen attachment soft-gate (ADR-0027)", () => {
+  const url = "https://feishu.cn/base/app?table=tbl&record=rec1";
+  const liRows = () =>
+    screen.getByRole("list", { name: /Sync completion steps/i }).querySelectorAll("li");
+
+  it("no attachments: Open in Feishu is the primary CTA, with no attachment step", () => {
+    render(<ReceivedScreen coworkerCount={1} recordId="rec1" detailUrl={url} />);
+    expect(screen.getByRole("link", { name: /Open in Feishu/i })).toHaveClass("text-primary");
+    expect(liRows()).toHaveLength(3);
+  });
+
+  it("filled: Open in Feishu is primary and a done attachment step is shown", () => {
+    render(
+      <ReceivedScreen coworkerCount={1} recordId="rec1" detailUrl={url} attachmentStatus="filled" />,
+    );
+    expect(screen.getByRole("link", { name: /Open in Feishu/i })).toHaveClass("text-primary");
+    expect(screen.getByText("Attachments synced")).toBeInTheDocument();
+    expect(liRows()).toHaveLength(4);
+  });
+
+  it("filling: the link is demoted under an uploading chip, with a live step", () => {
+    render(
+      <ReceivedScreen coworkerCount={1} recordId="rec1" detailUrl={url} attachmentStatus="filling" />,
+    );
+    const link = screen.getByRole("link", { name: /Open in Feishu/i });
+    expect(link).toHaveClass("text-muted-foreground");
+    expect(link).not.toHaveClass("text-primary");
+    expect(link).toHaveTextContent(/anyway/i);
+    expect(liRows()).toHaveLength(4);
+  });
+
+  it("pending behaves like filling (still uploading, link offered)", () => {
+    render(
+      <ReceivedScreen coworkerCount={1} recordId="rec1" detailUrl={url} attachmentStatus="pending" />,
+    );
+    expect(screen.getByRole("link", { name: /Open in Feishu/i })).toHaveTextContent(/anyway/i);
+    expect(liRows()).toHaveLength(4);
+  });
+
+  it("failed: a failure chip shows but the link is still offered (the row exists)", () => {
+    render(
+      <ReceivedScreen coworkerCount={1} recordId="rec1" detailUrl={url} attachmentStatus="failed" />,
+    );
+    expect(screen.getByText(/couldn't finish/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Open in Feishu/i })).toHaveClass("text-muted-foreground");
+    expect(screen.getByText("Attachments incomplete")).toBeInTheDocument();
+  });
+});

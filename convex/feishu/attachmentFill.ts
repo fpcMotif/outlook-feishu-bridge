@@ -68,3 +68,63 @@ export function shouldRearmAttachmentFill(
   }
   return isBitableSyncDue(row.attachmentNextRetryAt, now - graceMs);
 }
+
+/**
+ * Timing snapshot for the deferred fill, computed when the cell fences as
+ * `filled`. The headline the upload-latency experiment wants is `totalMs` — the
+ * TRUE click-to-fully-written duration the per-Feishu-call logs can't show,
+ * because the client pane is long gone by the time the fill fences. All spans are
+ * null-safe: an older row (or a submit before this instrumentation shipped) lacks
+ * the start stamps, so its spans read null rather than a bogus number.
+ *
+ * Clocks: `submitClickedAt` is a CLIENT wall clock; everything else is a SERVER
+ * wall clock — so `totalMs` carries whatever click-to-receive skew exists between
+ * the two machines. At the seconds-to-minutes scale of a Drive fill that skew is
+ * noise; `fillMs` (pure server clock) is the exact, skew-free fill duration.
+ */
+export interface FillTimingRow {
+  syncTraceId?: string;
+  submitClickedAt?: number;
+  syncReceivedAt?: number;
+  bitableRowMintedAt?: number;
+  bitableAttachmentFileTokens?: readonly string[];
+  bitableAttachmentSkipped?: readonly string[];
+}
+
+export interface FillTotal {
+  traceId: string | null;
+  files: number;
+  skipped: number;
+  /** syncReceived → row minted (the create leg). */
+  createMs: number | null;
+  /** row minted → filled (the deferred Drive-fill leg, pure server clock). */
+  fillMs: number | null;
+  /** submit click → filled (end-to-end; crosses client↔server clocks). */
+  totalMs: number | null;
+  /** One structured log line, sibling to [feishu]/[storage]; grep-able in `bunx convex logs`. */
+  line: string;
+}
+
+export function buildFillTotal(row: FillTimingRow, filledAt: number): FillTotal {
+  const traceId = row.syncTraceId ?? null;
+  const files = row.bitableAttachmentFileTokens?.length ?? 0;
+  const skipped = row.bitableAttachmentSkipped?.length ?? 0;
+  const createMs =
+    row.syncReceivedAt !== undefined && row.bitableRowMintedAt !== undefined
+      ? row.bitableRowMintedAt - row.syncReceivedAt
+      : null;
+  const fillMs =
+    row.bitableRowMintedAt !== undefined ? filledAt - row.bitableRowMintedAt : null;
+  const totalMs =
+    row.submitClickedAt !== undefined ? filledAt - row.submitClickedAt : null;
+  const parts = [
+    "[fillTotal]",
+    `trace=${traceId ?? "-"}`,
+    `files=${files}`,
+    `skipped=${skipped}`,
+  ];
+  if (createMs !== null) parts.push(`createMs=${createMs}`);
+  if (fillMs !== null) parts.push(`fillMs=${fillMs}`);
+  if (totalMs !== null) parts.push(`totalMs=${totalMs}`);
+  return { traceId, files, skipped, createMs, fillMs, totalMs, line: parts.join(" ") };
+}

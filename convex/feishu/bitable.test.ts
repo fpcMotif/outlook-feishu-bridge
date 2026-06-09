@@ -2,9 +2,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const callFeishu = vi.fn();
-vi.mock("./call", () => ({
-  callFeishu: (...args: unknown[]) => callFeishu(...args),
-}));
+// Keep the real call layer (so the shared withFeishuRateLimitRetry that
+// createServiceRecord wraps each call in is available) and stub only callFeishu.
+vi.mock("./call", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./call")>();
+  return {
+    ...actual,
+    callFeishu: (...args: unknown[]) => callFeishu(...args),
+  };
+});
 
 import {
   createServiceRecord,

@@ -27,7 +27,7 @@ must:
 | `requestSync.ts` (`syncRequest`, `processPendingBitableSync`, `fillRowAttachments`, `rearmConversationSync`) | `callFeishu` / `resolveFeishuToken` (→ `FeishuBaseSim`) |
 | `bitable.ts` (`createServiceRecord`, `patchRowAttachments`) | `getStorageBytes` (→ `FakeStorage`) |
 | `emails.ts` (all fill mutations/queries) | `ctx.db` (→ `FakeDb`), `ctx.scheduler` (→ `FakeScheduler`), `ctx.storage.delete` |
-| `drive.ts` (`mintOneStagedSource`, `driveUploadConcurrency`, `withDriveRateLimitRetry`) | the `internal.*` dispatcher (→ `Registry`) |
+| `drive.ts` (`mintOneStagedSource`, `driveUploadConcurrency`) + the shared `call.ts` `withFeishuRateLimitRetry` | the `internal.*` dispatcher (→ `Registry`) |
 | `serviceRow.ts`, `attachmentFill.ts`, `bitableSyncRetry.ts` | — |
 
 > **Do NOT mock** `./drive`, `./bitable`, `../emails`, `./requestSync`,
@@ -173,7 +173,7 @@ together.
 | `setClientSearchResult(items)` | Customer-table domain-search result (default `[]` ⇒ null Client). |
 | `failUploadFor(fileName, {times?, code?})` | Fail that file's upload `times` (default 1) with `code` (default a non-rate-limit `FeishuError` ⇒ the fill **defers** it). |
 | `deferUploadFor(fileName, {times?})` | Throw a transient (non-Feishu) error `times` ⇒ the fill classifies it **deferred** (kept for retry). |
-| `rateLimitNextUpload(times?)` | Throw `99991400` on the next `times` uploads, then succeed (assert `withDriveRateLimitRetry` recovers). |
+| `rateLimitNextUpload(times?)` | Throw `99991400` on the next `times` uploads, then succeed (assert `withFeishuRateLimitRetry` recovers). |
 | `setUploadConcurrencyCap(cap)` | Concurrent-upload count above which `99991400` trips (default 5 = the live 5-QPS budget). |
 | `gateUploads()` → `{ release }` | Hold ALL uploads mid-flight until `release()`. Start two fills, wait until both have read state + entered upload, then release — exercises the double-mint race. |
 
@@ -201,7 +201,7 @@ together.
 
 ## Gotchas for later agents
 
-- **Fake timers + Drive backoff.** `withDriveRateLimitRetry` sleeps via
+- **Fake timers + Drive backoff.** `withFeishuRateLimitRetry` sleeps via
   `setTimeout`. Under `vi.useFakeTimers()`, advance with
   `vi.advanceTimersByTimeAsync(...)` (or `vi.runAllTimersAsync()`) so the backoff
   fires; otherwise a `rateLimitNextUpload` storm stalls inside the retry wrapper.

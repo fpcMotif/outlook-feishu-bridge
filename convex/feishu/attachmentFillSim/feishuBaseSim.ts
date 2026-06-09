@@ -17,8 +17,8 @@
 
 import { FeishuError } from "../client";
 
-// The drive rate-limit gateway code the SUT's withDriveRateLimitRetry recovers
-// from (mirrors FEISHU_RATE_LIMIT_CODE in drive.ts).
+// The drive rate-limit gateway code the SUT's withFeishuRateLimitRetry recovers
+// from (mirrors FEISHU_RATE_LIMIT_CODE in call.ts).
 export const RATE_LIMIT_CODE = 99991400;
 
 // The Customer table the Client DuplexLink domain-search hits (bitable.ts).
@@ -251,7 +251,7 @@ export class FeishuBaseSim {
     if (defFault && defFault.remaining > 0) {
       defFault.remaining -= 1;
       // A generic (non-rate-limit) error => mintOneStagedSource classifies it
-      // as `deferred` (withDriveRateLimitRetry rethrows non-99991400 at once).
+      // as `deferred` (withFeishuRateLimitRetry rethrows non-rate-limit at once).
       throw new Error(`simulated transient Drive failure for ${fileName}`);
     }
     // Programmed standalone rate-limit storm (recoverable by the retry wrapper).
@@ -359,7 +359,7 @@ export class FeishuBaseSim {
 
   /**
    * Throw the 99991400 frequency-limit on the next `times` uploads (any file),
-   * then succeed — to assert withDriveRateLimitRetry recovers transparently.
+   * then succeed — to assert withFeishuRateLimitRetry recovers transparently.
    */
   rateLimitNextUpload(times: number = 1): this {
     this.rateLimitNext = times;

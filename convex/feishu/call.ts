@@ -2,6 +2,7 @@
 // build the URL, and delegate transport to feishuFetch. Endpoint actions call
 // through here and are left with just their path + body shape.
 
+import { Effect } from "effect";
 import type { ActionCtx } from "../_generated/server";
 import { getTenantAccessToken } from "./auth";
 import { getUserAccessToken } from "./userAuth";
@@ -28,36 +29,67 @@ function sleep(ms: number): Promise<void> {
   });
 }
 
+export interface FeishuRetryOptions {
+  maxAttempts?: number;
+  backoffMs?: (attempt: number) => number;
+  sleep?: (ms: number) => Promise<void>;
+}
+
+/**
+ * Effect v4 form of {@link withFeishuRateLimitRetry} (ADR-0029 pilot). Retry
+ * ONLY rate-limit / in-flight dedup FeishuErrors (1254290 / 1254608 / 99991400)
+ * with exponential backoff, honoring the server's `retryAfterMs` hint when
+ * present. `Effect.catchIf` re-raises every non-matching error — and a matching
+ * one once `maxAttempts` is spent — unchanged through the failure channel, so
+ * `Effect.runPromise` rejects with the ORIGINAL FeishuError (Cause.squash keeps
+ * the same instance). Callers' `instanceof FeishuError` / `.code` checks hold.
+ *
+ * `fn` and `sleep` stay injected (same DI seam as before) so this is unit-tested
+ * with plain vitest at the Effect boundary (ADR-0019), no Convex runtime needed.
+ */
+export function withFeishuRateLimitRetryEffect<T>(
+  fn: () => Promise<T>,
+  opts: FeishuRetryOptions = {},
+): Effect.Effect<T, unknown> {
+  const maxAttempts = opts.maxAttempts ?? 4;
+  const backoffMs = opts.backoffMs ?? ((attempt) => 500 * 2 ** attempt);
+  const doSleep = opts.sleep ?? sleep;
+
+  const attempt = (n: number): Effect.Effect<T, unknown> =>
+    Effect.tryPromise({ try: fn, catch: (cause) => cause }).pipe(
+      Effect.catchIf(
+        // Retryable iff it's a rate-limit FeishuError AND budget remains; any
+        // other error (or the last attempt) flows through catchIf untouched.
+        (cause): cause is FeishuError =>
+          cause instanceof FeishuError &&
+          RATE_LIMIT_CODES.has(cause.code) &&
+          n < maxAttempts - 1,
+        // Honor the server's reset hint when present; else exp backoff.
+        (cause) =>
+          Effect.promise(() => doSleep(cause.retryAfterMs ?? backoffMs(n))).pipe(
+            Effect.flatMap(() => attempt(n + 1)),
+          ),
+      ),
+    );
+
+  return attempt(0);
+}
+
 /**
  * Run a Feishu API call, retrying ONLY rate-limit / in-flight dedup errors
  * (1254290 TooManyRequest, 1254608 same request still in-flight, 99991400
  * frequency limit) with exponential backoff (500ms · 1s · 2s …). Honors
  * the server's `retryAfterMs` hint (x-ogw-ratelimit-reset / Retry-After)
  * when present. Any other error, or exhausting maxAttempts, rethrows unchanged.
+ *
+ * Thin Promise boundary over {@link withFeishuRateLimitRetryEffect} (Effect v4,
+ * ADR-0029) so Convex action callers keep awaiting a plain `Promise<T>`.
  */
-export async function withFeishuRateLimitRetry<T>(
+export function withFeishuRateLimitRetry<T>(
   fn: () => Promise<T>,
-  opts: {
-    maxAttempts?: number;
-    backoffMs?: (attempt: number) => number;
-    sleep?: (ms: number) => Promise<void>;
-  } = {},
+  opts: FeishuRetryOptions = {},
 ): Promise<T> {
-  const maxAttempts = opts.maxAttempts ?? 4;
-  const backoffMs = opts.backoffMs ?? ((attempt) => 500 * 2 ** attempt);
-  const doSleep = opts.sleep ?? sleep;
-  for (let attempt = 0; ; attempt++) {
-    try {
-      // eslint-disable-next-line react-doctor/async-await-in-loop -- retry loop is inherently sequential (rate-limit backoff)
-      return await fn();
-    } catch (e: unknown) {
-      const rateLimited = e instanceof FeishuError && RATE_LIMIT_CODES.has(e.code);
-      if (!rateLimited || attempt >= maxAttempts - 1) throw e;
-      // Honor the server's reset hint when present; else exp backoff.
-      const hinted = e instanceof FeishuError ? e.retryAfterMs : undefined;
-      await doSleep(hinted ?? backoffMs(attempt));
-    }
-  }
+  return Effect.runPromise(withFeishuRateLimitRetryEffect(fn, opts));
 }
 
 export interface CallFeishuOptions {

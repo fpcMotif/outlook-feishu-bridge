@@ -55,10 +55,14 @@ import {
   exceedsAssumedMax,
   nextPageTokenOrStop,
   partitionActive,
-  shouldPruneStaleContacts,
+  runContactsMirrorRefresh,
   staleContactIds,
   worstStopReason,
+  type ContactCrawlResult,
+  type ContactsMirrorRefreshPort,
+  type ContactsRefreshFinish,
   type ContactStopReason,
+  type ContactWriteTotals,
   type FeishuDepartment,
   type PruneTotals,
 } from "./contactsMirrorSync";
@@ -394,15 +398,7 @@ async function walkDepartmentMembers(
   return { active, skippedResigned, stopReason };
 }
 
-interface CrawlResult {
-  rows: ContactUpsertRow[];
-  seenOpenIds: Set<string>;
-  departmentCount: number;
-  skippedResigned: number;
-  stopReason: ContactStopReason;
-}
-
-async function crawlDirectory(ctx: ActionCtx): Promise<CrawlResult> {
+async function crawlDirectory(ctx: ActionCtx): Promise<ContactCrawlResult> {
   const departments = await walkDepartments(ctx);
   // Scan root (direct members at the top) plus every descendant department.
   const departmentIds = [ROOT_DEPARTMENT_ID, ...departments.departmentIds];
@@ -428,18 +424,12 @@ async function crawlDirectory(ctx: ActionCtx): Promise<CrawlResult> {
   };
 }
 
-interface WriteTotals {
-  inserted: number;
-  updated: number;
-  unchanged: number;
-}
-
 async function writeRows(
   ctx: ActionCtx,
   rows: readonly ContactUpsertRow[],
   mirroredAt: number,
-): Promise<WriteTotals> {
-  const totals: WriteTotals = { inserted: 0, updated: 0, unchanged: 0 };
+): Promise<ContactWriteTotals> {
+  const totals: ContactWriteTotals = { inserted: 0, updated: 0, unchanged: 0 };
   const batches: ContactUpsertRow[][] = [];
   for (let i = 0; i < rows.length; i += APPLY_BATCH_SIZE) {
     batches.push(rows.slice(i, i + APPLY_BATCH_SIZE));
@@ -460,8 +450,9 @@ async function writeRows(
   return totals;
 }
 
-// Tombstone any mirror row whose openId was not seen this run. Callers MUST gate
-// on shouldPruneStaleContacts(stopReason) — never prune after a partial crawl.
+// Tombstone any mirror row whose openId was not seen this run. Wired as the
+// engine's `tombstone` port — runContactsMirrorRefresh only calls it behind the
+// shouldPruneStaleContacts gate, so this never runs after a partial crawl.
 async function pruneStaleContacts(
   ctx: ActionCtx,
   seenOpenIds: ReadonlySet<string>,
@@ -487,7 +478,7 @@ async function pruneStaleContacts(
   return totals;
 }
 
-interface FullSyncResult extends WriteTotals {
+interface FullSyncResult extends ContactWriteTotals {
   userCount: number;
   departmentCount: number;
   skippedResigned: number;
@@ -497,26 +488,39 @@ interface FullSyncResult extends WriteTotals {
   durationMs: number;
 }
 
-async function runFullSync(ctx: ActionCtx, startedAt: number): Promise<FullSyncResult> {
-  const crawl = await crawlDirectory(ctx);
-  if (exceedsAssumedMax(crawl.rows.length)) {
-    console.error(
-      `[contacts-mirror] ASSUMPTION BREACH users=${crawl.rows.length} exceeds assumed max 800 — revisit paging/cost`,
-    );
-  }
-  if (crawl.stopReason !== "complete") {
+// The real Contacts Refresh port: crawl the directory via Feishu, write /
+// tombstone / finish via Convex. The engine (contactsMirrorSync.runContacts-
+// MirrorRefresh) owns the completeness gate and the all-or-nothing prune gate;
+// this adapter only supplies the I/O — and finishFullSync escalates a non-complete
+// crawl into a thrown error (leaving the watermark untouched), which keeps the
+// engine itself non-throwing.
+function makeContactsRefreshPort(
+  ctx: ActionCtx,
+): ContactsMirrorRefreshPort<FullSyncResult> {
+  return {
+    crawl: () => crawlDirectory(ctx),
+    writeRows: (rows, mirroredAt) => writeRows(ctx, rows, mirroredAt),
+    tombstone: (seen) => pruneStaleContacts(ctx, seen),
+    finish: (args) => finishFullSync(ctx, args),
+  };
+}
+
+// Stamp the watermark + assemble the result on a complete crawl; throw (without
+// stamping) on a partial one, so a failed run leaves the last good watermark and
+// never writes/prunes an incomplete directory (ADR-0023).
+async function finishFullSync(
+  ctx: ActionCtx,
+  { crawl, mirroredAt, writes, prune, complete }: ContactsRefreshFinish,
+): Promise<FullSyncResult> {
+  if (!complete) {
     throw new Error(
       `Contacts mirror stopped before completion: reason=${crawl.stopReason} ` +
         `departments=${crawl.departmentCount} users=${crawl.rows.length}`,
     );
   }
-  const writes = await writeRows(ctx, crawl.rows, startedAt);
-  const prune = shouldPruneStaleContacts(crawl.stopReason)
-    ? await pruneStaleContacts(ctx, crawl.seenOpenIds)
-    : emptyPruneTotals();
   const finishedAt = Date.now();
   await ctx.runMutation(internal.feishu.contactsMirror.recordSyncCompletion, {
-    lastFullSyncAt: startedAt,
+    lastFullSyncAt: mirroredAt,
     lastUserCount: crawl.rows.length,
     lastDepartmentCount: crawl.departmentCount,
     lastInsertedCount: writes.inserted,
@@ -524,7 +528,7 @@ async function runFullSync(ctx: ActionCtx, startedAt: number): Promise<FullSyncR
     lastUnchangedCount: writes.unchanged,
     lastSkippedResignedCount: crawl.skippedResigned,
     lastStopReason: crawl.stopReason,
-    lastDurationMs: finishedAt - startedAt,
+    lastDurationMs: finishedAt - mirroredAt,
     lastFinishedAt: finishedAt,
     lastPruneScannedCount: prune.scanned,
     lastDeletedStaleCount: prune.deleted,
@@ -537,8 +541,14 @@ async function runFullSync(ctx: ActionCtx, startedAt: number): Promise<FullSyncR
     stopReason: crawl.stopReason,
     pruneScanned: prune.scanned,
     deletedStale: prune.deleted,
-    durationMs: finishedAt - startedAt,
+    durationMs: finishedAt - mirroredAt,
   };
+}
+
+// Page the live Feishu directory → upsert the mirror → prune leavers, all behind
+// the pure engine's gates. The single-flight lease is already held by the caller.
+function runFullSync(ctx: ActionCtx, startedAt: number): Promise<FullSyncResult> {
+  return runContactsMirrorRefresh(makeContactsRefreshPort(ctx), { startedAt });
 }
 
 function skippedResult(): FullSyncResult {

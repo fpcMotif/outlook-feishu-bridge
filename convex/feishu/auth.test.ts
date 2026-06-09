@@ -1,7 +1,12 @@
 /* eslint-disable max-lines-per-function */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { getTenantAccessToken, pruneTokenRows, selectFreshToken } from "./auth";
+import {
+  TOKEN_WRITE_SKIP_MARGIN_MS,
+  getTenantAccessToken,
+  planTokenWrite,
+  selectFreshToken,
+} from "./auth";
 import { FEISHU_BASE, FeishuError, feishuFetch } from "./client";
 
 vi.mock("./client", async () => {
@@ -24,10 +29,42 @@ describe("selectFreshToken", () => {
   });
 });
 
-describe("pruneTokenRows", () => {
-  it("returns every row id it is handed", () => {
-    const rows = Array.from({ length: 13 }, (_, i) => ({ _id: `id${i}` }));
-    expect(pruneTokenRows(rows)).toEqual(rows.map((r) => r._id));
+describe("planTokenWrite", () => {
+  const now = 1_000_000;
+  const margin = TOKEN_WRITE_SKIP_MARGIN_MS;
+
+  it("inserts when there is no existing row", () => {
+    expect(planTokenWrite([], now, margin)).toEqual({
+      kind: "insert",
+      deleteIds: [],
+    });
+  });
+
+  it("skips the write when the existing row is fresh beyond the margin", () => {
+    const existing = [{ _id: "a", expiresAt: now + margin + 1 }];
+    expect(planTokenWrite(existing, now, margin)).toEqual({ kind: "skip" });
+  });
+
+  it("does NOT skip when the existing row expires within the margin", () => {
+    const existing = [{ _id: "a", expiresAt: now + margin }];
+    expect(planTokenWrite(existing, now, margin)).toEqual({
+      kind: "patch",
+      patchId: "a",
+      deleteIds: [],
+    });
+  });
+
+  it("patches the head and prunes legacy duplicates when refreshing a stale row", () => {
+    const existing = [
+      { _id: "a", expiresAt: now - 1 },
+      { _id: "b", expiresAt: now + 999_999 },
+      { _id: "c", expiresAt: now - 50 },
+    ];
+    expect(planTokenWrite(existing, now, margin)).toEqual({
+      kind: "patch",
+      patchId: "a",
+      deleteIds: ["b", "c"],
+    });
   });
 });
 

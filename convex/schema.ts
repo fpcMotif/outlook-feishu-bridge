@@ -4,11 +4,15 @@ import { v } from "convex/values";
 import { emailRecordFields } from "./emailRecord";
 
 export default defineSchema({
+  // Singleton tenant-token cache. The `by_tokenType` index lets storeToken read
+  // the row by a narrow index range instead of a full-table scan, and underpins
+  // the herd-collapse skip in feishu/auth.ts that ends the OCC write-conflict
+  // storm when many actions refresh an expired token at once.
   feishuTokens: defineTable({
     tokenType: v.literal("tenant_access_token"),
     token: v.string(),
     expiresAt: v.number(),
-  }),
+  }).index("by_tokenType", ["tokenType"]),
 
   feishuUserTokens: defineTable({
     sessionId: v.string(),

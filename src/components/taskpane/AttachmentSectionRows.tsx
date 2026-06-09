@@ -306,13 +306,14 @@ function buildAttachmentFileIcon(
     uploadStatus === "pending" ||
     uploadStatus === "uploading" ||
     uploadStatus === "processing";
-  // Indeterminate only before upload starts; once uploading, fill uses xhr + simulated ramp.
+  // Queued rows hold a steady sliver; once uploading, the fill climbs linearly
+  // off real xhr progress backstopped by the simulated ramp.
   return (
     <FileTypeIconWithUploadProgress
       name={name}
       progress={progress ?? 0}
       active={uploadActive}
-      indeterminate={uploadStatus === "pending"}
+      pending={uploadStatus === "pending"}
     />
   );
 }

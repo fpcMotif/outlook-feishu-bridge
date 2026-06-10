@@ -513,7 +513,11 @@ export const getBitableSyncByConversation = query({
   },
 });
 
-export const listRecent = query({
+// Internal-only debug helper (run via `bunx convex run`): the 20 most recent
+// Email Record backups carry message PII, so this must never be public. No
+// frontend caller.
+export const listRecent = internalQuery({
+  args: {},
   handler: async (ctx) => {
     return await ctx.db.query("emailRecords").order("desc").take(20);
   },

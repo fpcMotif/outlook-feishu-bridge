@@ -8,6 +8,11 @@ import { buildConfiguredBitableRecordDetailUrl } from "./bitableUrl";
 import { assertWithinAttachmentCap } from "./attachmentLimits";
 import { driveUploadConcurrency, mintOneStagedSource } from "./drive";
 import { resolveFeishuToken } from "./call";
+import {
+  runAttachmentFill,
+  type AttachmentFillPort,
+  type AttachmentFillTotals,
+} from "./attachmentFillEngine";
 
 // Shared intake submitted by the taskpane.
 const intakeArgs = {
@@ -377,6 +382,51 @@ export const reconcilePendingBitableSync = internalAction({
   },
 });
 
+// The real Attachment Fill port: state/stamps via Convex mutations, Drive mints
+// via drive.ts, the fenced cumulative PUT via bitable.ts. The engine
+// (attachmentFillEngine.runAttachmentFill) owns the lifecycle — early-exit
+// fences, wave sequencing, persist-before-delete, deferred-break, retry arming
+// — this adapter only supplies the I/O. Tokens/config resolve in prepare(), so
+// a config error propagates instead of consuming a bounded-retry attempt.
+function makeAttachmentFillPort(
+  ctx: ActionCtx,
+  lookup: { internetMessageId: string; requestSyncKey?: string },
+): AttachmentFillPort {
+  let driveOpts: { appToken: string; tenantToken: string } | null = null;
+  return {
+    getState: () => ctx.runQuery(internal.emails.getAttachmentFillState, lookup),
+    prepare: async () => {
+      const appToken = process.env.FEISHU_BITABLE_APP_TOKEN;
+      if (!appToken) throw new Error("FEISHU_BITABLE_APP_TOKEN must be set");
+      driveOpts = { appToken, tenantToken: await resolveFeishuToken(ctx, "tenant") };
+      return { concurrency: driveUploadConcurrency() };
+    },
+    mint: (source) => {
+      if (!driveOpts) throw new Error("attachment fill port: prepare() must run before mint()");
+      return mintOneStagedSource(ctx, source, driveOpts);
+    },
+    recordProgress: async (progress) => {
+      await ctx.runMutation(internal.emails.recordAttachmentProgress, { ...lookup, ...progress });
+    },
+    deleteStagedBlob: (storageId) => ctx.storage.delete(storageId as Id<"_storage">),
+    patchRow: async () => {
+      await ctx.runAction(internal.feishu.bitable.patchRowAttachments, lookup);
+    },
+    markFilled: async () => {
+      await ctx.runMutation(internal.emails.markAttachmentsFilled, lookup);
+    },
+    markFailed: (reason) =>
+      ctx.runMutation(internal.emails.markAttachmentsFailed, {
+        ...lookup,
+        error: reason,
+        attemptedAt: Date.now(),
+      }),
+    scheduleRetry: async (delayMs) => {
+      await ctx.scheduler.runAfter(delayMs, internal.feishu.requestSync.fillRowAttachments, lookup);
+    },
+  };
+}
+
 // Deferred Attachment Fill (ADR-0027). Kicked from markBitableSyncSucceeded once
 // the row exists, and re-driven by rearm-on-reopen. Processes the REMAINING
 // staged sources in waves of `driveUploadConcurrency` (bounded ≤5 under the
@@ -387,74 +437,9 @@ export const reconcilePendingBitableSync = internalAction({
 // stuck fill never affects the synced status — it just leaves a fillable cell.
 export const fillRowAttachments = internalAction({
   args: { internetMessageId: v.string(), requestSyncKey: v.optional(v.string()) },
-  handler: async (ctx, args): Promise<{ filled: number; skipped: number; deferred: number }> => {
+  handler: async (ctx, args): Promise<AttachmentFillTotals> => {
     const lookup = { internetMessageId: args.internetMessageId, requestSyncKey: args.requestSyncKey };
-    const state = await ctx.runQuery(internal.emails.getAttachmentFillState, lookup);
-    if (!state || !state.bitableRecordId || state.bitableAttachmentStatus === "filled") {
-      return { filled: 0, skipped: 0, deferred: 0 };
-    }
-    if (state.remainingSources.length === 0) {
-      await ctx.runMutation(internal.emails.markAttachmentsFilled, lookup);
-      return { filled: 0, skipped: 0, deferred: 0 };
-    }
-    const appToken = process.env.FEISHU_BITABLE_APP_TOKEN;
-    if (!appToken) throw new Error("FEISHU_BITABLE_APP_TOKEN must be set");
-    const tenantToken = await resolveFeishuToken(ctx, "tenant");
-    const concurrency = driveUploadConcurrency();
-
-    let filled = 0;
-    let skipped = 0;
-    let deferred = 0;
-    let lastError: string | null = null;
-    try {
-      for (let i = 0; i < state.remainingSources.length; i += concurrency) {
-        const batch = state.remainingSources.slice(i, i + concurrency);
-        // eslint-disable-next-line no-await-in-loop, react-doctor/async-await-in-loop -- waves are sequential by design: one coalesced cumulative PUT per wave (ADR-0027)
-        const outcomes = await Promise.all(
-          batch.map((s) => mintOneStagedSource(ctx, s, { appToken, tenantToken })),
-        );
-        const minted = outcomes.flatMap((o) => (o.kind === "minted" ? [o] : []));
-        const skippedNow = outcomes.flatMap((o) => (o.kind === "skipped" ? [o] : []));
-        const deferredNow = outcomes.flatMap((o) => (o.kind === "deferred" ? [o] : []));
-        filled += minted.length;
-        skipped += skippedNow.length;
-        deferred += deferredNow.length;
-        if (minted.length > 0 || skippedNow.length > 0) {
-          // Persist BEFORE deleting the staged blobs.
-          // eslint-disable-next-line no-await-in-loop, react-doctor/async-parallel -- ordered persist -> delete -> PUT is a correctness invariant, NOT independent work
-          await ctx.runMutation(internal.emails.recordAttachmentProgress, {
-            ...lookup,
-            mintedTokens: minted.map((m) => m.fileToken),
-            skippedNames: skippedNow.map((s) => s.fileName),
-            completedStorageIds: [...minted, ...skippedNow].map((o) => o.storageId),
-          });
-          // eslint-disable-next-line no-await-in-loop -- delete consumed blobs after persist
-          await Promise.all(
-            minted.map((m) => ctx.storage.delete(m.storageId as Id<"_storage">).catch(() => {})),
-          );
-          // eslint-disable-next-line no-await-in-loop -- coalesced cumulative PUT for this wave
-          await ctx.runAction(internal.feishu.bitable.patchRowAttachments, lookup);
-        }
-        if (deferredNow.length > 0) break; // transient — stop and reschedule
-      }
-    } catch (e: unknown) {
-      lastError = errorMessage(e);
-    }
-
-    if (deferred > 0 || lastError) {
-      const reason = lastError ?? `${deferred} attachment(s) deferred (transient Drive failure)`;
-      const outcome = await ctx.runMutation(internal.emails.markAttachmentsFailed, {
-        ...lookup,
-        error: reason,
-        attemptedAt: Date.now(),
-      });
-      if (typeof outcome?.retryDelayMs === "number") {
-        await ctx.scheduler.runAfter(outcome.retryDelayMs, internal.feishu.requestSync.fillRowAttachments, lookup);
-      }
-    } else {
-      await ctx.runMutation(internal.emails.markAttachmentsFilled, lookup);
-    }
-    return { filled, skipped, deferred };
+    return await runAttachmentFill(makeAttachmentFillPort(ctx, lookup));
   },
 });
 

@@ -17,6 +17,7 @@ import type * as feishu_attachmentFillSim_feishuBaseSim from "../feishu/attachme
 import type * as feishu_attachmentFillSim_harness from "../feishu/attachmentFillSim/harness.js";
 import type * as feishu_attachmentFillSim_index from "../feishu/attachmentFillSim/index.js";
 import type * as feishu_attachmentFillSim_outlookIntake from "../feishu/attachmentFillSim/outlookIntake.js";
+import type * as feishu_attachmentLimits from "../feishu/attachmentLimits.js";
 import type * as feishu_auth from "../feishu/auth.js";
 import type * as feishu_bitable from "../feishu/bitable.js";
 import type * as feishu_bitableSyncRetry from "../feishu/bitableSyncRetry.js";
@@ -67,6 +68,7 @@ declare const fullApi: ApiFromModules<{
   "feishu/attachmentFillSim/harness": typeof feishu_attachmentFillSim_harness;
   "feishu/attachmentFillSim/index": typeof feishu_attachmentFillSim_index;
   "feishu/attachmentFillSim/outlookIntake": typeof feishu_attachmentFillSim_outlookIntake;
+  "feishu/attachmentLimits": typeof feishu_attachmentLimits;
   "feishu/auth": typeof feishu_auth;
   "feishu/bitable": typeof feishu_bitable;
   "feishu/bitableSyncRetry": typeof feishu_bitableSyncRetry;

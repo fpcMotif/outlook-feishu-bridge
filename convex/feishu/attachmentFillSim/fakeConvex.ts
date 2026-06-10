@@ -185,11 +185,13 @@ function satisfiesBound(value: unknown, bound: IndexBound): boolean {
 class FakeIndexQuery {
   private readonly bounds: IndexBound[] = [];
   private direction: "asc" | "desc" = "asc";
+  private readonly rows: () => FakeDoc[];
+  private readonly indexFields: readonly string[];
 
-  constructor(
-    private readonly rows: () => FakeDoc[],
-    private readonly indexFields: readonly string[],
-  ) {}
+  constructor(rows: () => FakeDoc[], indexFields: readonly string[]) {
+    this.rows = rows;
+    this.indexFields = indexFields;
+  }
 
   eq(field: string, value: unknown): this {
     this.assertField(field, "eq");
@@ -264,10 +266,16 @@ class FakeIndexQuery {
 }
 
 class FakeTableQuery {
+  private readonly rows: () => FakeDoc[];
+  private readonly indexes: Record<string, readonly string[]>;
+
   constructor(
-    private readonly rows: () => FakeDoc[],
-    private readonly indexes: Record<string, readonly string[]>,
-  ) {}
+    rows: () => FakeDoc[],
+    indexes: Record<string, readonly string[]>,
+  ) {
+    this.rows = rows;
+    this.indexes = indexes;
+  }
 
   withIndex(
     indexName: string,
@@ -317,8 +325,11 @@ export const EMAIL_RECORD_INDEXES: Record<string, readonly string[]> = {
 export class FakeDb {
   private readonly tables = new Map<string, FakeDoc[]>();
   private seq = 0;
+  private readonly clock: HarnessClock;
 
-  constructor(private readonly clock: HarnessClock = wallClock) {}
+  constructor(clock: HarnessClock = wallClock) {
+    this.clock = clock;
+  }
 
   query(table: string): FakeTableQuery {
     const indexes = table === "emailRecords" ? EMAIL_RECORD_INDEXES : {};
@@ -474,8 +485,11 @@ export interface ScheduledJob {
 export class FakeScheduler {
   private readonly queue: ScheduledJob[] = [];
   private seq = 0;
+  private readonly clock: HarnessClock;
 
-  constructor(private readonly clock: HarnessClock = wallClock) {}
+  constructor(clock: HarnessClock = wallClock) {
+    this.clock = clock;
+  }
 
   /** ctx.scheduler.runAfter — enqueue a job due at now + delayMs. */
   async runAfter(

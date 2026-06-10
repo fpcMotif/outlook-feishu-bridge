@@ -99,7 +99,7 @@ The sibling Feishu Base table `tbl4TE2GV472sKzp` in the same **Base** container 
 _Avoid_: "client table", "customer base" (overloaded — the **Base** is the parent container, not this table).
 
 **Customer Mirror**:
-The Convex-held read model of the **Customer Table** used for server-indexed Customer search. Refreshed by a weekly **Mirror Refresh** (a full re-page of the Customer Table) plus on-demand **Mirror Kick** and per-search cache-miss backfill. It is a projected search read model, never the source of truth; the Feishu **Customer Table** stays authoritative and the mirror only ever **reads** it (HARD RULE).
+The Convex-held read model of the **Customer Table** used for server-indexed Customer search. Refreshed by a weekly **Mirror Refresh** (a full re-page of the Customer Table) plus on-demand **Mirror Kick** and per-search cache-miss backfill. It is a projected search read model, never the source of truth; the Feishu **Customer Table** stays authoritative and the mirror only ever **reads** it (HARD RULE). Customer search enters through **one public action** (`customersMirror.searchCustomers`): the pure **Customer-search engine** (`customerSearchEngine.ts`, extract-then-test seam, [ADR-0019](docs/adr/0019-extract-then-test-seam.md)) decides mirror-first / live-fallback / backfill server-side and the outcome carries its `source` provenance — the **SPA** never chooses between the two paths, and the mirror's ranked query is internal-only.
 _Avoid_: "customer database" (sounds authoritative), "Base copy" (it is a projected search read model, not a full Base clone).
 
 **Mirror Refresh**:

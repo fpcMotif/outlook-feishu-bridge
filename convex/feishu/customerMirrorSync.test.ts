@@ -15,7 +15,6 @@ import {
   maxReportedTotal,
   nextPageTokenOrStop,
   pageSlotWaitMs,
-  shouldPruneStaleRows,
   stalePageIds,
   stopReasonForPage,
   type AppliedPage,
@@ -172,23 +171,13 @@ describe("stalePageIds", () => {
     expect(stalePageIds(withFixture, seen)).toEqual(["doc_orphan"]);
   });
 
-  it("treats an empty seen-set as everything-stale (guarded elsewhere by shouldPruneStaleRows)", () => {
+  it("treats an empty seen-set as everything-stale (the engine's empty-source gate guards this)", () => {
     expect(stalePageIds(rows, new Set())).toEqual(["doc_live1", "doc_orphan", "doc_live2"]);
   });
 });
 
-describe("shouldPruneStaleRows", () => {
-  it("prunes only after a clean, completeness-verified sync", () => {
-    expect(shouldPruneStaleRows("complete")).toBe(true);
-  });
-
-  it.each(["missingPageToken", "duplicatePageToken", "incompleteTotal"] as const)(
-    "never prunes on a non-complete stop reason (%s) so a partial fetch cannot wipe the mirror",
-    (reason) => {
-      expect(shouldPruneStaleRows(reason)).toBe(false);
-    },
-  );
-});
+// The prune gate itself (never prune a non-complete run) lives in the shared
+// Mirror Refresh engine and is tested in mirrorRefresh.test.ts.
 
 describe("addPrunePage", () => {
   it("accumulates scanned and deleted counts across prune pages", () => {

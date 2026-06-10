@@ -3,12 +3,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 
 import type { Coworker } from "./coworkers";
 import { intakeReducer } from "./intakeReducer";
-import {
-  buildIntakeDraftKey,
-  clearIntakeDraft,
-  loadIntakeDraft,
-  rememberIntakeDraft,
-} from "./intakeDraftCache";
+import { openIntakeSession } from "./intakeSessionState";
 import { useCustomerAutoMatch } from "../../hooks/useCustomerAutoMatch";
 import { useCustomerSearch } from "../../hooks/useCustomerSearch";
 import { useSelfForward, type SelfForwardResult } from "../../hooks/useSelfForward";
@@ -28,12 +23,6 @@ import { buildSyncPayload } from "./buildSyncPayload";
 import { dlog, dtime } from "../../debug";
 import { useIntakeAttachments } from "./useIntakeAttachments";
 import { scheduleSalesDefault } from "./scheduleSalesDefault";
-import {
-  buildUploadDraftKey,
-  clearUploadDraft,
-  restoreUploadDraft,
-  snapshotUploadDraft,
-} from "./uploadDraftCache";
 import type { RequestIntakeScreenProps } from "./requestIntakeScreenProps";
 import type { RequestIntakeSyncApi } from "./requestIntakeSyncApi";
 
@@ -57,50 +46,45 @@ export function useRequestIntakeScreen(
   const existingSyncStatus = existingSync?.status ?? null;
   const { sendNote: sendSelfForwardNote } = useSelfForward();
 
-  // Per-conversation draft restore for pinned panes: the Core is keyed by
-  // mailKey, so this lazy initializer runs ONCE per conversation mount. The full
-  // intake cache restores selections/notes; uploadDraftCache remains the safe
-  // fallback for completed storageIds pre-seeded by older snapshots/tests.
-  const uploadDraftKey = useMemo(
-    () => buildUploadDraftKey(user?.openId, mailItem.userEmail, mailItem.conversationId),
-    [user?.openId, mailItem.userEmail, mailItem.conversationId],
-  );
-  const intakeDraftKey = useMemo(
-    () => buildIntakeDraftKey(user?.openId, mailItem.userEmail, mailKey),
-    [user?.openId, mailItem.userEmail, mailKey],
+  // Per-conversation session for pinned panes: the Core is keyed by mailKey, so
+  // the identity is stable for this mount and the lazy initializer runs ONCE per
+  // conversation mount — restoring the session's intake draft (selections/notes)
+  // plus the rehydrated Upload draft. intakeSessionState owns the enter → leave
+  // → clear choreography.
+  const session = useMemo(
+    () =>
+      openIntakeSession({
+        openId: user?.openId,
+        userEmail: mailItem.userEmail,
+        conversationId: mailItem.conversationId,
+        mailKey,
+      }),
+    [user?.openId, mailItem.userEmail, mailItem.conversationId, mailKey],
   );
   const [state, dispatch] = useReducer(
     intakeReducer,
     {
-      intakeDraftKey,
+      session,
       mailFrom: mailItem.from,
       // DEV-only "constra mode" (?mock=): seed fixture uploads through the same
       // run-once lazy-initializer channel production restore uses, so the failed/
       // retry/re-add UI renders in `bun run dev` with no Office host or network.
-      restoredUploads:
-        import.meta.env.DEV && mockUploads
-          ? mockUploads
-          : restoreUploadDraft(uploadDraftKey),
+      seededUploads: import.meta.env.DEV && mockUploads ? mockUploads : undefined,
     },
-    ({ intakeDraftKey: key, mailFrom, restoredUploads }) =>
-      loadIntakeDraft(key, mailFrom, restoredUploads),
+    ({ session: s, mailFrom, seededUploads }) => s.restore(mailFrom, seededUploads),
   );
   const generationRef = useRef(0);
   const activeSyncGenerationRef = useRef<number | null>(null);
-  const draftClearedRef = useRef(false);
 
-  // Kept current each render so the unmount-cleanup effect snapshots the LEAVING
-  // conversation's FRESH state. It reads reducer state (including selected
-  // Sales/customer/coworker/notes and upload storageIds), NOT completedStorage —
-  // the parent already cleared the per-id caches by unmount time.
+  // Kept current each render so the unmount-cleanup effect hands the LEAVING
+  // conversation's FRESH state to session.leave(). It reads reducer state
+  // (including selected Sales/customer/coworker/notes and upload storageIds),
+  // NOT completedStorage — the parent already cleared the per-id staging by
+  // unmount time.
   const stateForDraftRef = useRef(state);
   stateForDraftRef.current = state;
-  const uploadDraftKeyRef = useRef(uploadDraftKey);
-  uploadDraftKeyRef.current = uploadDraftKey;
-  const intakeDraftKeyRef = useRef(intakeDraftKey);
-  intakeDraftKeyRef.current = intakeDraftKey;
-  const screenRef = useRef(state.screen);
-  screenRef.current = state.screen;
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
 
   // An email switch is driven by the per-conversation React key on this component
   // (see deriveMailKey / RequestIntakeScreen): moving to a new conversation
@@ -191,37 +175,14 @@ export function useRequestIntakeScreen(
     });
   }, [user?.openId, user?.userName, user?.avatarUrl]);
 
-  // On unmount (conversation switch on a pinned pane) snapshot this conversation
-  // so returning restores the Sales/customer/coworker/notes/attachments. If it
-  // was already synced ("received"), CLEAR instead — its storageIds are consumed
-  // server-side after a successful sync, so a restored draft would point at dead
-  // blobs.
+  // On unmount (conversation switch on a pinned pane) hand the leaving
+  // conversation to the session: a synced conversation drops its drafts,
+  // anything else snapshots for restore-on-return — intakeSessionState owns the
+  // choreography (including normalizing transient overlay screens to "build").
   // eslint-disable-next-line react-doctor/exhaustive-deps -- unmount-only cleanup reading stable refs (draft snapshot); refs are intentionally excluded from deps
   useEffect(() => {
     return () => {
-      const uploadKey = uploadDraftKeyRef.current;
-      const intakeKey = intakeDraftKeyRef.current;
-      if (draftClearedRef.current || screenRef.current === "received") {
-        clearUploadDraft(uploadKey);
-        clearIntakeDraft(intakeKey);
-      } else {
-        const latestState = stateForDraftRef.current;
-        snapshotUploadDraft(uploadKey, latestState.uploadedFiles);
-        // A draft restores into the editable build screen only. The overlay
-        // screens (sync/error) are transient: an in-flight sync's success
-        // dispatch is a no-op once this Core unmounts, so persisting
-        // screen:"sync" would resurrect a DEAD sync overlay on return that
-        // never advances — and, because the authoritative synced state can only
-        // repaint when screen==="build" (resolveExistingSyncOverlay) or when a
-        // local sync generation is active (applyExistingSyncUpdate), the pane
-        // would be stuck forever. Normalize back to build so return shows the
-        // Received overlay (server synced) or the editable build pane.
-        rememberIntakeDraft(intakeKey, {
-          ...latestState,
-          screen: "build",
-          syncError: null,
-        });
-      }
+      sessionRef.current.leave(stateForDraftRef.current);
     };
   }, []);
 
@@ -324,9 +285,7 @@ export function useRequestIntakeScreen(
         });
         // The staged blobs are deleted server-side after a successful Drive mint,
         // so this conversation's cached storageIds are now dead — drop the draft.
-        draftClearedRef.current = true;
-        clearUploadDraft(uploadDraftKey);
-        clearIntakeDraft(intakeDraftKey);
+        session.clearDrafts();
       })
       .catch((e: unknown) => {
         if (activeSyncGenerationRef.current !== syncGeneration) return;
@@ -343,8 +302,7 @@ export function useRequestIntakeScreen(
     requestNote,
     fireSelfForward,
     stageSelected,
-    uploadDraftKey,
-    intakeDraftKey,
+    session,
   ]);
 
   const applyExistingSyncUpdate = useCallback(() => {
@@ -380,10 +338,8 @@ export function useRequestIntakeScreen(
 
   useEffect(() => {
     if (existingSyncStatus !== "synced" || !existingSync?.recordId) return;
-    draftClearedRef.current = true;
-    clearUploadDraft(uploadDraftKey);
-    clearIntakeDraft(intakeDraftKey);
-  }, [existingSync?.recordId, existingSyncStatus, uploadDraftKey, intakeDraftKey]);
+    session.clearDrafts();
+  }, [existingSync?.recordId, existingSyncStatus, session]);
 
   const handleSubmit = () => {
     if (!canSubmitSync(syncGate)) return;

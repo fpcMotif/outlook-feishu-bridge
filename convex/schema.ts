@@ -113,6 +113,9 @@ export default defineSchema({
         v.literal("missingPageToken"),
         v.literal("duplicatePageToken"),
         v.literal("incompleteTotal"),
+        // Engine-issued (mirrorRefresh.ts): a "complete" walk that saw zero
+        // records — failed loudly instead of pruning the whole mirror.
+        v.literal("emptySource"),
       ),
     ),
     lastDurationMs: v.optional(v.number()),
@@ -176,6 +179,9 @@ export default defineSchema({
         v.literal("missingPageToken"),
         v.literal("duplicatePageToken"),
         v.literal("incomplete"),
+        // Engine-issued (mirrorRefresh.ts): a "complete" crawl that saw zero
+        // users — failed loudly instead of pruning the whole mirror.
+        v.literal("emptySource"),
       ),
     ),
     lastDurationMs: v.optional(v.number()),

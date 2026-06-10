@@ -1,7 +1,9 @@
-// Unit tests for the PURE Feishu Contacts Mirror crawl state machine (ADR-0023).
+// Unit tests for the PURE Feishu Contacts Mirror crawl helpers (ADR-0023).
 // No ctx/db — pagination, the resigned filter, dedupe, the multi-walk
 // completeness fold, the ≤800 assumption, throttle math, and prune accounting
-// are exercised directly. The effectful loop in contactsMirror.ts is covered by
+// are exercised directly. The lifecycle sequencing (completeness / empty-source
+// / prune gates) is the shared Mirror Refresh engine's job and is covered by
+// mirrorRefresh.test.ts; the effectful loop in contactsMirror.ts is covered by
 // the live run.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -18,18 +20,11 @@ import {
   nextPageTokenOrStop,
   pageSlotWaitMs,
   partitionActive,
-  runContactsMirrorRefresh,
-  shouldPruneStaleContacts,
   staleContactIds,
   stopReasonForPage,
   worstStopReason,
-  type ContactCrawlResult,
-  type ContactStopReason,
-  type ContactsMirrorRefreshPort,
-  type ContactsRefreshFinish,
   type PrunableContactRow,
 } from "./contactsMirrorSync";
-import type { ContactUpsertRow } from "./contactsMirrorRows";
 
 beforeEach(() => {
   vi.spyOn(console, "log").mockImplementation(() => {});
@@ -189,22 +184,9 @@ describe("staleContactIds", () => {
     expect(staleContactIds(rows, new Set(["ou_live", "ou_left"]))).toEqual([]);
   });
 
-  it("treats an empty seen-set as everything-stale (guarded by shouldPruneStaleContacts)", () => {
+  it("treats an empty seen-set as everything-stale (the engine's empty-source gate guards this)", () => {
     expect(staleContactIds(rows, new Set())).toEqual(["doc_live", "doc_left"]);
   });
-});
-
-describe("shouldPruneStaleContacts", () => {
-  it("prunes only after a clean, complete crawl", () => {
-    expect(shouldPruneStaleContacts("complete")).toBe(true);
-  });
-
-  it.each(["missingPageToken", "duplicatePageToken", "incomplete"] as ContactStopReason[])(
-    "never prunes on a non-complete stop reason (%s)",
-    (reason) => {
-      expect(shouldPruneStaleContacts(reason)).toBe(false);
-    },
-  );
 });
 
 describe("addPrunePage", () => {
@@ -223,111 +205,7 @@ describe("addPrunePage", () => {
   });
 });
 
-// The whole Contacts Mirror Refresh driven through an in-memory fake port — no
-// Convex. This is the test surface the engine interface buys: the all-or-nothing
-// COMPLETENESS GATE (a partial crawl must NOT write or prune) and the prune gate
-// run end to end without mocking the Convex action runtime. The adapter's
-// parallel-walk crawl is supplied as `port.crawl`, so its pacing is out of scope.
-
-function row(openId: string): ContactUpsertRow {
-  return { openId, name: openId, searchBlob: openId };
-}
-
-function makeCrawl(over: Partial<ContactCrawlResult> = {}): ContactCrawlResult {
-  const rows = over.rows ?? [row("a"), row("b")];
-  return {
-    rows,
-    seenOpenIds: over.seenOpenIds ?? new Set(rows.map((r) => r.openId)),
-    departmentCount: over.departmentCount ?? 3,
-    skippedResigned: over.skippedResigned ?? 0,
-    stopReason: over.stopReason ?? "complete",
-  };
-}
-
-function makeFakePort(crawl: ContactCrawlResult, seedOrphans: string[] = []) {
-  const store = new Map<string, number>();
-  for (const id of seedOrphans) store.set(id, 0);
-  let writeCalls = 0;
-  let tombstoneCalls = 0;
-
-  const port: ContactsMirrorRefreshPort<ContactsRefreshFinish> = {
-    crawl: () => Promise.resolve(crawl),
-    writeRows: (rows, mirroredAt) => {
-      writeCalls += 1;
-      let inserted = 0;
-      let unchanged = 0;
-      for (const r of rows) {
-        if (store.has(r.openId)) unchanged += 1;
-        else {
-          store.set(r.openId, mirroredAt);
-          inserted += 1;
-        }
-      }
-      return Promise.resolve({ inserted, updated: 0, unchanged });
-    },
-    tombstone: (seen) => {
-      tombstoneCalls += 1;
-      const scanned = store.size;
-      let deleted = 0;
-      for (const id of [...store.keys()]) {
-        if (!seen.has(id)) {
-          store.delete(id);
-          deleted += 1;
-        }
-      }
-      return Promise.resolve({ scanned, deleted });
-    },
-    finish: (args) => Promise.resolve(args),
-  };
-
-  return {
-    port,
-    store,
-    get writeCalls() {
-      return writeCalls;
-    },
-    get tombstoneCalls() {
-      return tombstoneCalls;
-    },
-  };
-}
-
-describe("runContactsMirrorRefresh (engine)", () => {
-  it("writes the crawl at mirroredAt and tombstones orphans on a complete run", async () => {
-    const fake = makeFakePort(makeCrawl({ rows: [row("a"), row("b")] }), ["orphan"]);
-    const out = await runContactsMirrorRefresh(fake.port, { startedAt: 5000 });
-    expect(out.complete).toBe(true);
-    expect(out.mirroredAt).toBe(5000);
-    expect(out.writes.inserted).toBe(2);
-    expect(fake.writeCalls).toBe(1);
-    expect(fake.tombstoneCalls).toBe(1);
-    expect(out.prune.deleted).toBe(1);
-    expect(fake.store.has("orphan")).toBe(false);
-    expect([...fake.store.keys()].sort()).toEqual(["a", "b"]);
-  });
-
-  it("runs the prune on a complete crawl with no orphans (scans, deletes nothing)", async () => {
-    const fake = makeFakePort(makeCrawl({ rows: [row("a")] }), ["a"]);
-    const out = await runContactsMirrorRefresh(fake.port, { startedAt: 10 });
-    expect(out.complete).toBe(true);
-    expect(fake.tombstoneCalls).toBe(1);
-    expect(out.prune.deleted).toBe(0);
-    expect(fake.store.has("a")).toBe(true);
-  });
-
-  it.each<ContactStopReason>(["missingPageToken", "duplicatePageToken", "incomplete"])(
-    "SAFETY GATE: a %s crawl neither writes nor prunes (live rows untouched)",
-    async (stopReason) => {
-      const fake = makeFakePort(makeCrawl({ rows: [row("a")], stopReason }), ["orphan"]);
-      const out = await runContactsMirrorRefresh(fake.port, { startedAt: 1 });
-      expect(out.complete).toBe(false);
-      expect(out.writes).toEqual({ inserted: 0, updated: 0, unchanged: 0 });
-      expect(out.prune).toEqual({ scanned: 0, deleted: 0 });
-      expect(fake.writeCalls).toBe(0);
-      expect(fake.tombstoneCalls).toBe(0);
-      // The incomplete run touched nothing: the orphan survives, "a" was never written.
-      expect(fake.store.has("orphan")).toBe(true);
-      expect(fake.store.has("a")).toBe(false);
-    },
-  );
-});
+// The lifecycle (completeness gate / empty-source guard / prune gate / finish)
+// is exercised end to end against an in-memory fake port in
+// mirrorRefresh.test.ts — the engine moved to mirrorRefresh.ts and serves both
+// mirrors.

@@ -1,14 +1,17 @@
-// Pure pagination/orchestration state machine for the Customer Mirror full
-// sync (ADR-0016, audit be-customers-2). Everything here is PURE — no ctx, no
-// db, no I/O — so the page-to-page advance, completeness/watermark accounting,
-// and stop-reason logic can be unit-tested in isolation. The Convex action in
-// customersMirror.ts owns the effectful fetch/apply per page and delegates
-// every decision to the helpers below.
+// Pure pagination helpers for the Customer Mirror full sync (ADR-0016, audit
+// be-customers-2). Everything here is PURE — no ctx, no db, no I/O — so the
+// page-to-page advance, completeness/watermark accounting, and stop-reason
+// logic can be unit-tested in isolation. The Convex action in
+// customersMirror.ts owns the effectful fetch/apply per page, and the lifecycle
+// sequencing (completeness gate → prune gate → finish) lives in the shared
+// Mirror Refresh engine (mirrorRefresh.ts).
 //
 // The Mirror Refresh pages the Customer Table until Feishu reports
 // has_more=false, then stamps the Mirror Watermark. A clean stop is only truly
 // complete when the rows we paged match Feishu's reported `total`; a shortfall
 // or a non-clean stop reason is promoted to a hard, audited failure.
+
+export { pageSlotWaitMs, sleep } from "./mirrorRefresh";
 
 // One Feishu record/search page response (the fields the loop reads).
 export interface SearchResponse {
@@ -60,23 +63,6 @@ export function emptyTotals(): SyncTotals {
     sourceRows: 0,
     reportedTotal: 0,
   };
-}
-
-export function sleep(ms: number): Promise<void> {
-  if (ms <= 0) return Promise.resolve();
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
-
-// 20 requests/sec is Feishu's documented ceiling; pace pages ~60ms apart.
-export function pageSlotWaitMs(
-  previousRequestStartedAt: number,
-  minIntervalMs: number,
-  now: number,
-): number {
-  if (previousRequestStartedAt === 0) return 0;
-  return minIntervalMs - (now - previousRequestStartedAt);
 }
 
 // Fold one applied page into the running totals (in place, like the original).
@@ -156,8 +142,9 @@ export function logMirrorPage(pageNumber: number, page: AppliedPage, data: Searc
 // in Convex forever — the mirror drifted to 2-5x the live Customer Table. The
 // Mirror Prune deletes any Convex row whose recordId was NOT observed in the
 // authoritative source during a *complete* sync. Everything here is PURE so the
-// stale-detection and the all-or-nothing safety gate are unit-testable; the
-// effectful pagination + delete fan-out lives in customersMirror.ts (ADR-0021).
+// stale-detection is unit-testable; the all-or-nothing safety gate lives in the
+// Mirror Refresh engine (mirrorRefresh.ts), and the effectful pagination +
+// delete fan-out lives in customersMirror.ts (ADR-0021).
 
 // A row read back from the mirror during the prune scan — only its id and its
 // natural key matter for the stale decision.
@@ -186,14 +173,6 @@ export function stalePageIds<TId>(
     if (!seenRecordIds.has(row.recordId)) ids.push(row._id);
   }
   return ids;
-}
-
-// HARD SAFETY GATE: prune ONLY after a fully verified, complete sync. A partial
-// or failed page run (missingPageToken / duplicatePageToken / incompleteTotal)
-// must never delete — otherwise a transient Feishu error or a truncated page
-// walk would wipe live rows that simply were not paged this run. Pure.
-export function shouldPruneStaleRows(stopReason: MirrorStopReason): boolean {
-  return stopReason === "complete";
 }
 
 // Fold one scanned page into the running prune totals (in place).

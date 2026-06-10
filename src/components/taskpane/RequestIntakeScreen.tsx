@@ -4,27 +4,23 @@ import { RequestIntakeSyncBridge } from "./RequestIntakeSyncBridge";
 import { RequestIntakeScreenCore } from "./RequestIntakeScreenCore";
 import { loggedOutRequestIntakeSyncApi } from "./requestIntakeSyncApi";
 import { deriveMailKey } from "./mailKey";
-import { resetIntakeUploadCaches } from "./uploadIntakeFile";
+import { resetIntakeStagingForMailSwitch } from "./intakeSessionState";
 import type { RequestIntakeScreenProps } from "./requestIntakeScreenProps";
 
 export type { RequestIntakeScreenProps } from "./requestIntakeScreenProps";
 
-// Clear the module-level upload caches the instant the intake context
-// (conversation) changes — synchronously during render, BEFORE the keyed child
-// remounts and before any new-conversation upload can mint a storage id — so
-// nothing from the previous conversation survives the switch. The ref-compare
-// "reset on prop change" pattern is render-safe because resetIntakeUploadCaches
-// is idempotent (StrictMode double-invoke is harmless).
-//
-// NOTE: this clears only the per-ID completedStorage/inFlight maps. It must NOT
-// touch the per-conversation draft caches, which are keyed by account + mailbox
-// + conversation and are the RESTORE source — wiring their reset here would
-// defeat restore-on-return entirely.
+// Reset the per-upload-id staging the instant the intake context (conversation)
+// changes — synchronously during render, BEFORE the keyed child remounts and
+// before any new-conversation upload can mint a storage id. The ref-compare
+// "reset on prop change" pattern is render-safe because the reset is idempotent
+// (StrictMode double-invoke is harmless). intakeSessionState owns the lifecycle
+// rules — in particular that this must NEVER touch the draft caches (the
+// restore-on-return source).
 function useMailContextReset(mailKey: string): void {
   const previousKey = useRef(mailKey);
   if (previousKey.current !== mailKey) {
     previousKey.current = mailKey;
-    resetIntakeUploadCaches();
+    resetIntakeStagingForMailSwitch();
   }
 }
 

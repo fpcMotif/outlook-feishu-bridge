@@ -3,8 +3,7 @@ import { useAction, useQuery, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import type { FeishuUser } from "../components/taskpane/feishuUser";
 import { clearAuthSnapshot } from "./feishuAuthSnapshot";
-import { clearIntakeDraftCache } from "../components/taskpane/intakeDraftCache";
-import { resetUploadDrafts } from "../components/taskpane/uploadDraftCache";
+import { wipeIntakeSessionsOnLogout } from "../components/taskpane/intakeSessionState";
 import {
   useAuthState,
   useProactiveTouch,
@@ -189,8 +188,7 @@ function useAuthActions({
     // Draft Maps are SPA-session lifetime and the pinned pane survives sign-out
     // without a reload — wipe them so one user's selections/file names + live
     // storageIds never linger for the next account.
-    clearIntakeDraftCache();
-    resetUploadDrafts();
+    wipeIntakeSessionsOnLogout();
     setFallback(null);
     await logoutMutation({ sessionId });
   }, [logoutMutation, sessionId, setFallback]);

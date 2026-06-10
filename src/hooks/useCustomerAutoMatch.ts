@@ -1,9 +1,15 @@
 // Owns the tangled Customer auto-match logic that used to live inline in
 // RequestIntakeScreen: the local directory useMemo match (ADR-0013), the
-// customerTouched reducer-guard interaction, the async Convex mirror
-// matchEmail effect, and the on-demand directory/mirror refresh effect.
-// RequestIntakeScreen just calls this and forwards `dispatch`; the reducer
-// still guards every write against a user override (customerTouched).
+// customerTouched reducer-guard interaction, and the async Convex mirror
+// matchEmail effect. RequestIntakeScreen just calls this and forwards
+// `dispatch`; the reducer still guards every write against a user override
+// (customerTouched).
+//
+// A domain with no local hit no longer kicks a full Mirror Refresh here: the
+// server-index matchEmail is itself cache-aside (mirror -> targeted one-page
+// Feishu domain backfill on a true miss), so the async effect below already
+// covers fresh rows lazily, at the cost of one filtered call instead of a
+// full-table re-sync.
 
 import { useEffect, useMemo, useRef } from "react";
 
@@ -19,7 +25,6 @@ interface UseCustomerAutoMatchArgs {
   selectedCustomer: CustomerRecord | null;
   directory: CustomerSearch["directory"];
   matchEmail: CustomerSearch["matchEmail"];
-  triggerRefresh: CustomerSearch["triggerRefresh"];
   dispatch: (action: IntakeAction) => void;
 }
 
@@ -52,23 +57,6 @@ function useAsyncMirrorMatch(args: UseCustomerAutoMatchArgs, emailDomainPart: st
   }, [isLoggedIn, matchEmail, clientEmail, emailDomainPart, customerTouched, selectedCustomer, dispatch]);
 }
 
-// One-shot directory/mirror refresh per domain when a ready directory has no
-// local hit, so a stale preload re-pages before giving up on a match.
-function useRefreshOnNoMatch(
-  args: UseCustomerAutoMatchArgs,
-  autoMatch: CustomerRecord | null,
-  emailDomainPart: string,
-) {
-  const { customerTouched, directory, triggerRefresh } = args;
-  const attemptedFor = useRef<string | null>(null);
-  useEffect(() => {
-    if (customerTouched || directory.status !== "ready" || autoMatch) return;
-    if (!emailDomainPart || attemptedFor.current === emailDomainPart) return;
-    attemptedFor.current = emailDomainPart;
-    triggerRefresh();
-  }, [autoMatch, directory.status, emailDomainPart, customerTouched, triggerRefresh]);
-}
-
 export function useCustomerAutoMatch(args: UseCustomerAutoMatchArgs): CustomerAutoMatchResult {
   const { clientEmail, customerTouched, selectedCustomer, directory, dispatch } = args;
   const emailDomainPart = deriveEmailDomainPart(clientEmail);
@@ -90,7 +78,6 @@ export function useCustomerAutoMatch(args: UseCustomerAutoMatchArgs): CustomerAu
   }
 
   useAsyncMirrorMatch(args, emailDomainPart);
-  useRefreshOnNoMatch(args, autoMatch, emailDomainPart);
 
   return {
     emailDomainPart,

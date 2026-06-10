@@ -95,23 +95,9 @@ describe("CustomerPicker no-match states", () => {
 });
 
 describe("CustomerPicker override search", () => {
-  it("triggers a freshness refresh when the search panel opens", () => {
-    const triggerRefresh = vi.fn();
-    render(
-      <CustomerPicker
-        directory={{ status: "ready", records: [BAYER] }}
-        searchCustomers={vi.fn()}
-        triggerRefresh={triggerRefresh}
-        emailDomain="bayerpharma.de"
-        selectedCustomer={BAYER}
-        onChange={vi.fn()}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: /change/i }));
-
-    expect(triggerRefresh).toHaveBeenCalledTimes(1);
-  });
+  // Opening the picker is purely local — no network kick. Freshness comes from
+  // the typed-search cache-miss backfill once the user actually queries, so
+  // there is deliberately no refresh hook to assert on here.
 
   // Override flow: the salesperson can override the auto-match by tapping
   // Change, typing into a search box, and picking from the results. The local

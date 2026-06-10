@@ -116,7 +116,6 @@ export function useRequestIntakeScreen(
     directory: customerDirectory,
     search: searchCustomers,
     matchEmail: matchCustomerEmail,
-    triggerRefresh: triggerCustomerRefresh,
   } = useCustomerSearch(isLoggedIn, usePreviewCoworkers);
 
   const { emailDomainPart } = useCustomerAutoMatch({
@@ -126,7 +125,6 @@ export function useRequestIntakeScreen(
     selectedCustomer: state.selectedCustomer,
     directory: customerDirectory,
     matchEmail: matchCustomerEmail,
-    triggerRefresh: triggerCustomerRefresh,
     dispatch,
   });
 
@@ -404,7 +402,6 @@ export function useRequestIntakeScreen(
     devPreview,
     customerDirectory,
     searchCustomers,
-    triggerCustomerRefresh,
     emailDomainPart,
     mailAttachments,
     addFiles,

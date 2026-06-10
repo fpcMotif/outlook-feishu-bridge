@@ -1,10 +1,14 @@
 import { cjkBigramBlob } from "./cjkSearch";
-import type { CustomerRecord } from "./customers";
+import { canonicalCustomerDomain, type CustomerRecord } from "./customers";
 
 export interface CustomerUpsertRow {
   recordId: string;
   name: string;
   domain?: string;
+  // Canonicalized `domain` (canonicalCustomerDomain) — the by_domainKey index
+  // key matchByEmail probes. Stamped at projection time so EVERY write path
+  // (full sync, cache-miss backfills) keeps it consistent with `domain`.
+  domainKey?: string;
   fullName?: string;
   accountNo?: string;
   countryRegion?: string;
@@ -56,6 +60,7 @@ export function projectionToRow(customer: CustomerRecord): CustomerUpsertRow {
     recordId: customer.recordId,
     name: customer.name,
     domain: customer.domain,
+    domainKey: canonicalCustomerDomain(customer.domain) ?? undefined,
     fullName: customer.fullName,
     accountNo: customer.accountNo,
     countryRegion: customer.countryRegion,

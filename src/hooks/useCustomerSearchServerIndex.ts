@@ -1,10 +1,12 @@
-// ADR-0016 server-index path of Customer search. Ranked queries hit the
-// Convex-held Customer Mirror; a mirror miss falls back to a live search with
-// cache-miss backfill, and opening the picker kicks a Mirror Refresh so the
-// index is fresh on the next query. No directory is preloaded — the picker
-// stays interactive against a ready-but-empty directory and delegates every
-// keystroke to the server. Selected when VITE_CUSTOMER_SEARCH_MODE ===
-// "server-index".
+// ADR-0016 server-index path of Customer search. The mirror-vs-live strategy
+// lives SERVER-SIDE behind one public action (customersMirror.searchCustomers,
+// driven by the Customer-search engine): the SPA sends the query and receives
+// records + provenance. This hook keeps only TRANSPORT concerns — request
+// coalescing, empty-result suppression (don't re-pay the live leg for a query
+// just proven empty), and the client-side Mirror Kick cooldown. No directory is
+// preloaded — the picker stays interactive against a ready-but-empty directory
+// and delegates every keystroke to the server. Selected when
+// VITE_CUSTOMER_SEARCH_MODE === "server-index".
 
 import { useCallback } from "react";
 import { useAction, useConvex } from "convex/react";
@@ -23,6 +25,8 @@ const EMPTY_DIRECTORY: CustomerDirectoryState = { status: "ready", records: [] }
 // read model. Opening/closing the picker repeatedly should not enqueue several
 // full syncs; cache-miss backfill still covers fresh rows between kicks.
 const MIRROR_KICK_COOLDOWN_MS = 15 * 60 * 1000;
+// Round-trip saver only — the engine's MIN_CUSTOMER_SEARCH_LENGTH is the
+// authoritative copy of this rule and backstops any drift here.
 const MIN_SERVER_SEARCH_LENGTH = 2;
 const EMPTY_LIVE_MISS_TTL_MS = 30 * 1000;
 let lastMirrorKickStartedAt = 0;
@@ -31,7 +35,7 @@ const inFlightEmailMatches = new Map<string, Promise<CustomerRecord | null>>();
 const emptyLiveMisses = new Map<string, number>();
 
 type ConvexClient = ReturnType<typeof useConvex>;
-type SearchAction = ReturnType<typeof useAction<typeof api.feishu.customersMirror.searchAndCacheMiss>>;
+type SearchAction = ReturnType<typeof useAction<typeof api.feishu.customersMirror.searchCustomers>>;
 type KickAction = ReturnType<typeof useAction<typeof api.feishu.customersMirror.kick>>;
 
 function searchArgs(q: string, mineFor: string | undefined) {
@@ -68,37 +72,34 @@ function hasRecentEmptyLiveMiss(key: string): boolean {
   return false;
 }
 
-function rememberLiveMiss(key: string, records: CustomerRecord[]) {
+function rememberLiveMiss(key: string, records: readonly CustomerRecord[]) {
   if (records.length === 0) emptyLiveMisses.set(key, Date.now());
   else emptyLiveMisses.delete(key);
 }
 
-async function runMirrorSearch(
-  convex: ConvexClient,
-  searchAndCacheMiss: SearchAction,
+// One server search: the engine decides mirror-vs-live; this side only
+// suppresses re-asking a question the live leg just answered "empty" (a query
+// proven empty 30s ago is not re-paid — the brief staleness window is the
+// price of not hammering the cross-border live search per keystroke).
+async function runServerSearch(
+  searchCustomers: SearchAction,
   key: string,
   q: string,
   mineFor: string | undefined,
 ): Promise<CustomerRecord[]> {
   const started = performance.now();
-  const args = searchArgs(q, mineFor);
-  const hit = await convex.query(api.feishu.customersMirror.search, args);
-  if (hit.records.length > 0) {
-    emptyLiveMisses.delete(key);
-    dtime(`customer search (mirror hit) "${q.slice(0, 40)}" -> ${hit.records.length}`, started);
-    return hit.records;
-  }
   if (hasRecentEmptyLiveMiss(key)) {
     dtime(`customer search (recent empty live miss) "${q.slice(0, 40)}" -> 0`, started);
     return [];
   }
-  const live = await searchAndCacheMiss(args);
-  rememberLiveMiss(key, live.records);
+  const result = await searchCustomers(searchArgs(q, mineFor));
+  if (result.source === "live") rememberLiveMiss(key, result.records);
+  else emptyLiveMisses.delete(key);
   dtime(
-    `customer search (mirror miss -> live + backfill ${live.backfilled}) "${q.slice(0, 40)}" -> ${live.records.length}`,
+    `customer search (${result.source}${result.source === "live" ? ` + backfill ${result.backfilled}` : ""}) "${q.slice(0, 40)}" -> ${result.records.length}`,
     started,
   );
-  return live.records;
+  return result.records;
 }
 
 function kickMirror(kickAction: KickAction) {
@@ -122,9 +123,9 @@ function kickMirror(kickAction: KickAction) {
 }
 
 export function useCustomerSearchServerIndex(): CustomerSearch {
-  const convex = useConvex();
+  const convex: ConvexClient = useConvex();
   const kickAction = useAction(api.feishu.customersMirror.kick);
-  const searchAndCacheMissAction = useAction(api.feishu.customersMirror.searchAndCacheMiss);
+  const searchCustomersAction = useAction(api.feishu.customersMirror.searchCustomers);
 
   const search = useCallback(
     (query: string, options?: CustomerSearchOptions): Promise<CustomerRecord[]> => {
@@ -136,9 +137,9 @@ export function useCustomerSearchServerIndex(): CustomerSearch {
         dlog(`customer search coalesced "${q.slice(0, 40)}"`);
         return inFlight;
       }
-      return trackSearch(key, runMirrorSearch(convex, searchAndCacheMissAction, key, q, options?.mineFor));
+      return trackSearch(key, runServerSearch(searchCustomersAction, key, q, options?.mineFor));
     },
-    [convex, searchAndCacheMissAction],
+    [searchCustomersAction],
   );
 
   const matchEmail = useCallback(

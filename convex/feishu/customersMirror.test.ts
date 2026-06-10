@@ -1,6 +1,6 @@
 // Pure unit tests for the parts of the server-side Customer mirror (ADR-0016)
 // that can be exercised without a Convex runtime. The actions
-// (`fullSync` / `kick` / `searchAndCacheMiss`) + mutations (`applyPage` /
+// (`fullSync` / `kick` / `searchCustomers`) + mutations (`applyPage` /
 // `recordSyncCompletion`) call ctx — those are covered in the existing
 // integration tests via SPA mocks. What lives here is the pure helpers that
 // shape data on the way IN (Feishu → Convex row) and the way OUT
@@ -10,7 +10,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { callFeishu } from "./call";
-import { applyPage, buildSearchBlob, fullSync, kick, search, searchAndCacheMiss } from "./customersMirror";
+import { applyPage, buildSearchBlob, fullSync, kick, search, searchCustomers } from "./customersMirror";
 
 vi.mock("./call", () => ({
   callFeishu: vi.fn(),
@@ -59,16 +59,25 @@ const fullSyncHandler = (fullSync as unknown as {
     args: Record<string, never>,
   ) => Promise<{ pages: number; pruneScanned: number; deletedStale: number }>;
 })._handler;
-const searchAndCacheMissHandler = (searchAndCacheMiss as unknown as {
+const searchCustomersHandler = (searchCustomers as unknown as {
   _handler: (
     ctx: {
+      runQuery: (
+        fn: unknown,
+        args: Record<string, unknown>,
+      ) => Promise<{ records: unknown[]; mirroredAt: number | null }>;
       runMutation: (
         fn: unknown,
         args: Record<string, unknown>,
       ) => Promise<{ inserted: number; updated: number; unchanged: number; duplicateRows: number }>;
     },
     args: { q: string; mineFor?: string },
-  ) => Promise<{ records: unknown[]; backfilled: number }>;
+  ) => Promise<{
+    records: unknown[];
+    source: "mirror" | "live";
+    backfilled: number;
+    mirroredAt: number | null;
+  }>;
 })._handler;
 const searchHandler = (search as unknown as {
   _handler: (
@@ -348,18 +357,38 @@ describe("customer mirror public search", () => {
   });
 });
 
-describe("customer mirror cache-miss search", () => {
-  it("skips live Feishu search for one-character queries", async () => {
+describe("customer mirror searchCustomers (engine-driven)", () => {
+  it("skips both legs for one-character queries", async () => {
+    const runQuery = vi.fn();
     const runMutation = vi.fn();
 
-    const result = await searchAndCacheMissHandler({ runMutation }, { q: " a " });
+    const result = await searchCustomersHandler({ runQuery, runMutation }, { q: " a " });
 
-    expect(result).toEqual({ records: [], backfilled: 0 });
+    expect(result).toEqual({ records: [], source: "mirror", backfilled: 0, mirroredAt: null });
+    expect(runQuery).not.toHaveBeenCalled();
     expect(mockCallFeishu).not.toHaveBeenCalled();
     expect(runMutation).not.toHaveBeenCalled();
   });
 
-  it("uses a smaller Feishu page than full sync for interactive cache misses", async () => {
+  it("answers from the mirror without any live Feishu call on a hit", async () => {
+    const runQuery = vi.fn(async () => ({
+      records: [{ recordId: "rec_acme", name: "Acme", owner: null }],
+      mirroredAt: 1_234,
+    }));
+    const runMutation = vi.fn();
+
+    const result = await searchCustomersHandler({ runQuery, runMutation }, { q: "Acme" });
+
+    expect(result.source).toBe("mirror");
+    expect(result.records).toHaveLength(1);
+    expect(result.mirroredAt).toBe(1_234);
+    expect(runQuery).toHaveBeenCalledTimes(1);
+    expect(mockCallFeishu).not.toHaveBeenCalled();
+    expect(runMutation).not.toHaveBeenCalled();
+  });
+
+  it("falls through to a smaller Feishu page than full sync on a mirror miss", async () => {
+    const runQuery = vi.fn(async () => ({ records: [], mirroredAt: null }));
     mockCallFeishu.mockResolvedValueOnce({
       items: [
         {
@@ -376,8 +405,9 @@ describe("customer mirror cache-miss search", () => {
       duplicateRows: 0,
     }));
 
-    const result = await searchAndCacheMissHandler({ runMutation }, { q: "Acme" });
+    const result = await searchCustomersHandler({ runQuery, runMutation }, { q: "Acme" });
 
+    expect(result.source).toBe("live");
     expect(result.backfilled).toBe(1);
     expect(mockCallFeishu).toHaveBeenCalledWith(
       expect.anything(),

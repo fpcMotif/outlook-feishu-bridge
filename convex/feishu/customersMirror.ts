@@ -53,6 +53,11 @@ import {
   mergePreferredCustomers,
   searchDevCustomerFixtures,
 } from "./devCustomerFixtures";
+import {
+  runCustomerSearch,
+  type CustomerSearchOutcome,
+  type CustomerSearchPort,
+} from "./customerSearchEngine";
 
 export { buildSearchBlob } from "./customerMirrorRows";
 
@@ -769,56 +774,88 @@ export const kick = action({
   },
 });
 
-// Cache-aside lazy fill (ADR-0016 § "Per-request cache miss"). Called by the
-// SPA when the Convex mirror search returns 0 hits — falls through to the
-// LIVE Feishu /records/search with the same `or` `contains` filter the legacy
-// per-keystroke path uses, then INCREMENTALLY upserts any new rows into the
-// mirror so the next search hits the fast path. Slower than the mirror query
-// (200-500 ms cross-border), but the latency hit is exactly when the user
-// asked for it (cache miss) and it self-heals for next time.
-export const searchAndCacheMiss = action({
-  args: { q: v.string(), mineFor: v.optional(v.string()) },
-  handler: async (ctx, args): Promise<{ records: CustomerRecord[]; backfilled: number }> => {
-    const q = args.q.trim();
-    if (q.length < MIN_CUSTOMER_SEARCH_LENGTH) return { records: [], backfilled: 0 };
-    const appToken = requireAppToken();
-    const started = Date.now();
-    const data: SearchResponse = await callFeishu<SearchResponse>(ctx, {
-      path: `/bitable/v1/apps/${appToken}/tables/${CUSTOMER_TABLE_ID}/records/search`,
-      method: "POST",
-      auth: "tenant",
-      json: {
-        field_names: CUSTOMER_FIELD_NAMES,
-        filter: {
-          conjunction: "or",
-          conditions: [
-            { field_name: "Account Name", operator: "contains", value: [q] },
-            { field_name: "域名", operator: "contains", value: [q] },
-          ],
-        },
+// Live leg of the Customer search (ADR-0016 § "Per-request cache miss"): falls
+// through to the LIVE Feishu /records/search with the same `or` `contains`
+// filter the legacy per-keystroke path used, then INCREMENTALLY upserts any new
+// rows into the mirror so the next identical query hits the fast path. Slower
+// than the mirror query (200-500 ms cross-border), but the latency hit lands
+// exactly when the mirror missed — and it self-heals for next time. Only ever
+// invoked by the Customer-search engine after a mirror miss.
+async function liveSearchAndBackfill(
+  ctx: ActionCtx,
+  q: string,
+  mineFor?: string,
+): Promise<{ records: CustomerRecord[]; backfilled: number }> {
+  const appToken = requireAppToken();
+  const started = Date.now();
+  const data: SearchResponse = await callFeishu<SearchResponse>(ctx, {
+    path: `/bitable/v1/apps/${appToken}/tables/${CUSTOMER_TABLE_ID}/records/search`,
+    method: "POST",
+    auth: "tenant",
+    json: {
+      field_names: CUSTOMER_FIELD_NAMES,
+      filter: {
+        conjunction: "or",
+        conditions: [
+          { field_name: "Account Name", operator: "contains", value: [q] },
+          { field_name: "域名", operator: "contains", value: [q] },
+        ],
       },
-      query: { page_size: String(CACHE_MISS_PAGE_SIZE) },
-      label: "Customers mirror — live search on cache miss",
+    },
+    query: { page_size: String(CACHE_MISS_PAGE_SIZE) },
+    label: "Customers mirror — live search on cache miss",
+  });
+  const backfilledRecords: CustomerRecord[] = (data.items ?? []).map((item) =>
+    mapFeishuItemToCustomer(item),
+  );
+  if (backfilledRecords.length > 0) {
+    await ctx.runMutation(internal.feishu.customersMirror.applyPage, {
+      rows: backfilledRecords.map((customer) => projectionToRow(customer)),
+      mirroredAt: Date.now(),
     });
-    const backfilledRecords: CustomerRecord[] = (data.items ?? []).map((item) =>
-      mapFeishuItemToCustomer(item),
-    );
-    if (backfilledRecords.length > 0) {
-      await ctx.runMutation(internal.feishu.customersMirror.applyPage, {
-        rows: backfilledRecords.map((customer) => projectionToRow(customer)),
-        mirroredAt: Date.now(),
-      });
-    }
-    const records = mergePreferredCustomers(
-      searchDevCustomerFixtures(q, args.mineFor),
-      args.mineFor === undefined
-        ? backfilledRecords
-        : backfilledRecords.filter((record) => record.owner?.openId === args.mineFor),
-    );
-    console.log(
-      `[customers-mirror] searchAndCacheMiss q="${q.slice(0, 40)}" -> ${records.length}/${backfilledRecords.length} backfilled (${Date.now() - started}ms)`,
-    );
-    return { records, backfilled: backfilledRecords.length };
+  }
+  const records = mergePreferredCustomers(
+    searchDevCustomerFixtures(q, mineFor),
+    mineFor === undefined
+      ? backfilledRecords
+      : backfilledRecords.filter((record) => record.owner?.openId === mineFor),
+  );
+  console.log(
+    `[customers-mirror] live search q="${q.slice(0, 40)}" -> ${records.length}/${backfilledRecords.length} backfilled (${Date.now() - started}ms)`,
+  );
+  return { records, backfilled: backfilledRecords.length };
+}
+
+// The real Customer-search port: the mirror leg via the internal ranked query,
+// the live leg via Feishu + backfill. The engine (customerSearchEngine.
+// runCustomerSearch) owns the strategy — min-length gate, mirror-first, live on
+// miss — this adapter only supplies the I/O.
+function makeCustomerSearchPort(ctx: ActionCtx): CustomerSearchPort<CustomerRecord> {
+  return {
+    mirrorSearch: async (q, mineFor) => {
+      const hit: { records: CustomerRecord[]; mirroredAt: number | null } = await ctx.runQuery(
+        internal.feishu.customersMirror.search,
+        mineFor === undefined ? { q } : { q, mineFor },
+      );
+      return hit;
+    },
+    liveSearch: (q, mineFor) => liveSearchAndBackfill(ctx, q, mineFor),
+  };
+}
+
+// The ONE public Customer-search entry point (ADR-0016 amendment): the SPA no
+// longer decides mirror-vs-live — the engine does, server-side. Registered as
+// an action because the live fallback calls Feishu, which a query cannot; the
+// returned `source` is the provenance the taskpane can badge and both sides'
+// logs join on.
+export const searchCustomers = action({
+  args: { q: v.string(), mineFor: v.optional(v.string()) },
+  handler: async (ctx, args): Promise<CustomerSearchOutcome<CustomerRecord>> => {
+    return await runCustomerSearch(makeCustomerSearchPort(ctx), {
+      q: args.q,
+      mineFor: args.mineFor,
+      minLength: MIN_CUSTOMER_SEARCH_LENGTH,
+    });
   },
 });
 
@@ -847,11 +884,12 @@ export const matchByEmail = query({
   },
 });
 
-// Public ranked search query. Uses Convex's `withSearchIndex` for prefix +
-// score ranking on the `searchBlob` column. Optional `mineFor` filters to
-// customers whose Owner == that open_id (the "Show mine" toggle from
-// CustomerPicker, ADR-0013).
-export const search = query({
+// Ranked mirror search. Uses Convex's `withSearchIndex` for prefix + score
+// ranking on the `searchBlob` column. Optional `mineFor` filters to customers
+// whose Owner == that open_id (the "Show mine" toggle from CustomerPicker,
+// ADR-0013). INTERNAL: this is the mirror leg of the Customer-search engine —
+// the SPA enters through `searchCustomers`, never this query directly.
+export const search = internalQuery({
   args: {
     q: v.string(),
     mineFor: v.optional(v.string()),

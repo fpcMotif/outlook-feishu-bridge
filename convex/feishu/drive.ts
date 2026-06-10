@@ -115,6 +115,13 @@ export async function withDriveRateLimitRetry<T>(
 }
 
 /**
+ * Call budget for one Drive `upload_all` exchange (ADR-0030). A ≤20 MB
+ * multipart body on a slow link cannot live inside the ordinary 30 s default,
+ * so the upload leg gets its own, larger bound.
+ */
+export const DRIVE_UPLOAD_TIMEOUT_MS = 120_000;
+
+/**
  * Upload one blob to Feishu Drive via `medias/upload_all` and return its
  * `file_token`. Builds the multipart body per the verified contract (the runtime
  * sets the boundary); throws when the response carries no `file_token`.
@@ -140,6 +147,7 @@ export async function uploadMediaToDrive(
     token: tenantToken,
     form,
     label: "Feishu Drive media upload_all",
+    timeoutMs: DRIVE_UPLOAD_TIMEOUT_MS,
   });
   if (!data.file_token) {
     throw new Error("Feishu Drive upload_all returned no file_token");

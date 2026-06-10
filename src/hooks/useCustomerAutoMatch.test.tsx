@@ -6,7 +6,6 @@ import type { CustomerRecord } from "../components/taskpane/customers";
 
 function renderAutoMatch(clientEmail: string, records: CustomerRecord[] = []) {
   const matchEmail = vi.fn(async () => null);
-  const triggerRefresh = vi.fn();
   const dispatch = vi.fn();
   const result = renderHook(
     ({ email }) =>
@@ -17,60 +16,54 @@ function renderAutoMatch(clientEmail: string, records: CustomerRecord[] = []) {
         selectedCustomer: null,
         directory: { status: "ready", records },
         matchEmail,
-        triggerRefresh,
         dispatch,
       }),
     { initialProps: { email: clientEmail } },
   );
-  return { ...result, matchEmail, triggerRefresh, dispatch };
+  return { ...result, matchEmail, dispatch };
 }
 
 describe("useCustomerAutoMatch", () => {
-  it("does not call mirror match or refresh for text without an email domain", async () => {
-    const { result, matchEmail, triggerRefresh } = renderAutoMatch("not-an-email");
+  it("does not call mirror match for text without an email domain", async () => {
+    const { result, matchEmail } = renderAutoMatch("not-an-email");
 
     await waitFor(() => {
       expect(result.current.emailDomainPart).toBe("");
     });
 
     expect(matchEmail).not.toHaveBeenCalled();
-    expect(triggerRefresh).not.toHaveBeenCalled();
   });
 
-  it("does not call mirror match or refresh for an incomplete email domain", async () => {
-    const { result, matchEmail, triggerRefresh } = renderAutoMatch("buyer@");
+  it("does not call mirror match for an incomplete email domain", async () => {
+    const { result, matchEmail } = renderAutoMatch("buyer@");
 
     await waitFor(() => {
       expect(result.current.emailDomainPart).toBe("");
     });
 
     expect(matchEmail).not.toHaveBeenCalled();
-    expect(triggerRefresh).not.toHaveBeenCalled();
   });
 
-  it("still tries mirror match and refresh for a valid email domain", async () => {
-    const { result, matchEmail, triggerRefresh } = renderAutoMatch("buyer@example.com");
+  it("still tries mirror match for a valid email domain", async () => {
+    const { result, matchEmail } = renderAutoMatch("buyer@example.com");
 
     await waitFor(() => {
       expect(result.current.emailDomainPart).toBe("example.com");
       expect(matchEmail).toHaveBeenCalledWith("buyer@example.com");
-      expect(triggerRefresh).toHaveBeenCalledTimes(1);
     });
   });
 
-  it("does not repeat mirror match or refresh when only the email local part changes", async () => {
-    const { rerender, matchEmail, triggerRefresh } = renderAutoMatch("buyer@example.com");
+  it("does not repeat mirror match when only the email local part changes", async () => {
+    const { rerender, matchEmail } = renderAutoMatch("buyer@example.com");
 
     await waitFor(() => {
       expect(matchEmail).toHaveBeenCalledTimes(1);
-      expect(triggerRefresh).toHaveBeenCalledTimes(1);
     });
 
     rerender({ email: "accounts@example.com" });
 
     await waitFor(() => {
       expect(matchEmail).toHaveBeenCalledTimes(1);
-      expect(triggerRefresh).toHaveBeenCalledTimes(1);
     });
   });
 

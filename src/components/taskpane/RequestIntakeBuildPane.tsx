@@ -20,7 +20,6 @@ export function RequestIntakeBuildPane({ vm }: { vm: RequestIntakeScreenViewMode
     usePreviewCoworkers,
     customerDirectory,
     searchCustomers,
-    triggerCustomerRefresh,
     emailDomainPart,
     mailAttachments,
     addFiles,
@@ -55,7 +54,6 @@ export function RequestIntakeBuildPane({ vm }: { vm: RequestIntakeScreenViewMode
               <CustomerPicker
                 directory={customerDirectory}
                 searchCustomers={searchCustomers}
-                triggerRefresh={triggerCustomerRefresh}
                 emailDomain={emailDomainPart}
                 selectedCustomer={state.selectedCustomer}
                 currentUserOpenId={user?.openId}

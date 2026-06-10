@@ -10,7 +10,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { callFeishu } from "./call";
-import { applyPage, buildSearchBlob, fullSync, kick, search, searchAndCacheMiss } from "./customersMirror";
+import {
+  applyPage,
+  buildSearchBlob,
+  fullSync,
+  kick,
+  matchByEmail,
+  matchEmailAndCacheMiss,
+  search,
+  searchAndCacheMiss,
+} from "./customersMirror";
+import { projectionToRow } from "./customerMirrorRows";
 
 vi.mock("./call", () => ({
   callFeishu: vi.fn(),
@@ -109,6 +119,23 @@ const applyPageHandler = (applyPage as unknown as {
       mirroredAt: number;
     },
   ) => Promise<{ inserted: number; updated: number; unchanged: number; duplicateRows: number }>;
+})._handler;
+const matchByEmailHandler = (matchByEmail as unknown as {
+  _handler: (
+    ctx: { db: { query: (table: "customers") => unknown } },
+    args: { email: string },
+  ) => Promise<{ customer: { recordId: string } | null }>;
+})._handler;
+const matchEmailAndCacheMissHandler = (matchEmailAndCacheMiss as unknown as {
+  _handler: (
+    ctx: {
+      runMutation: (
+        fn: unknown,
+        args: Record<string, unknown>,
+      ) => Promise<{ inserted: number; updated: number; unchanged: number; duplicateRows: number }>;
+    },
+    args: { email: string },
+  ) => Promise<{ customer: { recordId: string } | null; backfilled: number }>;
 })._handler;
 const mockCallFeishu = vi.mocked(callFeishu);
 const originalConvexDeployment = process.env.CONVEX_DEPLOYMENT;
@@ -398,6 +425,155 @@ describe("customer mirror cache-miss search", () => {
       }),
     );
     expect(runMutation).toHaveBeenCalledTimes(1);
+  });
+});
+
+// db mock for matchByEmail: each named index resolves to a fixed row (or null),
+// and every probe records which index was hit with what key so the tests can
+// lock the domainKey-first / raw-domain-fallback order.
+function customersIndexDb(rowsByIndex: Record<string, Record<string, unknown> | null>) {
+  const probes: Array<{ index: string; value: unknown }> = [];
+  const query = vi.fn(() => ({
+    withIndex: (
+      name: string,
+      callback: (q: { eq: (field: string, value: unknown) => unknown }) => unknown,
+    ) => {
+      let captured: unknown;
+      callback({
+        eq: (_field, value) => {
+          captured = value;
+          return {};
+        },
+      });
+      probes.push({ index: name, value: captured });
+      return { first: async () => rowsByIndex[name] ?? null };
+    },
+  }));
+  return { query, probes };
+}
+
+describe("customer mirror domain match (matchByEmail)", () => {
+  it("matches via the canonical domainKey index even when the raw 域名 cell has casing", async () => {
+    const row = { recordId: "rec_acme", name: "Acme", domain: "Acme.COM", domainKey: "acme.com" };
+    const { query, probes } = customersIndexDb({ by_domainKey: row });
+
+    const result = await matchByEmailHandler({ db: { query } }, { email: "buyer@ACME.com" });
+
+    expect(result.customer?.recordId).toBe("rec_acme");
+    expect(probes).toEqual([{ index: "by_domainKey", value: "acme.com" }]);
+  });
+
+  it("falls back to the raw-domain index for rows synced before domainKey existed", async () => {
+    const row = { recordId: "rec_legacy", name: "Legacy", domain: "legacy.example" };
+    const { query, probes } = customersIndexDb({ by_domainKey: null, by_domain: row });
+
+    const result = await matchByEmailHandler({ db: { query } }, { email: "buyer@legacy.example" });
+
+    expect(result.customer?.recordId).toBe("rec_legacy");
+    expect(probes.map((probe) => probe.index)).toEqual(["by_domainKey", "by_domain"]);
+  });
+});
+
+describe("customer mirror domain cache-miss (matchEmailAndCacheMiss)", () => {
+  it("skips live Feishu entirely for text without an email domain", async () => {
+    const runMutation = vi.fn();
+
+    const result = await matchEmailAndCacheMissHandler({ runMutation }, { email: "not-an-email" });
+
+    expect(result).toEqual({ customer: null, backfilled: 0 });
+    expect(mockCallFeishu).not.toHaveBeenCalled();
+    expect(runMutation).not.toHaveBeenCalled();
+  });
+
+  it("backfills one bounded filtered page and returns only the exact canonical match", async () => {
+    mockCallFeishu.mockResolvedValueOnce({
+      items: [
+        {
+          record_id: "rec_super",
+          fields: {
+            "Account Name": [{ text: "Not Acme", type: "text" }],
+            域名: [{ text: "notacme.com", type: "text" }],
+          },
+        },
+        {
+          record_id: "rec_acme",
+          fields: {
+            "Account Name": [{ text: "Acme", type: "text" }],
+            域名: [{ text: "Acme.COM", type: "text" }],
+          },
+        },
+      ],
+      has_more: false,
+    });
+    const runMutation = vi.fn(async () => ({
+      inserted: 2,
+      updated: 0,
+      unchanged: 0,
+      duplicateRows: 0,
+    }));
+
+    const result = await matchEmailAndCacheMissHandler({ runMutation }, { email: "buyer@acme.com" });
+
+    // `contains` pulls in the superstring domain too — it belongs in the
+    // mirror, but only the strict canonical match may auto-select.
+    expect(result.backfilled).toBe(2);
+    expect(result.customer?.recordId).toBe("rec_acme");
+    expect(mockCallFeishu).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        label: "Customers mirror — live domain match on cache miss",
+        query: { page_size: "50" },
+        json: expect.objectContaining({
+          filter: {
+            conjunction: "and",
+            conditions: [{ field_name: "域名", operator: "contains", value: ["acme.com"] }],
+          },
+        }),
+      }),
+    );
+    expect(runMutation).toHaveBeenCalledTimes(1);
+    const upsert = runMutation.mock.calls[0]?.[1] as {
+      rows: Array<{ recordId: string; domainKey?: string }>;
+    };
+    expect(upsert.rows.find((row) => row.recordId === "rec_acme")?.domainKey).toBe("acme.com");
+  });
+
+  it("queries Feishu with the alias-canonicalized domain and skips the upsert on empty results", async () => {
+    mockCallFeishu.mockResolvedValueOnce({ items: [], has_more: false });
+    const runMutation = vi.fn();
+
+    const result = await matchEmailAndCacheMissHandler(
+      { runMutation },
+      { email: "buyer@microsoftonline.com" },
+    );
+
+    expect(result).toEqual({ customer: null, backfilled: 0 });
+    expect(runMutation).not.toHaveBeenCalled();
+    expect(mockCallFeishu).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        json: expect.objectContaining({
+          filter: expect.objectContaining({
+            conditions: [{ field_name: "域名", operator: "contains", value: ["microsoft.com"] }],
+          }),
+        }),
+      }),
+    );
+  });
+});
+
+describe("projectionToRow domainKey", () => {
+  it("stamps the canonicalized domain alongside the raw display value", () => {
+    const row = projectionToRow({ recordId: "rec_x", name: "X", domain: " Acme.COM ", owner: null });
+
+    expect(row.domain).toBe(" Acme.COM ");
+    expect(row.domainKey).toBe("acme.com");
+  });
+
+  it("leaves domainKey absent when the row has no domain", () => {
+    const row = projectionToRow({ recordId: "rec_x", name: "X", owner: null });
+
+    expect(row.domainKey).toBeUndefined();
   });
 });
 

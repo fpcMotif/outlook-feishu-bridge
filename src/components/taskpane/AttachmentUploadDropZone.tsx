@@ -132,14 +132,3 @@ export function UploadDropZone({
     </label>
   );
 }
-
-// Kept for backwards-compatible test imports; delegates to UploadDropZone.
-export function AddFileRow({
-  disabled,
-  onPick,
-}: {
-  disabled: boolean;
-  onPick: (files: File[]) => void;
-}) {
-  return <UploadDropZone disabled={disabled} onPick={onPick} />;
-}

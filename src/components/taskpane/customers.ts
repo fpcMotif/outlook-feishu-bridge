@@ -47,7 +47,7 @@ export function findCustomerByDomain<R extends { domain?: string }>(
   );
 }
 
-export function canonicalCustomerDomain(domain: string | undefined | null): string | null {
+function canonicalCustomerDomain(domain: string | undefined | null): string | null {
   const normalized = domain?.trim().toLowerCase();
   if (!normalized) return null;
   return CUSTOMER_DOMAIN_ALIASES[normalized] ?? normalized;

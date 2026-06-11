@@ -9,7 +9,7 @@ function currentItem(): Office.MessageRead {
   return item;
 }
 
-export function readMailBody(coercion: Office.CoercionType): Promise<string> {
+function readMailBody(coercion: Office.CoercionType): Promise<string> {
   const item = currentItem();
   return new Promise<string>((resolve, reject) => {
     item.body.getAsync(coercion, (result: Office.AsyncResult<string>) => {

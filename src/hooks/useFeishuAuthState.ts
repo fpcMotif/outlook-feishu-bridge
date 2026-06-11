@@ -70,7 +70,7 @@ export function useProactiveTouch(
   return touchResult;
 }
 
-export function useAuthSnapshot({
+function useAuthSnapshot({
   session,
   sessionId,
   convexLoggedIn,
@@ -171,7 +171,7 @@ export function deriveAuthFlags({
   return { snapshotLoggedIn, isLoading, isLoggedIn };
 }
 
-export function selectUser({
+function selectUser({
   authSnapshot,
   convexLoggedIn,
   fallback,

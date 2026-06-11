@@ -1,0 +1,26 @@
+{
+  "ignore": {
+    "files": ["convex/**"],
+    "overrides": [
+      {
+        "files": ["package.json"],
+        "rules": ["deslop/unused-dependency"]
+      },
+      {
+        "files": ["src/components/taskpane/syncPreviewModel.ts"],
+        "rules": ["deslop/unused-export"]
+      },
+      {
+        "files": [
+          "src/office/attachmentUpload.ts",
+          "src/components/taskpane/runWithConcurrency.ts"
+        ],
+        "rules": ["react-doctor/async-await-in-loop"]
+      },
+      {
+        "files": ["src/components/taskpane/uploadError.ts"],
+        "rules": ["react-doctor/js-combine-iterations"]
+      }
+    ]
+  }
+}

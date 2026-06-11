@@ -374,4 +374,4 @@ export function AttachmentItemRow(props: AttachmentItemRowProps) {
   );
 }
 
-export { AddFileRow, UploadDropZone } from "./AttachmentUploadDropZone";
+export { UploadDropZone } from "./AttachmentUploadDropZone";

@@ -23,7 +23,7 @@ export function isPreviewCoworkerOpenId(openId: string | undefined | null): bool
 // e2e/dev-test harness explicitly opts in; production search must never fall
 // back to them. Real user-visible results come only from Feishu Search Users.
 // See ADR-0003.
-export const PREVIEW_COWORKERS: Coworker[] = [
+const PREVIEW_COWORKERS: Coworker[] = [
   { openId: "ou_jenny", name: "Jenny Xu" },
   { openId: "ou_michael", name: "Michael Chen" },
   { openId: "ou_sales_ops", name: "Sales Ops" },

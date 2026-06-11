@@ -44,6 +44,9 @@ export function useCustomerSearchPreload(isLoggedIn: boolean): CustomerSearch {
     [legacyAction],
   );
 
+  // Document-only: auto-match consults only the preloaded directory, no server
+  // call. A miss here is a genuine directory-absent case, not a cache miss that
+  // warrants a live Feishu probe. (ADR-0016 Fix 4 — preload mode policy.)
   const matchEmail = useCallback(
     (email: string): Promise<CustomerRecord | null> =>
       Promise.resolve(

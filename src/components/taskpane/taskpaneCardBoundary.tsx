@@ -5,6 +5,6 @@ export const TaskpaneCardBoundaryContext = createContext<RefObject<HTMLElement |
   null,
 );
 
-export function useTaskpaneCardBoundary(): RefObject<HTMLElement | null> | null {
+function useTaskpaneCardBoundary(): RefObject<HTMLElement | null> | null {
   return use(TaskpaneCardBoundaryContext);
 }

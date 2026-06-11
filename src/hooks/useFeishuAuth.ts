@@ -5,6 +5,8 @@ import type { FeishuUser } from "../components/taskpane/feishuUser";
 import { clearAuthSnapshot } from "./feishuAuthSnapshot";
 import { clearIntakeDraftCache } from "../components/taskpane/intakeDraftCache";
 import { resetUploadDrafts } from "../components/taskpane/uploadDraftCache";
+import { resetCustomerDirectory } from "./useCustomerDirectory";
+import { resetColleagueDirectory } from "./useColleagueDirectory";
 import {
   useAuthState,
   useProactiveTouch,
@@ -191,6 +193,11 @@ function useAuthActions({
     // storageIds never linger for the next account.
     clearIntakeDraftCache();
     resetUploadDrafts();
+    // The Customer + Colleague directories are module-level singletons that
+    // outlive a sign-out on a pinned pane; reset them so the next account opens
+    // a fresh fetch instead of resuming the previous session's stale directory.
+    resetCustomerDirectory();
+    resetColleagueDirectory();
     setFallback(null);
     await logoutMutation({ sessionId });
   }, [logoutMutation, sessionId, setFallback]);

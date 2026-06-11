@@ -123,6 +123,31 @@ Doc URLs: `/document/server-docs/docs/bitable-v1/app-table-record/search`, `/doc
 
 **Scope.** This changes the *server-index* path only (ADR-0016); the `preload` path (ADR-0013) is untouched. HARD RULE intact — bigrams live in the Convex `customers` mirror; Bitable is still read-only.
 
+## Amendment (2026-06-11) — Customer search stack hardening
+
+### Fixes
+
+**Fix 3 — `applyPage` clear-path bug (undefined-strip across action→mutation boundary).**
+When a Feishu Bitable cell is cleared, the Feishu API simply omits that field from the row object (`domain`, `domainKey`, etc. become `undefined` in the TypeScript projection). Convex serialises `undefined` values silently when an action calls `ctx.runMutation` — the field is *dropped from the wire encoding* and the mutation never sees it. The old `applyPage` spread (`{ ...row, mirroredAt }`) therefore left the stale column value in place rather than clearing it. Fix: the spread now leads with explicit-`undefined` fallbacks before the row, so any absent optional field produces `domain: undefined` in the patch — which Convex's `db.patch` semantics interpret as "remove this field".
+
+**Fix 5 — Per-domain server-side cooldown for `matchEmailAndCacheMiss`.**
+Each live Feishu domain probe (`matchEmailAndCacheMiss`) now acquires a **per-domain** cooldown slot before touching Feishu. The pattern follows `startRefreshIfAllowed` (ADR-0016 § Mirror Kick): an internal mutation `startDomainMatchIfAllowed` reads and writes the cooldown timestamp atomically in one Convex transaction. A new schema table `customerDomainMatchCooldowns` (`by_domain` index) holds one row per probed domain. Cooldown window: **15 min** (same as the Mirror Kick, so a domain that fires a live probe doesn't re-probe within the same 15-min refresh cycle). The client-side `EMPTY_DOMAIN_MATCH_TTL_MS` (5 min) is a UX-advisory layer on top; the server gate is authoritative.
+
+**Fix 6.2 — `matchEmailAndCacheMiss` pagination (up to 3 pages).**
+The domain `contains` filter can return superstring rows *before* the canonical match (e.g. `notacme.com` before `acme.com`). The action now loops up to `MAX_CACHE_MISS_PAGES = 3` pages of 50 rows each before giving up, accumulating all rows into a single `applyPage` call at the end. Early exit when a strict canonical match is found or `has_more = false`.
+
+**Fix 6.1 — `liveAllowed: false` for negative-cache ordering.**
+Previously, the SPA hook short-circuited the 30-second typed-search negative cache by returning `[]` before reaching the server. This prevented the mirror from being consulted — but `matchEmailAndCacheMiss` may have backfilled the mirror during the same session. The hook now passes `liveAllowed: false` to `searchCustomers`, so the **Customer-search engine** still consults the mirror (fast path, no cross-border cost) without triggering the live Feishu fallback. The engine's `liveAllowed` flag lives in `customerSearchEngine.ts` (ADR-0019 seam).
+
+**Fix 6.3 — Remove client-side Mirror Kick from `triggerRefresh`.**
+`triggerRefresh` in `useCustomerSearchServerIndex` is now a no-op `() => {}`. Rationale: the on-demand kick is rate-limited server-side (`startRefreshIfAllowed`, ADR-0016 §2026-06-01); the weekly cron is the freshness floor; cache-miss backfill handles the "new customer, open mail" case without a full re-sync. The thin client-side cooldown (`lastMirrorKickStartedAt`) was unreliable across tabs/reloads in any case (fixed by the 2026-06-01 server-side amendment) and is now removed entirely from the hook.
+
+**Fix 6.4 — 150 ms debounce on typed Customer search.**
+Each `search(q)` call in the server-index hook now returns a debounced Promise. Rapid keystrokes within 150 ms for the same normalised query key share a single pending timer; all callers' resolve functions are accumulated and fired together when the timer fires, collapsing multiple keystrokes into one server call. After the debounce fires, the existing in-flight coalescing (`inFlightSearches`) takes over for any further concurrent callers during the server round-trip.
+
+**Fix 4 — Preload-mode `matchEmail` is document-only.**
+`useCustomerSearchPreload.matchEmail` consults only the preloaded directory (`findCustomerByEmail`). A miss in preload mode is a genuine directory-absent case and does not warrant a live Feishu probe — the preload directory is already the full customer directory, so a miss means the customer does not exist in the directory. No change to implementation (was already document-only); this policy is now documented explicitly in the code comment and this ADR.
+
 ## References
 
 - Convex search indexes: https://docs.convex.dev/database/text-search

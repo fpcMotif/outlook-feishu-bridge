@@ -1,6 +1,6 @@
 /** Simulated byte progress while XHR is quiet (caps below real upload %). */
-export const UPLOAD_SIMULATED_CAP_MAX = 88;
-export const UPLOAD_SIMULATED_RAMP_MS = 12_000;
+const UPLOAD_SIMULATED_CAP_MAX = 88;
+const UPLOAD_SIMULATED_RAMP_MS = 12_000;
 
 export function uploadSimulatedCap(elapsedMs: number): number {
   if (elapsedMs <= 0) return 0;

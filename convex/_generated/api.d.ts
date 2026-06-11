@@ -31,6 +31,7 @@ import type * as feishu_contactsMirrorSync from "../feishu/contactsMirrorSync.js
 import type * as feishu_coworkers from "../feishu/coworkers.js";
 import type * as feishu_customerMirrorRows from "../feishu/customerMirrorRows.js";
 import type * as feishu_customerMirrorSync from "../feishu/customerMirrorSync.js";
+import type * as feishu_customerSearchEngine from "../feishu/customerSearchEngine.js";
 import type * as feishu_customers from "../feishu/customers.js";
 import type * as feishu_customersMirror from "../feishu/customersMirror.js";
 import type * as feishu_devCustomerFixtures from "../feishu/devCustomerFixtures.js";
@@ -38,7 +39,6 @@ import type * as feishu_devCustomerSeed from "../feishu/devCustomerSeed.js";
 import type * as feishu_devEmailFixtures from "../feishu/devEmailFixtures.js";
 import type * as feishu_devEmailRecordSeed from "../feishu/devEmailRecordSeed.js";
 import type * as feishu_drive from "../feishu/drive.js";
-import type * as feishu_emailDomain from "../feishu/emailDomain.js";
 import type * as feishu_pinyinTokens from "../feishu/pinyinTokens.js";
 import type * as feishu_previewFixtures from "../feishu/previewFixtures.js";
 import type * as feishu_requestSync from "../feishu/requestSync.js";
@@ -82,6 +82,7 @@ declare const fullApi: ApiFromModules<{
   "feishu/coworkers": typeof feishu_coworkers;
   "feishu/customerMirrorRows": typeof feishu_customerMirrorRows;
   "feishu/customerMirrorSync": typeof feishu_customerMirrorSync;
+  "feishu/customerSearchEngine": typeof feishu_customerSearchEngine;
   "feishu/customers": typeof feishu_customers;
   "feishu/customersMirror": typeof feishu_customersMirror;
   "feishu/devCustomerFixtures": typeof feishu_devCustomerFixtures;
@@ -89,7 +90,6 @@ declare const fullApi: ApiFromModules<{
   "feishu/devEmailFixtures": typeof feishu_devEmailFixtures;
   "feishu/devEmailRecordSeed": typeof feishu_devEmailRecordSeed;
   "feishu/drive": typeof feishu_drive;
-  "feishu/emailDomain": typeof feishu_emailDomain;
   "feishu/pinyinTokens": typeof feishu_pinyinTokens;
   "feishu/previewFixtures": typeof feishu_previewFixtures;
   "feishu/requestSync": typeof feishu_requestSync;

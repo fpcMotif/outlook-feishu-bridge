@@ -35,7 +35,6 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "convex": "^1.40.0",
-    "jspdf": "^4.2.1",
     "lucide-react": "^1.17.0",
     "pinyin-pro": "^3.28.1",
     "react": "^19.2.7",
@@ -61,11 +60,9 @@
     "concurrently": "^10.0.3",
     "jsdom": "^29.1.1",
     "oxlint": "^1.69.0",
-    "react-doctor": "^0.4.2",
     "tailwindcss": "^4.3.0",
     "typescript": "~6.0.3",
     "vite": "^8.0.16",
-    "vitest": "^4.1.8",
-    "wrangler": "^4.98.0"
+    "vitest": "^4.1.8"
   }
 }

@@ -38,6 +38,7 @@ import {
 import {
   canonicalCustomerDomain,
   emailDomain,
+  findCustomerByEmail,
   mapFeishuItemToCustomer,
   type CustomerRecord,
 } from "./customers";
@@ -53,6 +54,11 @@ import {
   mergePreferredCustomers,
   searchDevCustomerFixtures,
 } from "./devCustomerFixtures";
+import {
+  runCustomerSearch,
+  type CustomerSearchOutcome,
+  type CustomerSearchPort,
+} from "./customerSearchEngine";
 
 export { buildSearchBlob } from "./customerMirrorRows";
 
@@ -90,6 +96,14 @@ const MIRROR_KICK_COOLDOWN_MS = 15 * 60 * 1000;
 // the prune's delete fan-out. 15 min >> one full sync (~45 s), so the lease only
 // ever blocks genuine overlap, never a legitimately-spaced refresh.
 const MIRROR_REFRESH_LEASE_MS = MIRROR_KICK_COOLDOWN_MS;
+// Per-domain cooldown for matchEmailAndCacheMiss. Same window as the kick so a
+// domain that fires a live probe doesn't re-probe within the same 15-min cycle.
+const DOMAIN_MATCH_COOLDOWN_MS = 15 * 60 * 1000;
+// Maximum pages fetched per matchEmailAndCacheMiss call. One filtered page of 50
+// covers the common case; additional pages only run when the first page has no
+// strict canonical match but has_more=true (superstring-domain rows pushed the
+// target off page 1).
+const MAX_CACHE_MISS_PAGES = 3;
 // Drift alarm (ADR-0021 hardening). After a complete sync + prune the retained
 // mirror count should track Feishu's reported total (plus a couple of dev
 // fixtures). A retained count that still exceeds the source total by more than
@@ -123,6 +137,7 @@ export const applyPage = internalMutation({
         recordId: v.string(),
         name: v.string(),
         domain: v.optional(v.string()),
+        domainKey: v.optional(v.string()),
         fullName: v.optional(v.string()),
         accountNo: v.optional(v.string()),
         countryRegion: v.optional(v.string()),
@@ -147,7 +162,22 @@ export const applyPage = internalMutation({
     );
     const writes = await Promise.all(
       existingRows.map(async ({ row, existing }) => {
-        const fields = { ...row, mirroredAt: args.mirroredAt };
+        // Explicit undefined for every optional column before spreading `row`
+        // so ctx.db.patch removes a field whose Bitable cell was cleared.
+        // Convex strips undefined from action→mutation args, but inside a
+        // mutation handler explicit undefined IS propagated by db.patch (it
+        // removes the key). Without this, cleared cells can never be reflected.
+        const fields = {
+          domain: undefined,
+          domainKey: undefined,
+          fullName: undefined,
+          accountNo: undefined,
+          countryRegion: undefined,
+          ownerOpenId: undefined,
+          ownerName: undefined,
+          ...row,
+          mirroredAt: args.mirroredAt,
+        };
         if (existing) {
           if (!customerRowChanged(existing, row)) {
             return "unchanged" as const;
@@ -218,6 +248,36 @@ export const startRefreshIfAllowed = internalMutation({
         lastFullSyncAt: 0,
         lastRowCount: 0,
         lastRefreshStartedAt: args.startedAt,
+      });
+    }
+    return { started: true };
+  },
+});
+
+// Per-domain cooldown gate for matchEmailAndCacheMiss. Follows the same
+// check-and-set pattern as startRefreshIfAllowed: one mutation that atomically
+// reads the last attempt timestamp and writes a new one, so concurrent SPA
+// sessions for the same domain collapse to a single live Feishu probe.
+export const startDomainMatchIfAllowed = internalMutation({
+  args: { domain: v.string(), startedAt: v.number(), cooldownMs: v.number() },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ started: true } | { started: false; remainingMs: number }> => {
+    const existing = await ctx.db
+      .query("customerDomainMatchCooldowns")
+      .withIndex("by_domain", (q) => q.eq("domain", args.domain))
+      .unique();
+    if (existing) {
+      const elapsedMs = Math.max(0, args.startedAt - existing.lastAttemptAt);
+      if (elapsedMs < args.cooldownMs) {
+        return { started: false, remainingMs: args.cooldownMs - elapsedMs };
+      }
+      await ctx.db.patch(existing._id, { lastAttemptAt: args.startedAt });
+    } else {
+      await ctx.db.insert("customerDomainMatchCooldowns", {
+        domain: args.domain,
+        lastAttemptAt: args.startedAt,
       });
     }
     return { started: true };
@@ -333,6 +393,12 @@ function customerRowChanged(
     existing.recordId !== next.recordId ||
     existing.name !== next.name ||
     existing.domain !== next.domain ||
+    // domainKey participates so the first full sync after the column shipped
+    // re-stamps every pre-existing row (undefined !== canonical value).
+    // domainKey participates so the first full sync after the column shipped
+    // re-stamps every row (undefined !== canonical value). The applyPage
+    // explicit-undefined spread also triggers this check when a cell is cleared.
+    existing.domainKey !== next.domainKey ||
     existing.fullName !== next.fullName ||
     existing.accountNo !== next.accountNo ||
     existing.countryRegion !== next.countryRegion ||
@@ -769,56 +835,97 @@ export const kick = action({
   },
 });
 
-// Cache-aside lazy fill (ADR-0016 § "Per-request cache miss"). Called by the
-// SPA when the Convex mirror search returns 0 hits — falls through to the
-// LIVE Feishu /records/search with the same `or` `contains` filter the legacy
-// per-keystroke path uses, then INCREMENTALLY upserts any new rows into the
-// mirror so the next search hits the fast path. Slower than the mirror query
-// (200-500 ms cross-border), but the latency hit is exactly when the user
-// asked for it (cache miss) and it self-heals for next time.
-export const searchAndCacheMiss = action({
-  args: { q: v.string(), mineFor: v.optional(v.string()) },
-  handler: async (ctx, args): Promise<{ records: CustomerRecord[]; backfilled: number }> => {
-    const q = args.q.trim();
-    if (q.length < MIN_CUSTOMER_SEARCH_LENGTH) return { records: [], backfilled: 0 };
-    const appToken = requireAppToken();
-    const started = Date.now();
-    const data: SearchResponse = await callFeishu<SearchResponse>(ctx, {
-      path: `/bitable/v1/apps/${appToken}/tables/${CUSTOMER_TABLE_ID}/records/search`,
-      method: "POST",
-      auth: "tenant",
-      json: {
-        field_names: CUSTOMER_FIELD_NAMES,
-        filter: {
-          conjunction: "or",
-          conditions: [
-            { field_name: "Account Name", operator: "contains", value: [q] },
-            { field_name: "域名", operator: "contains", value: [q] },
-          ],
-        },
+// Live leg of the Customer search (ADR-0016 § "Per-request cache miss"): falls
+// through to the LIVE Feishu /records/search with the same `or` `contains`
+// filter the legacy per-keystroke path used, then INCREMENTALLY upserts any new
+// rows into the mirror so the next identical query hits the fast path. Slower
+// than the mirror query (200-500 ms cross-border), but the latency hit lands
+// exactly when the mirror missed — and it self-heals for next time. Only ever
+// invoked by the Customer-search engine after a mirror miss.
+async function liveSearchAndBackfill(
+  ctx: ActionCtx,
+  q: string,
+  mineFor?: string,
+): Promise<{ records: CustomerRecord[]; backfilled: number }> {
+  const appToken = requireAppToken();
+  const started = Date.now();
+  const data: SearchResponse = await callFeishu<SearchResponse>(ctx, {
+    path: `/bitable/v1/apps/${appToken}/tables/${CUSTOMER_TABLE_ID}/records/search`,
+    method: "POST",
+    auth: "tenant",
+    json: {
+      field_names: CUSTOMER_FIELD_NAMES,
+      filter: {
+        conjunction: "or",
+        conditions: [
+          { field_name: "Account Name", operator: "contains", value: [q] },
+          { field_name: "域名", operator: "contains", value: [q] },
+        ],
       },
-      query: { page_size: String(CACHE_MISS_PAGE_SIZE) },
-      label: "Customers mirror — live search on cache miss",
+    },
+    query: { page_size: String(CACHE_MISS_PAGE_SIZE) },
+    label: "Customers mirror — live search on cache miss",
+  });
+  const backfilledRecords: CustomerRecord[] = (data.items ?? []).map((item) =>
+    mapFeishuItemToCustomer(item),
+  );
+  if (backfilledRecords.length > 0) {
+    await ctx.runMutation(internal.feishu.customersMirror.applyPage, {
+      rows: backfilledRecords.map((customer) => projectionToRow(customer)),
+      mirroredAt: Date.now(),
     });
-    const backfilledRecords: CustomerRecord[] = (data.items ?? []).map((item) =>
-      mapFeishuItemToCustomer(item),
-    );
-    if (backfilledRecords.length > 0) {
-      await ctx.runMutation(internal.feishu.customersMirror.applyPage, {
-        rows: backfilledRecords.map((customer) => projectionToRow(customer)),
-        mirroredAt: Date.now(),
-      });
-    }
-    const records = mergePreferredCustomers(
-      searchDevCustomerFixtures(q, args.mineFor),
-      args.mineFor === undefined
-        ? backfilledRecords
-        : backfilledRecords.filter((record) => record.owner?.openId === args.mineFor),
-    );
-    console.log(
-      `[customers-mirror] searchAndCacheMiss q="${q.slice(0, 40)}" -> ${records.length}/${backfilledRecords.length} backfilled (${Date.now() - started}ms)`,
-    );
-    return { records, backfilled: backfilledRecords.length };
+  }
+  const records = mergePreferredCustomers(
+    searchDevCustomerFixtures(q, mineFor),
+    mineFor === undefined
+      ? backfilledRecords
+      : backfilledRecords.filter((record) => record.owner?.openId === mineFor),
+  );
+  console.log(
+    `[customers-mirror] live search q="${q.slice(0, 40)}" -> ${records.length}/${backfilledRecords.length} backfilled (${Date.now() - started}ms)`,
+  );
+  return { records, backfilled: backfilledRecords.length };
+}
+
+// The real Customer-search port: the mirror leg via the internal ranked query,
+// the live leg via Feishu + backfill. The engine (customerSearchEngine.
+// runCustomerSearch) owns the strategy — min-length gate, mirror-first, live on
+// miss — this adapter only supplies the I/O.
+function makeCustomerSearchPort(ctx: ActionCtx): CustomerSearchPort<CustomerRecord> {
+  return {
+    mirrorSearch: async (q, mineFor) => {
+      const hit: { records: CustomerRecord[]; mirroredAt: number | null } = await ctx.runQuery(
+        internal.feishu.customersMirror.search,
+        mineFor === undefined ? { q } : { q, mineFor },
+      );
+      return hit;
+    },
+    liveSearch: (q, mineFor) => liveSearchAndBackfill(ctx, q, mineFor),
+  };
+}
+
+// The ONE public Customer-search entry point (ADR-0016 amendment): the SPA no
+// longer decides mirror-vs-live — the engine does, server-side. Registered as
+// an action because the live fallback calls Feishu, which a query cannot; the
+// returned `source` is the provenance the taskpane can badge and both sides'
+// logs join on.
+export const searchCustomers = action({
+  args: {
+    q: v.string(),
+    mineFor: v.optional(v.string()),
+    // When false the engine skips the live Feishu leg even on a mirror miss —
+    // used by the SPA hook during an active negative-cache TTL so the mirror is
+    // always consulted (it may have been backfilled by matchEmailAndCacheMiss)
+    // without paying another cross-border live search.
+    liveAllowed: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args): Promise<CustomerSearchOutcome<CustomerRecord>> => {
+    return await runCustomerSearch(makeCustomerSearchPort(ctx), {
+      q: args.q,
+      mineFor: args.mineFor,
+      minLength: MIN_CUSTOMER_SEARCH_LENGTH,
+      liveAllowed: args.liveAllowed,
+    });
   },
 });
 
@@ -827,10 +934,20 @@ export const matchByEmail = query({
   handler: async (ctx, args): Promise<{ customer: CustomerRecord | null }> => {
     const domain = canonicalCustomerDomain(emailDomain(args.email));
     if (!domain) return { customer: null };
-    const hit = await ctx.db
-      .query("customers")
-      .withIndex("by_domain", (q) => q.eq("domain", domain))
-      .first();
+    // Probe the canonical-key index first. The old by_domain probe compared a
+    // lowercased canonical domain against the RAW 域名 cell, so any cell with
+    // casing/padding could never match — a permanent miss no re-sync fixed.
+    // The by_domain fallback only covers rows synced before domainKey existed;
+    // the next full sync re-stamps every row and the fallback goes dead.
+    const hit =
+      (await ctx.db
+        .query("customers")
+        .withIndex("by_domainKey", (q) => q.eq("domainKey", domain))
+        .first()) ??
+      (await ctx.db
+        .query("customers")
+        .withIndex("by_domain", (q) => q.eq("domain", domain))
+        .first());
     if (hit) {
       if (hit.recordId === "dev_fixture_fanpc_customer") {
         console.log(
@@ -847,11 +964,97 @@ export const matchByEmail = query({
   },
 });
 
-// Public ranked search query. Uses Convex's `withSearchIndex` for prefix +
-// score ranking on the `searchBlob` column. Optional `mineFor` filters to
-// customers whose Owner == that open_id (the "Show mine" toggle from
-// CustomerPicker, ADR-0013).
-export const search = query({
+// Cache-aside lazy fill for the domain auto-match. Called by the SPA only
+// AFTER matchByEmail returned null. Fires a live Feishu /records/search
+// filtered to the canonical domain (≤ CACHE_MISS_PAGE_SIZE rows per page,
+// up to MAX_CACHE_MISS_PAGES pages), upserts results into the mirror, and
+// returns the strict canonical match so the taskpane can select it immediately.
+//
+// Server-side per-domain cooldown (startDomainMatchIfAllowed) prevents
+// repeated live probes within the same 15-min window — concurrent SPA sessions
+// and rapid re-opens collapse to one actual Feishu call. The client-side
+// 5-min negative-cache TTL (EMPTY_DOMAIN_MATCH_TTL_MS in the SPA hook) is
+// advisory; the server gate is authoritative.
+//
+// Pagination: a `contains` filter can return superstring rows before the target
+// (e.g. notacme.com before acme.com). If the first page has no strict match
+// but has_more=true we fetch at most two more pages before giving up.
+//
+// The filter uses `contains` with the canonical (lowercased) domain so cells
+// holding surrounding text still match. A cell whose casing differs from the
+// canonical form may evade this probe; it is healed by the next full sync.
+export const matchEmailAndCacheMiss = action({
+  args: { email: v.string() },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ customer: CustomerRecord | null; backfilled: number }> => {
+    const domain = canonicalCustomerDomain(emailDomain(args.email));
+    if (!domain) return { customer: null, backfilled: 0 };
+    const gate: { started: true } | { started: false; remainingMs: number } =
+      await ctx.runMutation(internal.feishu.customersMirror.startDomainMatchIfAllowed, {
+        domain,
+        startedAt: Date.now(),
+        cooldownMs: DOMAIN_MATCH_COOLDOWN_MS,
+      });
+    if (!gate.started) {
+      const remainingS = Math.round((gate as { started: false; remainingMs: number }).remainingMs / 1000);
+      console.log(
+        `[customers-mirror] matchEmailAndCacheMiss domain="${domain}" -> skipped (cooldown, ${remainingS}s remaining)`,
+      );
+      return { customer: null, backfilled: 0 };
+    }
+    const appToken = requireAppToken();
+    const started = Date.now();
+    const allRecords: CustomerRecord[] = [];
+    let pageToken: string | undefined;
+    // Strict canonical equality (findCustomerByEmail), NOT "first row returned":
+    // `contains` can pull in superstring domains (e.g. notacme.com for acme.com)
+    // that belong in the mirror but must not auto-match this email.
+    let customer: CustomerRecord | null = null;
+    for (let page = 0; page < MAX_CACHE_MISS_PAGES; page++) {
+      const data: SearchResponse = await callFeishu<SearchResponse>(ctx, {
+        path: `/bitable/v1/apps/${appToken}/tables/${CUSTOMER_TABLE_ID}/records/search`,
+        method: "POST",
+        auth: "tenant",
+        json: {
+          field_names: CUSTOMER_FIELD_NAMES,
+          filter: {
+            conjunction: "and",
+            conditions: [{ field_name: "域名", operator: "contains", value: [domain] }],
+          },
+        },
+        query: pageToken
+          ? { page_size: String(CACHE_MISS_PAGE_SIZE), page_token: pageToken }
+          : { page_size: String(CACHE_MISS_PAGE_SIZE) },
+        label: "Customers mirror — live domain match on cache miss",
+      });
+      const pageRecords = (data.items ?? []).map((item) => mapFeishuItemToCustomer(item));
+      allRecords.push(...pageRecords);
+      customer = findCustomerByEmail(allRecords, args.email);
+      if (customer !== null || !data.has_more || !data.page_token) break;
+      pageToken = data.page_token;
+    }
+    if (allRecords.length > 0) {
+      await ctx.runMutation(internal.feishu.customersMirror.applyPage, {
+        rows: allRecords.map((c) => projectionToRow(c)),
+        mirroredAt: Date.now(),
+      });
+    }
+    console.log(
+      `[customers-mirror] matchEmailAndCacheMiss domain="${domain}" -> ` +
+        `${customer ? "hit" : "miss"}/${allRecords.length} backfilled (${Date.now() - started}ms)`,
+    );
+    return { customer, backfilled: allRecords.length };
+  },
+});
+
+// Ranked mirror search. Uses Convex's `withSearchIndex` for prefix + score
+// ranking on the `searchBlob` column. Optional `mineFor` filters to customers
+// whose Owner == that open_id (the "Show mine" toggle from CustomerPicker,
+// ADR-0013). INTERNAL: this is the mirror leg of the Customer-search engine —
+// the SPA enters through `searchCustomers`, never this query directly.
+export const search = internalQuery({
   args: {
     q: v.string(),
     mineFor: v.optional(v.string()),

@@ -87,4 +87,27 @@ describe("runCustomerSearch", () => {
     await runCustomerSearch(fake.port, { q: "  Acme GmbH  ", mineFor: "ou_me", minLength: 2 });
     expect(fake.calls).toEqual(["mirror:Acme GmbH:ou_me", "live:Acme GmbH:ou_me"]);
   });
+
+  it("liveAllowed:false skips the live leg on a mirror miss (returns mirror result)", async () => {
+    const fake = makeFakePort({
+      mirrorRecords: [],
+      mirroredAt: 9_000,
+      liveRecords: [rec("rec_would_never_be_returned")],
+      backfilled: 1,
+    });
+    const out = await runCustomerSearch(fake.port, { q: "ghost", minLength: 2, liveAllowed: false });
+    expect(out.source).toBe("mirror");
+    expect(out.records).toEqual([]);
+    expect(out.mirroredAt).toBe(9_000);
+    // Live was NOT called — the negative-cache TTL suppressed it.
+    expect(fake.calls).toEqual(["mirror:ghost:<all>"]);
+  });
+
+  it("liveAllowed:false does not suppress a mirror hit (mirror hit always wins regardless)", async () => {
+    const fake = makeFakePort({ mirrorRecords: [rec("rec_acme")], mirroredAt: 5 });
+    const out = await runCustomerSearch(fake.port, { q: "Acme", minLength: 2, liveAllowed: false });
+    expect(out.source).toBe("mirror");
+    expect(out.records).toEqual([rec("rec_acme")]);
+    expect(fake.calls).toEqual(["mirror:Acme:<all>"]);
+  });
 });

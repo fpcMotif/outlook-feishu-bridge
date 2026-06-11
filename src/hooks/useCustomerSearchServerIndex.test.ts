@@ -1,11 +1,10 @@
 // Transport-level tests for the server-index Customer search hook. The
 // mirror-vs-live STRATEGY lives server-side (customerSearchEngine.test.ts);
-// what is pinned here is the client's transport behaviour: the round-trip
-// saver gate, request coalescing, empty-live-result suppression, and the kick
-// cooldown.
+// what is pinned here is the client's transport behaviour: debounce, request
+// coalescing, empty-live-result suppression, and the domain negative-cache TTL.
 
 import { act, renderHook } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useCustomerSearchServerIndex } from "./useCustomerSearchServerIndex";
 
@@ -22,16 +21,20 @@ const mockUseConvex = vi.mocked(convexReact.useConvex);
 describe("useCustomerSearchServerIndex", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
     mockUseConvex.mockReturnValue({ query: vi.fn() } as never);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("skips the server search for one-character queries (round-trip saver; the engine backstops)", async () => {
     const query = vi.fn();
-    const kick = vi.fn(async () => ({ pages: 1, rows: 1 }));
     const searchCustomers = vi.fn();
     mockUseConvex.mockReturnValue({ query } as never);
-    mockUseAction.mockReturnValueOnce(kick).mockReturnValueOnce(searchCustomers).mockReturnValueOnce(vi.fn());
+    mockUseAction.mockReturnValueOnce(searchCustomers).mockReturnValueOnce(vi.fn());
 
     const { result } = renderHook(() => useCustomerSearchServerIndex());
 
@@ -43,10 +46,9 @@ describe("useCustomerSearchServerIndex", () => {
 
   it("skips Convex match-by-email for invalid email domains", async () => {
     const query = vi.fn();
-    const kick = vi.fn(async () => ({ pages: 1, rows: 1 }));
     const searchCustomers = vi.fn();
     mockUseConvex.mockReturnValue({ query } as never);
-    mockUseAction.mockReturnValueOnce(kick).mockReturnValueOnce(searchCustomers).mockReturnValueOnce(vi.fn());
+    mockUseAction.mockReturnValueOnce(searchCustomers).mockReturnValueOnce(vi.fn());
 
     const { result } = renderHook(() => useCustomerSearchServerIndex());
 
@@ -61,10 +63,9 @@ describe("useCustomerSearchServerIndex", () => {
       resolveQuery = resolve;
     });
     const query = vi.fn(() => pendingQuery);
-    const kick = vi.fn(async () => ({ pages: 1, rows: 1 }));
     const searchCustomers = vi.fn();
     mockUseConvex.mockReturnValue({ query } as never);
-    mockUseAction.mockReturnValueOnce(kick).mockReturnValueOnce(searchCustomers).mockReturnValueOnce(vi.fn());
+    mockUseAction.mockReturnValueOnce(searchCustomers).mockReturnValueOnce(vi.fn());
 
     const { result } = renderHook(() => useCustomerSearchServerIndex());
 
@@ -82,7 +83,7 @@ describe("useCustomerSearchServerIndex", () => {
     ]);
   });
 
-  it("coalesces repeated in-flight customer searches into one server call", async () => {
+  it("debounces rapid typed-search calls into one server round-trip", async () => {
     let resolveSearch!: (value: {
       records: Array<{ recordId: string; name: string; owner: null }>;
       source: "mirror";
@@ -97,16 +98,20 @@ describe("useCustomerSearchServerIndex", () => {
     }>((resolve) => {
       resolveSearch = resolve;
     });
-    const kick = vi.fn(async () => ({ pages: 1, rows: 1 }));
     const searchCustomers = vi.fn(() => pendingSearch);
-    mockUseAction.mockReturnValueOnce(kick).mockReturnValueOnce(searchCustomers).mockReturnValueOnce(vi.fn());
+    mockUseAction.mockReturnValueOnce(searchCustomers).mockReturnValueOnce(vi.fn());
 
     const { result } = renderHook(() => useCustomerSearchServerIndex());
 
+    // Two calls within the debounce window for the same normalised key.
     const p1 = result.current.search("Acme");
     const p2 = result.current.search(" acme ");
 
-    expect(p1).toBe(p2);
+    // Neither has hit the server yet — the 150 ms timer is still pending.
+    expect(searchCustomers).not.toHaveBeenCalled();
+
+    // Fire the debounce timer — the server call starts now.
+    vi.advanceTimersByTime(200);
     expect(searchCustomers).toHaveBeenCalledTimes(1);
 
     resolveSearch({
@@ -115,45 +120,57 @@ describe("useCustomerSearchServerIndex", () => {
       backfilled: 0,
       mirroredAt: 1_000,
     });
+    // Both debounced callers resolve to the same records.
     await expect(Promise.all([p1, p2])).resolves.toEqual([
       [{ recordId: "rec_acme", name: "Acme", owner: null }],
       [{ recordId: "rec_acme", name: "Acme", owner: null }],
     ]);
   });
 
-  it("suppresses repeat searches after the live leg answered empty (30s negative cache)", async () => {
-    const kick = vi.fn(async () => ({ pages: 1, rows: 1 }));
+  it("re-asks the mirror (liveAllowed:false) after the live leg answered empty (30s negative cache)", async () => {
     const searchCustomers = vi.fn(async () => ({
       records: [],
       source: "live" as const,
       backfilled: 0,
       mirroredAt: null,
     }));
-    mockUseAction.mockReturnValueOnce(kick).mockReturnValueOnce(searchCustomers).mockReturnValueOnce(vi.fn());
+    mockUseAction.mockReturnValueOnce(searchCustomers).mockReturnValueOnce(vi.fn());
 
     const { result } = renderHook(() => useCustomerSearchServerIndex());
 
-    await expect(result.current.search("zz")).resolves.toEqual([]);
-    await expect(result.current.search(" zz ")).resolves.toEqual([]);
+    // First search: live leg returns empty, negative cache stamped.
+    const p1 = result.current.search("zz");
+    vi.advanceTimersByTime(200);
+    await expect(p1).resolves.toEqual([]);
 
-    // The live leg already proved this exact query empty — don't re-pay it.
-    expect(searchCustomers).toHaveBeenCalledTimes(1);
+    // Second search: negative cache is active — liveAllowed:false is sent.
+    const p2 = result.current.search(" zz ");
+    vi.advanceTimersByTime(200);
+    await expect(p2).resolves.toEqual([]);
+
+    // Both calls reach the server, but the second explicitly suppresses the live leg.
+    expect(searchCustomers).toHaveBeenCalledTimes(2);
+    expect(searchCustomers.mock.calls[1]?.[0]).toMatchObject({ liveAllowed: false });
   });
 
   it("does not start a negative-cache window for a mirror-sourced answer", async () => {
-    const kick = vi.fn(async () => ({ pages: 1, rows: 1 }));
     const searchCustomers = vi.fn(async () => ({
       records: [{ recordId: "rec_hit", name: "Hit", owner: null }],
       source: "mirror" as const,
       backfilled: 0,
       mirroredAt: 5,
     }));
-    mockUseAction.mockReturnValueOnce(kick).mockReturnValueOnce(searchCustomers);
+    mockUseAction.mockReturnValueOnce(searchCustomers);
 
     const { result } = renderHook(() => useCustomerSearchServerIndex());
 
-    await expect(result.current.search("hit")).resolves.toHaveLength(1);
-    await expect(result.current.search("hit")).resolves.toHaveLength(1);
+    const p1 = result.current.search("hit");
+    vi.advanceTimersByTime(200);
+    await expect(p1).resolves.toHaveLength(1);
+
+    const p2 = result.current.search("hit");
+    vi.advanceTimersByTime(200);
+    await expect(p2).resolves.toHaveLength(1);
 
     // A mirror hit never suppresses — both searches reach the server.
     expect(searchCustomers).toHaveBeenCalledTimes(2);
@@ -161,16 +178,14 @@ describe("useCustomerSearchServerIndex", () => {
 
   it("falls through to the live domain match and backfill when the mirror misses", async () => {
     const query = vi.fn(async () => ({ customer: null }));
-    const kick = vi.fn(async () => ({ pages: 1, rows: 1 }));
-    const searchAndCacheMiss = vi.fn();
+    const searchCustomers = vi.fn();
     const matchEmailAndCacheMiss = vi.fn(async () => ({
       customer: { recordId: "rec_fresh", name: "Fresh GmbH", owner: null },
       backfilled: 3,
     }));
     mockUseConvex.mockReturnValue({ query } as never);
     mockUseAction
-      .mockReturnValueOnce(kick)
-      .mockReturnValueOnce(searchAndCacheMiss)
+      .mockReturnValueOnce(searchCustomers)
       .mockReturnValueOnce(matchEmailAndCacheMiss);
 
     const { result } = renderHook(() => useCustomerSearchServerIndex());
@@ -183,18 +198,15 @@ describe("useCustomerSearchServerIndex", () => {
 
     expect(query).toHaveBeenCalledTimes(1);
     expect(matchEmailAndCacheMiss).toHaveBeenCalledWith({ email: "buyer@fresh-gmbh.example" });
-    expect(kick).not.toHaveBeenCalled();
   });
 
   it("skips repeated live domain matches after Feishu reported the domain empty", async () => {
     const query = vi.fn(async () => ({ customer: null }));
-    const kick = vi.fn(async () => ({ pages: 1, rows: 1 }));
-    const searchAndCacheMiss = vi.fn();
+    const searchCustomers = vi.fn();
     const matchEmailAndCacheMiss = vi.fn(async () => ({ customer: null, backfilled: 0 }));
     mockUseConvex.mockReturnValue({ query } as never);
     mockUseAction
-      .mockReturnValueOnce(kick)
-      .mockReturnValueOnce(searchAndCacheMiss)
+      .mockReturnValueOnce(searchCustomers)
       .mockReturnValueOnce(matchEmailAndCacheMiss);
 
     const { result } = renderHook(() => useCustomerSearchServerIndex());
@@ -206,18 +218,45 @@ describe("useCustomerSearchServerIndex", () => {
     expect(matchEmailAndCacheMiss).toHaveBeenCalledTimes(1);
   });
 
-  it("throttles repeated mirror refresh kicks from rapid picker opens", () => {
-    const kick = vi.fn(async () => ({ pages: 1, rows: 1 }));
+  it("domain negative-cache expires after EMPTY_DOMAIN_MATCH_TTL_MS (5 min) and re-probes live", async () => {
+    const query = vi.fn(async () => ({ customer: null }));
     const searchCustomers = vi.fn();
-    mockUseAction.mockReturnValueOnce(kick).mockReturnValueOnce(searchCustomers).mockReturnValueOnce(vi.fn());
+    const matchEmailAndCacheMiss = vi.fn(async () => ({ customer: null, backfilled: 0 }));
+    mockUseConvex.mockReturnValue({ query } as never);
+    mockUseAction
+      .mockReturnValueOnce(searchCustomers)
+      .mockReturnValueOnce(matchEmailAndCacheMiss);
 
     const { result } = renderHook(() => useCustomerSearchServerIndex());
 
+    // First probe: live returns null, negative cache stamped.
+    await expect(result.current.matchEmail("buyer@old-lead.example")).resolves.toBeNull();
+    expect(matchEmailAndCacheMiss).toHaveBeenCalledTimes(1);
+
+    // Second probe before TTL expiry: cache still active, live NOT re-probed.
+    await expect(result.current.matchEmail("buyer@old-lead.example")).resolves.toBeNull();
+    expect(matchEmailAndCacheMiss).toHaveBeenCalledTimes(1);
+
+    // Advance past the 5-min TTL.
+    vi.advanceTimersByTime(300_001);
+
+    // Third probe: cache expired, live re-probed.
+    await expect(result.current.matchEmail("buyer@old-lead.example")).resolves.toBeNull();
+    expect(matchEmailAndCacheMiss).toHaveBeenCalledTimes(2);
+  });
+
+  it("triggerRefresh is a no-op (Mirror Refresh is cron-managed only)", () => {
+    const searchCustomers = vi.fn();
+    mockUseAction.mockReturnValueOnce(searchCustomers).mockReturnValueOnce(vi.fn());
+
+    const { result } = renderHook(() => useCustomerSearchServerIndex());
+
+    // triggerRefresh must not throw and must not trigger any action call.
     act(() => {
       result.current.triggerRefresh();
       result.current.triggerRefresh();
     });
-
-    expect(kick).toHaveBeenCalledTimes(1);
+    // searchCustomers was never called (no search made), confirming it's a no-op.
+    expect(searchCustomers).not.toHaveBeenCalled();
   });
 });

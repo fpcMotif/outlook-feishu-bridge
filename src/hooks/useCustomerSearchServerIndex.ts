@@ -24,14 +24,14 @@ import type { CustomerSearch } from "./customerSearch";
 // interactive and delegates to server search on every keystroke.
 const EMPTY_DIRECTORY: CustomerDirectoryState = { status: "ready", records: [] };
 
-// The Customer Mirror full sync is intentionally heavy: it pages Feishu Bitable
-// records/search under documented API limits, then updates Convex's search
-// read model. Opening/closing the picker repeatedly should not enqueue several
-// full syncs; cache-miss backfill still covers fresh rows between kicks.
-const MIRROR_KICK_COOLDOWN_MS = 15 * 60 * 1000;
 // Round-trip saver only — the engine's MIN_CUSTOMER_SEARCH_LENGTH is the
 // authoritative copy of this rule and backstops any drift here.
 const MIN_SERVER_SEARCH_LENGTH = 2;
+// Debounce typed search calls so rapid keystrokes collapse to one server round-trip.
+// 150 ms is imperceptible for deliberate keystrokes but absorbs burst typing on slow
+// connections. The engine's in-flight coalescing handles any remaining concurrent
+// calls that arrive AFTER the debounce fires.
+const SEARCH_DEBOUNCE_MS = 150;
 const EMPTY_LIVE_MISS_TTL_MS = 30 * 1000;
 // Negative cache for domain auto-match misses. A domain Feishu itself reported
 // empty stays "known absent" for this long so re-opening mails from the same
@@ -39,15 +39,17 @@ const EMPTY_LIVE_MISS_TTL_MS = 30 * 1000;
 // than the typed-search TTL because the absence of a whole Customer domain
 // changes far more rarely than search-result relevance.
 const EMPTY_DOMAIN_MATCH_TTL_MS = 5 * 60 * 1000;
-let lastMirrorKickStartedAt = 0;
 const inFlightSearches = new Map<string, Promise<CustomerRecord[]>>();
+const pendingDebounces = new Map<
+  string,
+  { timer: ReturnType<typeof setTimeout>; resolvers: Array<(r: CustomerRecord[]) => void> }
+>();
 const inFlightEmailMatches = new Map<string, Promise<CustomerRecord | null>>();
 const emptyLiveMisses = new Map<string, number>();
 const emptyDomainMatchMisses = new Map<string, number>();
 
 type ConvexClient = ReturnType<typeof useConvex>;
 type SearchAction = ReturnType<typeof useAction<typeof api.feishu.customersMirror.searchCustomers>>;
-type KickAction = ReturnType<typeof useAction<typeof api.feishu.customersMirror.kick>>;
 type MatchEmailAction = ReturnType<
   typeof useAction<typeof api.feishu.customersMirror.matchEmailAndCacheMiss>
 >;
@@ -135,9 +137,11 @@ async function runMirrorEmailMatch(
 }
 
 // One server search: the engine decides mirror-vs-live; this side only
-// suppresses re-asking a question the live leg just answered "empty" (a query
-// proven empty 30s ago is not re-paid — the brief staleness window is the
-// price of not hammering the cross-border live search per keystroke).
+// suppresses the live leg when that exact query was proven empty ≤30s ago.
+// Rather than returning [] early (which would skip the mirror backfill path),
+// we pass liveAllowed:false so the engine still consults the mirror — it may
+// have been backfilled by a concurrent matchEmailAndCacheMiss — without
+// re-paying the cross-border live search.
 async function runServerSearch(
   searchCustomers: SearchAction,
   key: string,
@@ -145,43 +149,22 @@ async function runServerSearch(
   mineFor: string | undefined,
 ): Promise<CustomerRecord[]> {
   const started = performance.now();
-  if (hasRecentEmptyLiveMiss(key)) {
-    dtime(`customer search (recent empty live miss) "${q.slice(0, 40)}" -> 0`, started);
-    return [];
-  }
-  const result = await searchCustomers(searchArgs(q, mineFor));
+  const recentMiss = hasRecentEmptyLiveMiss(key);
+  const callArgs = recentMiss
+    ? { ...searchArgs(q, mineFor), liveAllowed: false as const }
+    : searchArgs(q, mineFor);
+  const result = await searchCustomers(callArgs);
   if (result.source === "live") rememberLiveMiss(key, result.records);
   else emptyLiveMisses.delete(key);
   dtime(
-    `customer search (${result.source}${result.source === "live" ? ` + backfill ${result.backfilled}` : ""}) "${q.slice(0, 40)}" -> ${result.records.length}`,
+    `customer search (${result.source}${result.source === "live" ? ` + backfill ${result.backfilled}` : ""}${recentMiss ? " liveAllowed:false" : ""}) "${q.slice(0, 40)}" -> ${result.records.length}`,
     started,
   );
   return result.records;
 }
 
-function kickMirror(kickAction: KickAction) {
-  const now = Date.now();
-  if (lastMirrorKickStartedAt > 0 && now - lastMirrorKickStartedAt < MIRROR_KICK_COOLDOWN_MS) {
-    dlog("customer mirror: on-search kick skipped (cooldown)");
-    return;
-  }
-  lastMirrorKickStartedAt = now;
-  const started = performance.now();
-  void kickAction({})
-    .then((res) => {
-      dtime(`customer mirror: on-search kick ok pages=${res.pages} rows=${res.rows}`, started);
-    })
-    .catch((error: unknown) => {
-      dtime(
-        `customer mirror: on-search kick FAILED - ${error instanceof Error ? error.message : String(error)}`,
-        started,
-      );
-    });
-}
-
 export function useCustomerSearchServerIndex(): CustomerSearch {
   const convex: ConvexClient = useConvex();
-  const kickAction = useAction(api.feishu.customersMirror.kick);
   const searchCustomersAction = useAction(api.feishu.customersMirror.searchCustomers);
   const matchEmailAndCacheMissAction = useAction(api.feishu.customersMirror.matchEmailAndCacheMiss);
 
@@ -195,7 +178,21 @@ export function useCustomerSearchServerIndex(): CustomerSearch {
         dlog(`customer search coalesced "${q.slice(0, 40)}"`);
         return inFlight;
       }
-      return trackSearch(key, runServerSearch(searchCustomersAction, key, q, options?.mineFor));
+      const pending = pendingDebounces.get(key);
+      if (pending) clearTimeout(pending.timer);
+      return new Promise<CustomerRecord[]>((resolve) => {
+        const resolvers = pending ? [...pending.resolvers, resolve] : [resolve];
+        const timer = setTimeout(() => {
+          pendingDebounces.delete(key);
+          void trackSearch(
+            key,
+            runServerSearch(searchCustomersAction, key, q, options?.mineFor),
+          ).then((records) => {
+            resolvers.forEach((r) => r(records));
+          });
+        }, SEARCH_DEBOUNCE_MS);
+        pendingDebounces.set(key, { timer, resolvers });
+      });
     },
     [searchCustomersAction],
   );
@@ -214,9 +211,11 @@ export function useCustomerSearchServerIndex(): CustomerSearch {
     [convex, matchEmailAndCacheMissAction],
   );
 
-  const triggerRefresh = useCallback(() => {
-    kickMirror(kickAction);
-  }, [kickAction]);
+  // Mirror Refresh is cron-managed only (weekly). The on-demand kick was removed
+  // because the server-side cooldown already throttles it and the UX gain was
+  // marginal — cache-miss backfill via matchEmailAndCacheMiss covers the
+  // common "new customer, open mail" case without a full re-sync.
+  const triggerRefresh = useCallback(() => {}, []);
 
   return { directory: EMPTY_DIRECTORY, search, matchEmail, triggerRefresh };
 }

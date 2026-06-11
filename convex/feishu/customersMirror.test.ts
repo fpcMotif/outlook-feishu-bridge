@@ -141,7 +141,10 @@ const matchEmailAndCacheMissHandler = (matchEmailAndCacheMiss as unknown as {
       runMutation: (
         fn: unknown,
         args: Record<string, unknown>,
-      ) => Promise<{ inserted: number; updated: number; unchanged: number; duplicateRows: number }>;
+      ) => Promise<
+        | { started: boolean; remainingMs?: number }
+        | { inserted: number; updated: number; unchanged: number; duplicateRows: number }
+      >;
     },
     args: { email: string },
   ) => Promise<{ customer: { recordId: string } | null; backfilled: number }>;
@@ -312,6 +315,54 @@ describe("customer mirror applyPage", () => {
     expect(result).toEqual({ inserted: 0, updated: 0, unchanged: 1, duplicateRows: 0 });
     expect(patch).not.toHaveBeenCalled();
     expect(insert).not.toHaveBeenCalled();
+  });
+
+  it("clears optional columns when the serialized row omits them (simulates Convex arg strip)", async () => {
+    // In production an action calls ctx.runMutation(applyPage, { rows, mirroredAt }).
+    // Convex serializes args to JSON before the mutation sees them, so any field
+    // with value `undefined` is silently dropped. If the row coming from Bitable
+    // has no domain cell the incoming arg object will simply lack `domain` / `domainKey`.
+    // The explicit-undefined spread in applyPage is what turns that absence into
+    // a db.patch() that clears the stale optional column.
+    const existing = {
+      _id: "customer_had_domain",
+      recordId: "rec_had_domain",
+      name: "Was Domain Co",
+      domain: "old.example",
+      domainKey: "old.example",
+      searchBlob: "Was Domain Co old.example",
+      mirroredAt: 1,
+    };
+    const patched: Record<string, unknown>[] = [];
+    const db = {
+      query: () => ({
+        withIndex: (
+          _name: "by_recordId",
+          callback: (q: { eq: (field: "recordId", value: string) => unknown }) => unknown,
+        ) => {
+          const constraints: Record<string, string> = {};
+          callback({ eq: (field, value) => { constraints[field] = value; return null; } });
+          return { unique: async () => (constraints.recordId === existing.recordId ? existing : null) };
+        },
+      }),
+      patch: vi.fn(async (_id: string, fields: Record<string, unknown>) => { patched.push(fields); }),
+      insert: vi.fn(async () => undefined),
+    };
+
+    // JSON round-trip simulates what Convex does to action→mutation args:
+    // fields with value `undefined` are stripped. The row now has no domain/domainKey.
+    const serializedRow = JSON.parse(
+      JSON.stringify({ recordId: "rec_had_domain", name: "Was Domain Co", searchBlob: "Was Domain Co" }),
+    );
+    await applyPageHandler({ db }, { rows: [serializedRow], mirroredAt: 2 });
+
+    // The explicit-undefined spread must produce a patch that includes domain:undefined
+    // so Convex removes the stale column from the stored document.
+    expect(patched).toHaveLength(1);
+    expect(Object.prototype.hasOwnProperty.call(patched[0], "domain")).toBe(true);
+    expect(patched[0].domain).toBeUndefined();
+    expect(Object.prototype.hasOwnProperty.call(patched[0], "domainKey")).toBe(true);
+    expect(patched[0].domainKey).toBeUndefined();
   });
 });
 
@@ -535,12 +586,10 @@ describe("customer mirror domain cache-miss (matchEmailAndCacheMiss)", () => {
       ],
       has_more: false,
     });
-    const runMutation = vi.fn(async () => ({
-      inserted: 2,
-      updated: 0,
-      unchanged: 0,
-      duplicateRows: 0,
-    }));
+    const runMutation = vi.fn(async (_fn: unknown, args: Record<string, unknown>) => {
+      if (typeof args.cooldownMs === "number") return { started: true };
+      return { inserted: 2, updated: 0, unchanged: 0, duplicateRows: 0 };
+    });
 
     const result = await matchEmailAndCacheMissHandler({ runMutation }, { email: "buyer@acme.com" });
 
@@ -561,8 +610,9 @@ describe("customer mirror domain cache-miss (matchEmailAndCacheMiss)", () => {
         }),
       }),
     );
-    expect(runMutation).toHaveBeenCalledTimes(1);
-    const upsert = runMutation.mock.calls[0]?.[1] as {
+    // calls[0] = cooldown gate, calls[1] = applyPage
+    expect(runMutation).toHaveBeenCalledTimes(2);
+    const upsert = runMutation.mock.calls[1]?.[1] as {
       rows: Array<{ recordId: string; domainKey?: string }>;
     };
     expect(upsert.rows.find((row) => row.recordId === "rec_acme")?.domainKey).toBe("acme.com");
@@ -570,7 +620,15 @@ describe("customer mirror domain cache-miss (matchEmailAndCacheMiss)", () => {
 
   it("queries Feishu with the alias-canonicalized domain and skips the upsert on empty results", async () => {
     mockCallFeishu.mockResolvedValueOnce({ items: [], has_more: false });
-    const runMutation = vi.fn();
+    const runMutation = vi.fn(
+      async (
+        _fn: unknown,
+        args: Record<string, unknown>,
+      ): Promise<{ started: boolean; remainingMs?: number } | { inserted: number; updated: number; unchanged: number; duplicateRows: number }> => {
+        if (typeof args.cooldownMs === "number") return { started: true };
+        throw new Error("unexpected runMutation call");
+      },
+    );
 
     const result = await matchEmailAndCacheMissHandler(
       { runMutation },
@@ -578,7 +636,8 @@ describe("customer mirror domain cache-miss (matchEmailAndCacheMiss)", () => {
     );
 
     expect(result).toEqual({ customer: null, backfilled: 0 });
-    expect(runMutation).not.toHaveBeenCalled();
+    // cooldown gate fires once; no applyPage since Feishu returned empty
+    expect(runMutation).toHaveBeenCalledTimes(1);
     expect(mockCallFeishu).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
@@ -589,6 +648,92 @@ describe("customer mirror domain cache-miss (matchEmailAndCacheMiss)", () => {
         }),
       }),
     );
+  });
+
+  it("returns null immediately when the per-domain cooldown gate denies the probe", async () => {
+    const runMutation = vi.fn(
+      async (
+        _fn: unknown,
+        args: Record<string, unknown>,
+      ): Promise<{ started: boolean; remainingMs?: number } | { inserted: number; updated: number; unchanged: number; duplicateRows: number }> => {
+        if (typeof args.cooldownMs === "number") return { started: false, remainingMs: 600_000 };
+        throw new Error("unexpected runMutation call");
+      },
+    );
+
+    const result = await matchEmailAndCacheMissHandler({ runMutation }, { email: "buyer@acme.com" });
+
+    expect(result).toEqual({ customer: null, backfilled: 0 });
+    // Cooldown gate fires but Feishu is never probed.
+    expect(mockCallFeishu).not.toHaveBeenCalled();
+    expect(runMutation).toHaveBeenCalledTimes(1);
+  });
+
+  it("paginates up to MAX_CACHE_MISS_PAGES (3) and upserts all records in a single applyPage", async () => {
+    // Use superstring domains so each page returns rows (Feishu `contains` filter
+    // would match them in prod) but none is a strict canonical match for the
+    // email's domain, so the loop never short-circuits and reaches all 3 pages.
+    mockCallFeishu
+      .mockResolvedValueOnce({
+        items: [
+          {
+            record_id: "rec_p1",
+            fields: {
+              "Account Name": [{ text: "Super Paginate Co", type: "text" }],
+              "域名": [{ text: "superpaginate.com", type: "text" }],
+            },
+          },
+        ],
+        has_more: true,
+        page_token: "tok2",
+      })
+      .mockResolvedValueOnce({
+        items: [
+          {
+            record_id: "rec_p2",
+            fields: {
+              "Account Name": [{ text: "Mega Paginate Co", type: "text" }],
+              "域名": [{ text: "megapaginate.com", type: "text" }],
+            },
+          },
+        ],
+        has_more: true,
+        page_token: "tok3",
+      })
+      .mockResolvedValueOnce({
+        items: [
+          {
+            record_id: "rec_p3",
+            fields: { "Account Name": [{ text: "Plain Paginate Co", type: "text" }] },
+          },
+        ],
+        has_more: false,
+      });
+
+    const upsertedRows: Array<{ recordId: string }> = [];
+    const runMutation = vi.fn(
+      async (
+        _fn: unknown,
+        args: Record<string, unknown>,
+      ): Promise<{ started: boolean; remainingMs?: number } | { inserted: number; updated: number; unchanged: number; duplicateRows: number }> => {
+        if (typeof args.cooldownMs === "number") return { started: true };
+        if (Array.isArray(args.rows)) {
+          upsertedRows.push(...(args.rows as Array<{ recordId: string }>));
+          return { inserted: args.rows.length, updated: 0, unchanged: 0, duplicateRows: 0 };
+        }
+        throw new Error("unexpected runMutation call");
+      },
+    );
+
+    // "paginate.com" has no strict match in any page — loop runs to the cap (3).
+    const result = await matchEmailAndCacheMissHandler({ runMutation }, { email: "buyer@paginate.com" });
+
+    expect(mockCallFeishu).toHaveBeenCalledTimes(3);
+    expect(upsertedRows).toHaveLength(3);
+    // Single applyPage call despite 3 pages (all-records accumulation).
+    expect(runMutation).toHaveBeenCalledTimes(2); // cooldown + applyPage
+    expect(result.backfilled).toBe(3);
+    expect(result.customer).toBeNull(); // no strict canonical match for paginate.com
   });
 });
 

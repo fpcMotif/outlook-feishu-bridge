@@ -80,8 +80,10 @@ export default defineSchema({
     // the lookup key for matchByEmail. `domain` keeps the raw Bitable value
     // for display; the two MUST stay separate because the raw cell can carry
     // casing/padding that would make an exact index probe miss forever.
-    // Optional: rows synced before this column exist until the next full sync
-    // (or any cache-miss backfill touching them) re-stamps them.
+    // Optional: rows synced before this column was added carry no value until
+    // the next full sync re-stamps them. applyPage explicitly clears this (and
+    // all other optional columns) on update so a cleared Bitable cell is
+    // reflected immediately rather than being stuck with the old value.
     domainKey: v.optional(v.string()),
     fullName: v.optional(v.string()),
     accountNo: v.optional(v.string()),
@@ -131,6 +133,15 @@ export default defineSchema({
     lastPruneScannedCount: v.optional(v.number()),
     lastDeletedStaleCount: v.optional(v.number()),
   }),
+
+  // Per-domain server-side cooldown for matchEmailAndCacheMiss. One row per
+  // domain that has been probed; prevents repeated live Feishu lookups for the
+  // same missing domain within the cooldown window (follow the kick/
+  // startRefreshIfAllowed pattern — ADR-0016).
+  customerDomainMatchCooldowns: defineTable({
+    domain: v.string(),
+    lastAttemptAt: v.number(),
+  }).index("by_domain", ["domain"]),
 
   // ADR-0023: server-indexed Feishu Contacts (org directory) mirror. The Feishu
   // Contact v3 directory is crawled biweekly (crons.ts: 336 h) into this table;

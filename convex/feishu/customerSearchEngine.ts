@@ -47,7 +47,7 @@ export interface CustomerSearchOutcome<R> {
 
 export async function runCustomerSearch<R>(
   port: CustomerSearchPort<R>,
-  args: { q: string; mineFor?: string; minLength: number },
+  args: { q: string; mineFor?: string; minLength: number; liveAllowed?: boolean },
 ): Promise<CustomerSearchOutcome<R>> {
   const q = args.q.trim();
   if (q.length < args.minLength) {
@@ -61,6 +61,12 @@ export async function runCustomerSearch<R>(
       backfilled: 0,
       mirroredAt: mirror.mirroredAt,
     };
+  }
+  // liveAllowed === false: suppress the live Feishu leg even on a mirror miss.
+  // Used by the SPA hook during an active negative-cache TTL so the mirror is
+  // always consulted (it may have been backfilled) without re-paying the live leg.
+  if (args.liveAllowed === false) {
+    return { records: [], source: "mirror", backfilled: 0, mirroredAt: mirror.mirroredAt };
   }
   const live = await port.liveSearch(q, args.mineFor);
   return {

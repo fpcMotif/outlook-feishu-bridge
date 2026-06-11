@@ -38,8 +38,6 @@ export interface CustomerPickerProps {
     query: string,
     options?: CustomerSearchOptions,
   ) => Promise<CustomerRecord[]>;
-  /** Optional fire-and-forget refresh: opening the picker triggers freshness. */
-  triggerRefresh?: () => void;
   emailDomain: string;
   selectedCustomer: CustomerRecord | null;
   // The signed-in Feishu user's open_id (the Initiator, ADR-0014). When
@@ -58,17 +56,17 @@ export function CustomerPicker({
   onChange,
   onCreateCustomer,
   searchCustomers,
-  triggerRefresh,
 }: CustomerPickerProps) {
   const session = useCustomerSearchSession();
   const defaultOpenedAt = useRef<number | null>(null);
   if (defaultOpenedAt.current === null) defaultOpenedAt.current = performance.now();
 
+  // Opening the picker is purely local — no Mirror Kick. Freshness comes from
+  // the typed-search cache-miss backfill once the user actually queries.
   const openSearch = () => {
     dlog(
       `customer picker: search opened (directory ${directory.status}, ${directory.records.length} rows)`,
     );
-    triggerRefresh?.();
     session.openSearch();
   };
 

@@ -76,6 +76,13 @@ export default defineSchema({
     recordId: v.string(),
     name: v.string(),
     domain: v.optional(v.string()),
+    // Canonicalized 域名 (trim/lowercase/alias via canonicalCustomerDomain) —
+    // the lookup key for matchByEmail. `domain` keeps the raw Bitable value
+    // for display; the two MUST stay separate because the raw cell can carry
+    // casing/padding that would make an exact index probe miss forever.
+    // Optional: rows synced before this column exist until the next full sync
+    // (or any cache-miss backfill touching them) re-stamps them.
+    domainKey: v.optional(v.string()),
     fullName: v.optional(v.string()),
     accountNo: v.optional(v.string()),
     countryRegion: v.optional(v.string()),
@@ -86,6 +93,7 @@ export default defineSchema({
   })
     .index("by_recordId", ["recordId"])
     .index("by_domain", ["domain"])
+    .index("by_domainKey", ["domainKey"])
     .searchIndex("by_text", { searchField: "searchBlob", filterFields: ["ownerOpenId"] }),
 
   // Watermark row for the customer-mirror cron — one row per deployment,

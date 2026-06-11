@@ -1,9 +1,13 @@
 // ADR-0016 server-index path of Customer search. The mirror-vs-live strategy
 // lives SERVER-SIDE behind one public action (customersMirror.searchCustomers,
 // driven by the Customer-search engine): the SPA sends the query and receives
-// records + provenance. This hook keeps only TRANSPORT concerns — request
-// coalescing, empty-result suppression (don't re-pay the live leg for a query
-// just proven empty), and the client-side Mirror Kick cooldown. No directory is
+// records + provenance. The domain auto-match follows the same cache-aside
+// shape: matchEmail probes the mirror first and only a genuine miss falls
+// through to a targeted one-page Feishu domain search (matchEmailAndCacheMiss)
+// that backfills the mirror — no user path ever triggers a full-table Mirror
+// Refresh (that stays on the weekly cron + the manual kick backstop). This
+// hook keeps only TRANSPORT concerns — request coalescing, empty-result
+// suppression, and the client-side Mirror Kick cooldown. No directory is
 // preloaded — the picker stays interactive against a ready-but-empty directory
 // and delegates every keystroke to the server. Selected when
 // VITE_CUSTOMER_SEARCH_MODE === "server-index".
@@ -29,14 +33,24 @@ const MIRROR_KICK_COOLDOWN_MS = 15 * 60 * 1000;
 // authoritative copy of this rule and backstops any drift here.
 const MIN_SERVER_SEARCH_LENGTH = 2;
 const EMPTY_LIVE_MISS_TTL_MS = 30 * 1000;
+// Negative cache for domain auto-match misses. A domain Feishu itself reported
+// empty stays "known absent" for this long so re-opening mails from the same
+// (often personal) sender does not re-query Feishu per conversation. Longer
+// than the typed-search TTL because the absence of a whole Customer domain
+// changes far more rarely than search-result relevance.
+const EMPTY_DOMAIN_MATCH_TTL_MS = 5 * 60 * 1000;
 let lastMirrorKickStartedAt = 0;
 const inFlightSearches = new Map<string, Promise<CustomerRecord[]>>();
 const inFlightEmailMatches = new Map<string, Promise<CustomerRecord | null>>();
 const emptyLiveMisses = new Map<string, number>();
+const emptyDomainMatchMisses = new Map<string, number>();
 
 type ConvexClient = ReturnType<typeof useConvex>;
 type SearchAction = ReturnType<typeof useAction<typeof api.feishu.customersMirror.searchCustomers>>;
 type KickAction = ReturnType<typeof useAction<typeof api.feishu.customersMirror.kick>>;
+type MatchEmailAction = ReturnType<
+  typeof useAction<typeof api.feishu.customersMirror.matchEmailAndCacheMiss>
+>;
 
 function searchArgs(q: string, mineFor: string | undefined) {
   return mineFor === undefined ? { q } : { q, mineFor };
@@ -75,6 +89,49 @@ function hasRecentEmptyLiveMiss(key: string): boolean {
 function rememberLiveMiss(key: string, records: readonly CustomerRecord[]) {
   if (records.length === 0) emptyLiveMisses.set(key, Date.now());
   else emptyLiveMisses.delete(key);
+}
+
+function hasRecentEmptyDomainMatch(domain: string): boolean {
+  const cachedAt = emptyDomainMatchMisses.get(domain);
+  if (cachedAt === undefined) return false;
+  if (Date.now() - cachedAt < EMPTY_DOMAIN_MATCH_TTL_MS) return true;
+  emptyDomainMatchMisses.delete(domain);
+  return false;
+}
+
+function rememberDomainMatchMiss(domain: string, customer: CustomerRecord | null) {
+  if (customer === null) emptyDomainMatchMisses.set(domain, Date.now());
+  else emptyDomainMatchMisses.delete(domain);
+}
+
+// Cache-aside domain auto-match: the Convex mirror answers first; only a true
+// mirror miss (and no fresh negative-cache entry) falls through to the targeted
+// one-page Feishu domain search, which backfills the mirror and returns the
+// match so the caller can select it immediately.
+async function runMirrorEmailMatch(
+  convex: ConvexClient,
+  matchEmailAndCacheMiss: MatchEmailAction,
+  email: string,
+  domain: string,
+): Promise<CustomerRecord | null> {
+  const started = performance.now();
+  const local = await convex.query(api.feishu.customersMirror.matchByEmail, { email });
+  if (local.customer) {
+    emptyDomainMatchMisses.delete(domain);
+    dtime(`customer match (mirror hit) "${domain}"`, started);
+    return local.customer;
+  }
+  if (hasRecentEmptyDomainMatch(domain)) {
+    dtime(`customer match (recent empty live miss) "${domain}" -> null`, started);
+    return null;
+  }
+  const live = await matchEmailAndCacheMiss({ email });
+  rememberDomainMatchMiss(domain, live.customer);
+  dtime(
+    `customer match (mirror miss -> live + backfill ${live.backfilled}) "${domain}" -> ${live.customer ? "hit" : "null"}`,
+    started,
+  );
+  return live.customer;
 }
 
 // One server search: the engine decides mirror-vs-live; this side only
@@ -126,6 +183,7 @@ export function useCustomerSearchServerIndex(): CustomerSearch {
   const convex: ConvexClient = useConvex();
   const kickAction = useAction(api.feishu.customersMirror.kick);
   const searchCustomersAction = useAction(api.feishu.customersMirror.searchCustomers);
+  const matchEmailAndCacheMissAction = useAction(api.feishu.customersMirror.matchEmailAndCacheMiss);
 
   const search = useCallback(
     (query: string, options?: CustomerSearchOptions): Promise<CustomerRecord[]> => {
@@ -150,10 +208,10 @@ export function useCustomerSearchServerIndex(): CustomerSearch {
       if (inFlight) return inFlight;
       return trackEmailMatch(
         domain,
-        convex.query(api.feishu.customersMirror.matchByEmail, { email }).then((result) => result.customer),
+        runMirrorEmailMatch(convex, matchEmailAndCacheMissAction, email, domain),
       );
     },
-    [convex],
+    [convex, matchEmailAndCacheMissAction],
   );
 
   const triggerRefresh = useCallback(() => {

@@ -38,6 +38,7 @@ import {
 import {
   canonicalCustomerDomain,
   emailDomain,
+  findCustomerByEmail,
   mapFeishuItemToCustomer,
   type CustomerRecord,
 } from "./customers";
@@ -128,6 +129,7 @@ export const applyPage = internalMutation({
         recordId: v.string(),
         name: v.string(),
         domain: v.optional(v.string()),
+        domainKey: v.optional(v.string()),
         fullName: v.optional(v.string()),
         accountNo: v.optional(v.string()),
         countryRegion: v.optional(v.string()),
@@ -338,6 +340,9 @@ function customerRowChanged(
     existing.recordId !== next.recordId ||
     existing.name !== next.name ||
     existing.domain !== next.domain ||
+    // domainKey participates so the first full sync after the column shipped
+    // re-stamps every pre-existing row (undefined !== canonical value).
+    existing.domainKey !== next.domainKey ||
     existing.fullName !== next.fullName ||
     existing.accountNo !== next.accountNo ||
     existing.countryRegion !== next.countryRegion ||
@@ -864,10 +869,20 @@ export const matchByEmail = query({
   handler: async (ctx, args): Promise<{ customer: CustomerRecord | null }> => {
     const domain = canonicalCustomerDomain(emailDomain(args.email));
     if (!domain) return { customer: null };
-    const hit = await ctx.db
-      .query("customers")
-      .withIndex("by_domain", (q) => q.eq("domain", domain))
-      .first();
+    // Probe the canonical-key index first. The old by_domain probe compared a
+    // lowercased canonical domain against the RAW 域名 cell, so any cell with
+    // casing/padding could never match — a permanent miss no re-sync fixed.
+    // The by_domain fallback only covers rows synced before domainKey existed;
+    // the next full sync re-stamps every row and the fallback goes dead.
+    const hit =
+      (await ctx.db
+        .query("customers")
+        .withIndex("by_domainKey", (q) => q.eq("domainKey", domain))
+        .first()) ??
+      (await ctx.db
+        .query("customers")
+        .withIndex("by_domain", (q) => q.eq("domain", domain))
+        .first());
     if (hit) {
       if (hit.recordId === "dev_fixture_fanpc_customer") {
         console.log(
@@ -881,6 +896,64 @@ export const matchByEmail = query({
       console.log(`[dev-customer-fixture] TEST ONLY matched in-memory fixture for ${domain}`);
     }
     return { customer: fixture };
+  },
+});
+
+// Cache-aside lazy fill for the domain auto-match — the same miss-driven shape
+// as liveSearchAndBackfill, scoped to one email domain. Called by the SPA only
+// AFTER matchByEmail returned null: one live Feishu /records/search filtered to
+// the canonical domain (a single bounded page, ≤ CACHE_MISS_PAGE_SIZE rows),
+// incrementally upserted into the mirror, and the matching Customer returned
+// directly so the taskpane can select it without a second round-trip. This
+// replaces the old full-table Mirror Kick on the auto-match path: one missing
+// domain now costs one filtered call instead of a full ~29-page re-sync.
+//
+// The filter uses `contains` with the canonical (lowercased) domain — same
+// operator the typed-search miss path uses — so cells holding surrounding text
+// still match. A cell whose CASING differs from the canonical form may evade
+// this live probe; it is healed by the next full sync stamping its domainKey.
+export const matchEmailAndCacheMiss = action({
+  args: { email: v.string() },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ customer: CustomerRecord | null; backfilled: number }> => {
+    const domain = canonicalCustomerDomain(emailDomain(args.email));
+    if (!domain) return { customer: null, backfilled: 0 };
+    const appToken = requireAppToken();
+    const started = Date.now();
+    const data: SearchResponse = await callFeishu<SearchResponse>(ctx, {
+      path: `/bitable/v1/apps/${appToken}/tables/${CUSTOMER_TABLE_ID}/records/search`,
+      method: "POST",
+      auth: "tenant",
+      json: {
+        field_names: CUSTOMER_FIELD_NAMES,
+        filter: {
+          conjunction: "and",
+          conditions: [{ field_name: "域名", operator: "contains", value: [domain] }],
+        },
+      },
+      query: { page_size: String(CACHE_MISS_PAGE_SIZE) },
+      label: "Customers mirror — live domain match on cache miss",
+    });
+    const backfilledRecords: CustomerRecord[] = (data.items ?? []).map((item) =>
+      mapFeishuItemToCustomer(item),
+    );
+    if (backfilledRecords.length > 0) {
+      await ctx.runMutation(internal.feishu.customersMirror.applyPage, {
+        rows: backfilledRecords.map((customer) => projectionToRow(customer)),
+        mirroredAt: Date.now(),
+      });
+    }
+    // Strict canonical equality (findCustomerByEmail), NOT "first row returned":
+    // `contains` can pull in superstring domains (e.g. notacme.com for acme.com)
+    // that belong in the mirror but must not auto-match this email.
+    const customer = findCustomerByEmail(backfilledRecords, args.email);
+    console.log(
+      `[customers-mirror] matchEmailAndCacheMiss domain="${domain}" -> ` +
+        `${customer ? "hit" : "miss"}/${backfilledRecords.length} backfilled (${Date.now() - started}ms)`,
+    );
+    return { customer, backfilled: backfilledRecords.length };
   },
 });
 

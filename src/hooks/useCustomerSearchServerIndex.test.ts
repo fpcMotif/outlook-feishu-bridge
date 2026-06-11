@@ -31,7 +31,7 @@ describe("useCustomerSearchServerIndex", () => {
     const kick = vi.fn(async () => ({ pages: 1, rows: 1 }));
     const searchCustomers = vi.fn();
     mockUseConvex.mockReturnValue({ query } as never);
-    mockUseAction.mockReturnValueOnce(kick).mockReturnValueOnce(searchCustomers);
+    mockUseAction.mockReturnValueOnce(kick).mockReturnValueOnce(searchCustomers).mockReturnValueOnce(vi.fn());
 
     const { result } = renderHook(() => useCustomerSearchServerIndex());
 
@@ -46,7 +46,7 @@ describe("useCustomerSearchServerIndex", () => {
     const kick = vi.fn(async () => ({ pages: 1, rows: 1 }));
     const searchCustomers = vi.fn();
     mockUseConvex.mockReturnValue({ query } as never);
-    mockUseAction.mockReturnValueOnce(kick).mockReturnValueOnce(searchCustomers);
+    mockUseAction.mockReturnValueOnce(kick).mockReturnValueOnce(searchCustomers).mockReturnValueOnce(vi.fn());
 
     const { result } = renderHook(() => useCustomerSearchServerIndex());
 
@@ -64,7 +64,7 @@ describe("useCustomerSearchServerIndex", () => {
     const kick = vi.fn(async () => ({ pages: 1, rows: 1 }));
     const searchCustomers = vi.fn();
     mockUseConvex.mockReturnValue({ query } as never);
-    mockUseAction.mockReturnValueOnce(kick).mockReturnValueOnce(searchCustomers);
+    mockUseAction.mockReturnValueOnce(kick).mockReturnValueOnce(searchCustomers).mockReturnValueOnce(vi.fn());
 
     const { result } = renderHook(() => useCustomerSearchServerIndex());
 
@@ -99,7 +99,7 @@ describe("useCustomerSearchServerIndex", () => {
     });
     const kick = vi.fn(async () => ({ pages: 1, rows: 1 }));
     const searchCustomers = vi.fn(() => pendingSearch);
-    mockUseAction.mockReturnValueOnce(kick).mockReturnValueOnce(searchCustomers);
+    mockUseAction.mockReturnValueOnce(kick).mockReturnValueOnce(searchCustomers).mockReturnValueOnce(vi.fn());
 
     const { result } = renderHook(() => useCustomerSearchServerIndex());
 
@@ -129,7 +129,7 @@ describe("useCustomerSearchServerIndex", () => {
       backfilled: 0,
       mirroredAt: null,
     }));
-    mockUseAction.mockReturnValueOnce(kick).mockReturnValueOnce(searchCustomers);
+    mockUseAction.mockReturnValueOnce(kick).mockReturnValueOnce(searchCustomers).mockReturnValueOnce(vi.fn());
 
     const { result } = renderHook(() => useCustomerSearchServerIndex());
 
@@ -159,10 +159,57 @@ describe("useCustomerSearchServerIndex", () => {
     expect(searchCustomers).toHaveBeenCalledTimes(2);
   });
 
+  it("falls through to the live domain match and backfill when the mirror misses", async () => {
+    const query = vi.fn(async () => ({ customer: null }));
+    const kick = vi.fn(async () => ({ pages: 1, rows: 1 }));
+    const searchAndCacheMiss = vi.fn();
+    const matchEmailAndCacheMiss = vi.fn(async () => ({
+      customer: { recordId: "rec_fresh", name: "Fresh GmbH", owner: null },
+      backfilled: 3,
+    }));
+    mockUseConvex.mockReturnValue({ query } as never);
+    mockUseAction
+      .mockReturnValueOnce(kick)
+      .mockReturnValueOnce(searchAndCacheMiss)
+      .mockReturnValueOnce(matchEmailAndCacheMiss);
+
+    const { result } = renderHook(() => useCustomerSearchServerIndex());
+
+    await expect(result.current.matchEmail("buyer@fresh-gmbh.example")).resolves.toEqual({
+      recordId: "rec_fresh",
+      name: "Fresh GmbH",
+      owner: null,
+    });
+
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(matchEmailAndCacheMiss).toHaveBeenCalledWith({ email: "buyer@fresh-gmbh.example" });
+    expect(kick).not.toHaveBeenCalled();
+  });
+
+  it("skips repeated live domain matches after Feishu reported the domain empty", async () => {
+    const query = vi.fn(async () => ({ customer: null }));
+    const kick = vi.fn(async () => ({ pages: 1, rows: 1 }));
+    const searchAndCacheMiss = vi.fn();
+    const matchEmailAndCacheMiss = vi.fn(async () => ({ customer: null, backfilled: 0 }));
+    mockUseConvex.mockReturnValue({ query } as never);
+    mockUseAction
+      .mockReturnValueOnce(kick)
+      .mockReturnValueOnce(searchAndCacheMiss)
+      .mockReturnValueOnce(matchEmailAndCacheMiss);
+
+    const { result } = renderHook(() => useCustomerSearchServerIndex());
+
+    await expect(result.current.matchEmail("buyer@no-such-customer.example")).resolves.toBeNull();
+    await expect(result.current.matchEmail("sales@no-such-customer.example")).resolves.toBeNull();
+
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(matchEmailAndCacheMiss).toHaveBeenCalledTimes(1);
+  });
+
   it("throttles repeated mirror refresh kicks from rapid picker opens", () => {
     const kick = vi.fn(async () => ({ pages: 1, rows: 1 }));
     const searchCustomers = vi.fn();
-    mockUseAction.mockReturnValueOnce(kick).mockReturnValueOnce(searchCustomers);
+    mockUseAction.mockReturnValueOnce(kick).mockReturnValueOnce(searchCustomers).mockReturnValueOnce(vi.fn());
 
     const { result } = renderHook(() => useCustomerSearchServerIndex());
 

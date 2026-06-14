@@ -33,3 +33,11 @@ for (const name of ['localStorage', 'sessionStorage'] as const) {
     writable: true,
   })
 }
+
+process.env.FEISHU_APP_ID = "test";
+process.env.FEISHU_APP_SECRET = "test";
+process.env.FEISHU_FALLBACK_REDIRECT_URI = "test";
+
+(globalThis as any).Bun = {
+  serve: () => ({ port: 8788, stop: () => {} }),
+} as any;

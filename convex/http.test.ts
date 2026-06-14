@@ -14,14 +14,18 @@ afterEach(() => {
 });
 
 describe("escapeHtml", () => {
-  it("replaces &, <, >, and quotes with their HTML entities", () => {
-    expect(escapeHtml(`<a href="x">Tom & Jerry</a>`)).toBe(
-      "&lt;a href=&quot;x&quot;&gt;Tom &amp; Jerry&lt;/a&gt;",
+  it("replaces &, <, >, \", and ' with their HTML entities", () => {
+    expect(escapeHtml(`<a href='x' title="test">Tom & Jerry</a>`)).toBe(
+      "&lt;a href=&#39;x&#39; title=&quot;test&quot;&gt;Tom &amp; Jerry&lt;/a&gt;",
     );
   });
 
   it("escapes ampersands first", () => {
     expect(escapeHtml("&amp;")).toBe("&amp;amp;");
+  });
+
+  it("escapes single quotes correctly", () => {
+    expect(escapeHtml("'single'")).toBe("&#39;single&#39;");
   });
 });
 

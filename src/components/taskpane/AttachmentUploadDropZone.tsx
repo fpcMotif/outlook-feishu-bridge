@@ -11,7 +11,7 @@ const UPLOAD_HOVER_FINE = "[@media(hover:hover)_and_(pointer:fine)]:hover:";
 
 function uploadZoneClassName(disabled: boolean, dragOver: boolean) {
   return cn(
-    "bg-card-soft/50 flex cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-border px-6 py-8 text-center outline-none transition-[background-color,border-color] duration-150 ease-[var(--ease-out-strong)] focus-within:ring-[3px] focus-within:ring-ring/20",
+    "bg-card-soft/50 flex cursor-pointer items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-border px-5 py-5 text-left outline-none transition-[background-color,border-color] duration-150 ease-[var(--ease-out-strong)] focus-within:ring-[3px] focus-within:ring-ring/20",
     `${UPLOAD_HOVER_FINE}border-primary/40 ${UPLOAD_HOVER_FINE}bg-primary/5`,
     ROW_PRESS,
     "motion-reduce:active:scale-100",
@@ -68,16 +68,16 @@ function UploadZoneBody({
   return (
     <>
       <span
-        className="bg-primary/10 text-primary flex size-12 items-center justify-center rounded-full"
+        className="bg-primary/5 text-primary/80 flex size-8 shrink-0 items-center justify-center rounded-lg border border-primary/10"
         aria-hidden="true"
       >
-        <Upload className="size-5" strokeWidth={2} />
+        <Upload className="size-4" strokeWidth={1.75} />
       </span>
-      <span className="space-y-1">
-        <span className="block text-sm font-semibold">
-          Drag & drop files or click to upload
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <span className="block text-[13px] leading-4 font-semibold">
+          Drag & drop or click
         </span>
-        <span className="text-muted-foreground block text-xs">
+        <span className="text-muted-foreground/80 block text-[10px] leading-3">
           PDF, XLSX, DOCX up to 10MB each
         </span>
       </span>

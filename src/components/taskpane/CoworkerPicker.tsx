@@ -1,21 +1,27 @@
 /* eslint-disable max-lines-per-function, max-lines */
 import * as React from "react";
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 import { Check, UserRound } from "lucide-react";
 
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/design-system";
+import {
+  TaskpaneInsetDivider,
+  TaskpaneSearchDropdown,
+  TaskpaneSection,
+  TaskpaneSelectionRow,
+} from "@/design-system/taskpane";
 import type { Coworker } from "./coworkers";
 import { useCoworkerSearch } from "../../hooks/useCoworkerSearch";
-import { TaskpaneInsetDivider } from "./TaskpaneInsetDivider";
-import { TaskpaneSearchDropdown } from "./TaskpaneSearchDropdown";
-import { TaskpaneSection } from "./TaskpaneSection";
-import { TaskpaneSelectionRow } from "./TaskpaneSelectionRow";
 import { TaskpaneCardBoundaryContext } from "./taskpaneCardBoundary";
-import {
-  TASKPANE_SEARCH_PANEL_HEADER,
-  TASKPANE_SEARCH_PANEL_SHELL_FOOTER,
-  TASKPANE_SEARCH_PANEL_TITLE,
-} from "./taskpaneSearchPanelLayout";
+import { TaskpanePickerPanel } from "./TaskpanePickerPanel";
+import { TASKPANE_SEARCH_PANEL_SHELL_FOOTER } from "./taskpaneSearchPanelLayout";
 
 // Test fixture directory. These made-up coworkers are allowed only when an
 // e2e/dev-test harness explicitly opts in; production search must never fall
@@ -99,14 +105,20 @@ export function CoworkerOption({
       data-selected={selected}
     >
       <Avatar className="size-10 bg-secondary">
-        {coworker.avatarUrl ? <AvatarImage src={coworker.avatarUrl} alt="" /> : null}
+        {coworker.avatarUrl ? (
+          <AvatarImage src={coworker.avatarUrl} alt="" />
+        ) : null}
         <AvatarFallback className="bg-secondary text-muted-foreground/70">
           {SEARCH_PERSON_FALLBACK_ICON}
         </AvatarFallback>
       </Avatar>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-semibold">{coworker.name}</span>
-        <span className="text-muted-foreground block truncate text-xs">Feishu coworker</span>
+        <span className="block truncate text-sm font-semibold">
+          {coworker.name}
+        </span>
+        <span className="text-muted-foreground block truncate text-xs">
+          Feishu coworker
+        </span>
       </span>
       {selected ? <Check className="text-primary size-5" /> : null}
     </button>
@@ -134,7 +146,10 @@ function CoworkerSearchPanel({
     if (!dismissable || !onDismiss) return;
     const dismiss = onDismiss;
     function onPointer(event: MouseEvent) {
-      if (panelRef.current && !panelRef.current.contains(event.target as Node)) {
+      if (
+        panelRef.current &&
+        !panelRef.current.contains(event.target as Node)
+      ) {
         dismiss();
       }
     }
@@ -143,16 +158,12 @@ function CoworkerSearchPanel({
   }, [dismissable, onDismiss]);
 
   return (
-    <div
-      ref={panelRef}
-      className={TASKPANE_SEARCH_PANEL_SHELL_FOOTER}
-      aria-labelledby="coworker-search-title"
+    <TaskpanePickerPanel
+      title="Pick a coworker"
+      titleId="coworker-picker-title"
+      panelRef={panelRef}
+      shellClassName={TASKPANE_SEARCH_PANEL_SHELL_FOOTER}
     >
-      <div className={TASKPANE_SEARCH_PANEL_HEADER}>
-        <span id="coworker-search-title" className={TASKPANE_SEARCH_PANEL_TITLE}>
-          Pick a coworker
-        </span>
-      </div>
       <TaskpaneSearchDropdown
         label="Search Feishu coworkers"
         value={query}
@@ -164,7 +175,7 @@ function CoworkerSearchPanel({
       >
         {children}
       </TaskpaneSearchDropdown>
-    </div>
+    </TaskpanePickerPanel>
   );
 }
 
@@ -229,7 +240,8 @@ export function CoworkerPicker({
   const directoryById = useMemo(() => {
     const map = new Map<string, Coworker>();
     const fixtureCoworkers = usePreviewCoworkers ? PREVIEW_COWORKERS : [];
-    for (const c of [...fixtureCoworkers, ...recents, ...results]) map.set(c.openId, c);
+    for (const c of [...fixtureCoworkers, ...recents, ...results])
+      map.set(c.openId, c);
     return map;
   }, [recents, results, usePreviewCoworkers]);
 
@@ -242,7 +254,10 @@ export function CoworkerPicker({
   }, []);
 
   const handleSelect = (coworker: Coworker) => {
-    const next = [coworker, ...loadRecents().filter((c) => c.openId !== coworker.openId)].slice(0, 6);
+    const next = [
+      coworker,
+      ...loadRecents().filter((c) => c.openId !== coworker.openId),
+    ].slice(0, 6);
     try {
       localStorage.setItem(RECENTS_KEY, JSON.stringify(next));
     } catch {
@@ -263,15 +278,22 @@ export function CoworkerPicker({
 
   const coworkerContent =
     selectedCoworker && !showCoworkerSearch ? (
-      <TaskpaneSelectionRow
-        dataRow="coworker"
-        leading={selectedLeading}
-        label={selectedCoworker.name}
-        onChange={() => {
-          setChangingCoworker(true);
-          setQuery("");
-        }}
-      />
+      <TaskpanePickerPanel
+        title="Pick a coworker"
+        titleId="coworker-picker-title"
+        shellClassName={TASKPANE_SEARCH_PANEL_SHELL_FOOTER}
+      >
+        <TaskpaneSelectionRow
+          dataRow="coworker"
+          leading={selectedLeading}
+          label={selectedCoworker.name}
+          inset={false}
+          onChange={() => {
+            setChangingCoworker(true);
+            setQuery("");
+          }}
+        />
+      </TaskpanePickerPanel>
     ) : showCoworkerSearch ? (
       <CoworkerSearchPanel
         query={query}
@@ -294,14 +316,19 @@ export function CoworkerPicker({
     ) : null;
 
   return (
-    <TaskpaneSection id="client-coworker-title" title="Customer, sales & coworker">
+    <TaskpaneSection id="client-coworker-title" title="Participants">
       <TaskpaneCardBoundaryContext.Provider value={cardRef}>
-        <section ref={cardRef} className="bg-card-soft overflow-visible rounded-xl shadow-edge">
-        {customerSlot ? <div>{customerSlot}</div> : null}
-        {customerSlot && salesSlot ? <TaskpaneInsetDivider /> : null}
-        {salesSlot ? <div>{salesSlot}</div> : null}
-        {(salesSlot ?? customerSlot) && coworkerContent ? <TaskpaneInsetDivider /> : null}
-        {coworkerContent ? <div>{coworkerContent}</div> : null}
+        <section
+          ref={cardRef}
+          className="bg-card-soft overflow-visible rounded-lg shadow-edge"
+        >
+          {customerSlot ? <div>{customerSlot}</div> : null}
+          {customerSlot && salesSlot ? <TaskpaneInsetDivider /> : null}
+          {salesSlot ? <div>{salesSlot}</div> : null}
+          {(salesSlot ?? customerSlot) && coworkerContent ? (
+            <TaskpaneInsetDivider />
+          ) : null}
+          {coworkerContent ? <div>{coworkerContent}</div> : null}
         </section>
       </TaskpaneCardBoundaryContext.Provider>
     </TaskpaneSection>

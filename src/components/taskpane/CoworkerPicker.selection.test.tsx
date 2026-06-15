@@ -48,6 +48,11 @@ describe("CoworkerPicker selected row", () => {
 
     const row = document.querySelector('[data-coworker-row="true"]') as HTMLElement;
     expect(row).not.toBeNull();
+    const panel = screen
+      .getByText("Pick a coworker")
+      .closest('[aria-labelledby="coworker-picker-title"]');
+    expect(panel).not.toBeNull();
+    expect(panel).toContainElement(row);
     expect(row.querySelector(':scope > span[aria-hidden="true"]')).not.toHaveClass(
       "text-muted-foreground",
     );

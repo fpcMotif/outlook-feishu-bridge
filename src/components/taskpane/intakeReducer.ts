@@ -8,7 +8,6 @@ import type { IntakeAction, IntakeState, UploadedFile } from "./intakeTypes";
 
 export type {
   IntakeScreenName,
-  SelfForwardStatus,
   UploadStatus,
   UploadedFile,
   IntakeState,
@@ -32,28 +31,32 @@ function selectedAttachmentCount(state: IntakeState): number {
 // double-append). See uploadDraftCache / useRequestIntakeScreen.
 type InitialIntakeArg =
   | string
-  | { mailFrom: string; restoredUploads?: UploadedFile[] };
+  | {
+      mailFrom: string;
+      restoredUploads?: UploadedFile[];
+      defaultSales?: IntakeState["selectedSales"];
+    };
 
 export function initialIntakeState(arg: InitialIntakeArg): IntakeState {
   const mailFrom = typeof arg === "string" ? arg : arg.mailFrom;
   const restoredUploads =
     typeof arg === "string" ? [] : (arg.restoredUploads ?? []);
+  const defaultSales = typeof arg === "string" ? null : (arg.defaultSales ?? null);
   return {
     notes: {},
     clientEmail: mailFrom,
     mailFrom,
     screen: "build",
     selectedCoworker: null,
-    selectedSales: null,
+    selectedSales: defaultSales,
     salesTouched: false,
     selectedCustomer: null,
     customerTouched: false,
     bitableRecordId: null,
     bitableDetailUrl: null,
     syncError: null,
-    selfForwardStatus: null,
-    selfForwardError: null,
     selectedAttachmentIds: [],
+    seenMailAttachmentIds: [],
     dismissedMailAttachmentIds: [],
     uploadedFiles: restoredUploads,
   };
@@ -99,9 +102,6 @@ export function intakeReducer(
         ...state,
         screen: "sync",
         syncError: null,
-        // Keep a prior successful Note-to-myself across sync retries (ADR-0017).
-        selfForwardStatus: state.selfForwardStatus === "ok" ? "ok" : "pending",
-        selfForwardError: null,
       };
     case "syncSucceeded":
       return {
@@ -112,16 +112,25 @@ export function intakeReducer(
       };
     case "syncFailed":
       return { ...state, screen: "error", syncError: action.message };
-    case "selfForwardStarted":
-      return { ...state, selfForwardStatus: "pending", selfForwardError: null };
-    case "selfForwardSucceeded":
-      return { ...state, selfForwardStatus: "ok", selfForwardError: null };
-    case "selfForwardFailed":
+    case "mailAttachmentsDiscovered": {
+      const seen = state.seenMailAttachmentIds ?? [];
+      const unseen = action.ids.filter((id) => !seen.includes(id));
+      if (unseen.length === 0) return state;
+
+      const selected = new Set(state.selectedAttachmentIds);
+      let slots = MAX_ATTACHMENT_COUNT - selectedAttachmentCount(state);
+      for (const id of unseen) {
+        if (selected.has(id) || slots <= 0) continue;
+        selected.add(id);
+        slots -= 1;
+      }
+
       return {
         ...state,
-        selfForwardStatus: "failed",
-        selfForwardError: { code: action.code, message: action.message },
+        selectedAttachmentIds: [...selected],
+        seenMailAttachmentIds: [...seen, ...unseen],
       };
+    }
     case "attachmentToggled":
       if (
         !state.selectedAttachmentIds.includes(action.id) &&
@@ -282,9 +291,8 @@ export function intakeReducer(
         bitableRecordId: null,
         bitableDetailUrl: null,
         syncError: null,
-        selfForwardStatus: null,
-        selfForwardError: null,
         selectedAttachmentIds: [],
+        seenMailAttachmentIds: [],
         dismissedMailAttachmentIds: [],
         uploadedFiles: [],
       };

@@ -1,4 +1,5 @@
-import { Button } from "../ui/button";
+import { Button } from "@/design-system";
+import { TaskpaneStateMessage } from "@/design-system/taskpane";
 
 export function SyncErrorScreen({
   message,
@@ -10,15 +11,17 @@ export function SyncErrorScreen({
   onBack: () => void;
 }) {
   return (
-    <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 px-8 text-center">
-      <h1 className="text-2xl">Sync failed</h1>
-      <p className="text-muted-foreground max-w-[34ch] text-sm leading-relaxed">{message}</p>
-      <div className="flex gap-2">
+    <TaskpaneStateMessage
+      title="Sync failed"
+      description={message}
+      actions={
+        <>
         <Button onClick={onRetry}>Try again</Button>
         <Button variant="secondary" onClick={onBack}>
           Back
         </Button>
-      </div>
-    </div>
+        </>
+      }
+    />
   );
 }

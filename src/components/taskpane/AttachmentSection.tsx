@@ -1,5 +1,7 @@
 /* eslint-disable max-lines, max-lines-per-function */
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+
+import { cn } from "@/lib/utils";
 
 import { formatBytes, MAX_ATTACHMENT_COUNT } from "../../office/attachments";
 import type { AttachmentInfo } from "../../office/mailItem";
@@ -243,6 +245,23 @@ function AttachmentSectionHeader({
   count: number;
   total: number;
 }) {
+  const previousCountRef = useRef(count);
+  const [countBounceKey, setCountBounceKey] = useState(0);
+  const [isCountBouncing, setIsCountBouncing] = useState(false);
+
+  useEffect(() => {
+    const previousCount = previousCountRef.current;
+
+    if (count < previousCount) {
+      setIsCountBouncing(true);
+      setCountBounceKey((key) => key + 1);
+    } else {
+      setIsCountBouncing(false);
+    }
+
+    previousCountRef.current = count;
+  }, [count]);
+
   return (
     <header className="flex flex-wrap items-center justify-between gap-3 px-1">
       <SectionLabel id="attachments-title">Attachments</SectionLabel>
@@ -252,7 +271,18 @@ function AttachmentSectionHeader({
           <span className="text-border mx-1.5" aria-hidden="true">
             &bull;
           </span>
-          {count}/{MAX_ATTACHMENT_COUNT}
+          <span
+            key={countBounceKey}
+            className={cn(
+              "inline-flex items-center rounded-full border px-1.5 py-0.5 font-semibold tabular-nums transition-[background-color,border-color,color] duration-200 ease-[var(--ease-out-strong)]",
+              isCountBouncing ? "attachment-count-down-bounce" : null,
+              count > 0
+                ? "border-primary/20 bg-primary/10 text-primary"
+                : "border-border/70 bg-muted/30 text-muted-foreground",
+            )}
+          >
+            {count}/{MAX_ATTACHMENT_COUNT}
+          </span>
         </span>
       </div>
     </header>
@@ -303,7 +333,7 @@ export function AttachmentSection({
         onRetryUpload={onRetryUpload}
         onReplaceUpload={onReplaceUpload}
       />
-      <div className="border-t border-dashed border-border/60 pt-3">
+      <div>
         <UploadDropZone disabled={false} onPick={onAddFiles} />
       </div>
     </section>

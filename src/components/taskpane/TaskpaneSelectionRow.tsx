@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 
+import { cn } from "@/lib/utils";
+
 function SelectionRowLeading({ leading, icon }: { leading?: ReactNode; icon?: ReactNode }) {
   const left = leading ?? icon;
   if (!left) return null;
@@ -27,6 +29,7 @@ export function TaskpaneSelectionRow({
   changeLabel = "Change",
   dataRow,
   enterStagger = false,
+  inset = true,
 }: {
   /** Lucide or custom icon in the muted icon slot. */
   icon?: ReactNode;
@@ -38,16 +41,22 @@ export function TaskpaneSelectionRow({
   dataRow?: "customer" | "sales" | "coworker";
   /** Staggered ease-out enter when the system applies a default selection. */
   enterStagger?: boolean;
+  /** Keep default row padding when rendered directly in a card stack. */
+  inset?: boolean;
 }) {
   const rowProps = dataRow ? { [`data-${dataRow}-row`]: "true" as const } : {};
+  const rowSpacing = inset ? "px-3 py-2" : "px-3 py-1";
+  const minHeight = inset ? "min-h-14" : "min-h-11";
 
   return (
     <div
-      className={
-        enterStagger
-          ? "taskpane-selection-enter-group flex min-h-14 min-w-0 items-center gap-3 px-3 py-2"
-          : "flex min-h-14 min-w-0 items-center gap-3 px-3 py-2"
-      }
+      className={cn(
+        "flex min-w-0 items-center gap-3",
+        minHeight,
+        rowSpacing,
+        !inset && "bg-background rounded-xl shadow-edge",
+        enterStagger && "taskpane-selection-enter-group",
+      )}
       {...rowProps}
     >
       <SelectionRowLeading leading={leading} icon={icon} />

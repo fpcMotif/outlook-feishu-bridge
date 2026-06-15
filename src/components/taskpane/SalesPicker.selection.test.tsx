@@ -56,6 +56,12 @@ describe("SalesPicker selected row", () => {
     const row = document.querySelector(
       '[data-sales-row="true"]',
     ) as HTMLElement;
+    expect(row).not.toBeNull();
+    const panel = screen
+      .getByText("Pick a sale")
+      .closest('[aria-labelledby="sales-picker-title"]');
+    expect(panel).not.toBeNull();
+    expect(panel).toContainElement(row);
     expect(row).toHaveClass("taskpane-selection-enter-group");
     expect(within(row).getByText("Jenny Xu")).toBeInTheDocument();
     expect(row.querySelector('[data-slot="avatar"]')).toBeInTheDocument();

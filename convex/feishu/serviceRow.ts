@@ -64,8 +64,7 @@ export interface ServiceRowInput {
   initiator?: { openId: string; name?: string };
   // Outlook `item.conversationId` — the salesperson-mailbox-local thread id for
   // the original client email. Lands in the Service row's `Email Conversation ID`
-  // Text column as the join key Bitable→Outlook (ADR-0017). Distinct from the
-  // Self-Forward copy's conversationId, which is not written.
+  // Text column as the join key Bitable→Outlook (ADR-0014).
   emailConversationId?: string;
 }
 

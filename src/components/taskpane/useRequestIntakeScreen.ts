@@ -11,7 +11,6 @@ import {
 } from "./intakeDraftCache";
 import { useCustomerAutoMatch } from "../../hooks/useCustomerAutoMatch";
 import { useCustomerSearch } from "../../hooks/useCustomerSearch";
-import { useSelfForward, type SelfForwardResult } from "../../hooks/useSelfForward";
 import { buildCreateCustomerTaskUrl } from "./buildCreateCustomerTaskUrl";
 import {
   buildFilledRequests,
@@ -27,7 +26,6 @@ import {
 import { buildSyncPayload } from "./buildSyncPayload";
 import { dlog, dtime } from "../../debug";
 import { useIntakeAttachments } from "./useIntakeAttachments";
-import { scheduleSalesDefault } from "./scheduleSalesDefault";
 import {
   buildUploadDraftKey,
   clearUploadDraft,
@@ -36,6 +34,18 @@ import {
 } from "./uploadDraftCache";
 import type { RequestIntakeScreenProps } from "./requestIntakeScreenProps";
 import type { RequestIntakeSyncApi } from "./requestIntakeSyncApi";
+
+function salesDefaultForUser(
+  user: RequestIntakeScreenProps["user"],
+): Coworker | null {
+  return user?.openId
+    ? {
+        openId: user.openId,
+        name: user.userName ?? "You",
+        avatarUrl: user.avatarUrl,
+      }
+    : null;
+}
 
 export function useRequestIntakeScreen(
   props: RequestIntakeScreenProps & { mailKey: string; syncApi: RequestIntakeSyncApi },
@@ -55,7 +65,10 @@ export function useRequestIntakeScreen(
   } = props;
   const { sync, existingSync } = syncApi;
   const existingSyncStatus = existingSync?.status ?? null;
-  const { sendNote: sendSelfForwardNote } = useSelfForward();
+  const defaultSales = useMemo(
+    () => salesDefaultForUser(user),
+    [user?.openId, user?.userName, user?.avatarUrl],
+  );
 
   // Per-conversation draft restore for pinned panes: the Core is keyed by
   // mailKey, so this lazy initializer runs ONCE per conversation mount. The full
@@ -81,9 +94,10 @@ export function useRequestIntakeScreen(
         import.meta.env.DEV && mockUploads
           ? mockUploads
           : restoreUploadDraft(uploadDraftKey),
+      defaultSales,
     },
-    ({ intakeDraftKey: key, mailFrom, restoredUploads }) =>
-      loadIntakeDraft(key, mailFrom, restoredUploads),
+    ({ intakeDraftKey: key, mailFrom, restoredUploads, defaultSales }) =>
+      loadIntakeDraft(key, mailFrom, restoredUploads, defaultSales),
   );
   const generationRef = useRef(0);
   const activeSyncGenerationRef = useRef<number | null>(null);
@@ -158,10 +172,6 @@ export function useRequestIntakeScreen(
       }),
     };
   }, [selectedCustomerName, selectedAttachmentIds, uploadedFiles, filledRequests, mailAttachments]);
-  const requestSelections = useMemo(
-    () => filledRequests.map((r) => ({ requestType: r.title, note: r.note })),
-    [filledRequests],
-  );
   const requestNote = useMemo(() => filledRequests.map((r) => r.note).join("\n\n"), [filledRequests]);
   const filledCount = filledRequests.length;
   const selectedCount = state.selectedCoworker ? 1 : 0;
@@ -178,18 +188,9 @@ export function useRequestIntakeScreen(
   };
 
   useEffect(() => {
-    if (!user?.openId) return;
-    return scheduleSalesDefault(() => {
-      dispatch({
-        type: "salesDefaulted",
-        sales: {
-          openId: user.openId,
-          name: user.userName ?? "You",
-          avatarUrl: user.avatarUrl,
-        },
-      });
-    });
-  }, [user?.openId, user?.userName, user?.avatarUrl]);
+    if (!defaultSales) return;
+    dispatch({ type: "salesDefaulted", sales: defaultSales });
+  }, [defaultSales]);
 
   // On unmount (conversation switch on a pinned pane) snapshot this conversation
   // so returning restores the Sales/customer/coworker/notes/attachments. If it
@@ -236,48 +237,6 @@ export function useRequestIntakeScreen(
   const openCreateCustomerMock = useCallback((customerName: string) => {
     window.open(buildCreateCustomerTaskUrl(customerName), "_blank", "noopener,noreferrer");
   }, []);
-
-  const fireSelfForward = useCallback(async () => {
-    const generation = generationRef.current;
-    dispatch({ type: "selfForwardStarted" });
-    if (!mailItem.itemId) {
-      dispatch({
-        type: "selfForwardFailed",
-        code: "no_item_id",
-        message: "Mail Item id is unavailable (dev preview / browser host).",
-      });
-      return;
-    }
-    if (!mailItem.userEmail) {
-      dispatch({
-        type: "selfForwardFailed",
-        code: "no_self_email",
-        message: "Outlook user email is unavailable (dev preview / browser host).",
-      });
-      return;
-    }
-    const result: SelfForwardResult = await sendSelfForwardNote({
-      originalMessageId: mailItem.itemId,
-      selfEmail: mailItem.userEmail,
-      customerName: selectedCustomerName,
-      clientEmail: state.clientEmail,
-      requestSelections,
-    });
-    if (generation === generationRef.current) {
-      if (result.ok) {
-        dispatch({ type: "selfForwardSucceeded" });
-      } else {
-        dispatch({ type: "selfForwardFailed", code: result.code, message: result.message });
-      }
-    }
-  }, [
-    sendSelfForwardNote,
-    mailItem.itemId,
-    mailItem.userEmail,
-    selectedCustomerName,
-    state.clientEmail,
-    requestSelections,
-  ]);
 
   const runSync = useCallback(() => {
     const syncGeneration = generationRef.current + 1;
@@ -333,7 +292,6 @@ export function useRequestIntakeScreen(
         activeSyncGenerationRef.current = null;
         dispatch({ type: "syncFailed", message: e instanceof Error ? e.message : "Sync failed" });
       });
-    if (state.selfForwardStatus !== "ok") void fireSelfForward();
     return baseWrite;
   }, [
     sync,
@@ -341,7 +299,6 @@ export function useRequestIntakeScreen(
     state,
     user,
     requestNote,
-    fireSelfForward,
     stageSelected,
     uploadDraftKey,
     intakeDraftKey,
@@ -423,7 +380,6 @@ export function useRequestIntakeScreen(
     selectCoworker,
     selectSales,
     openCreateCustomerMock,
-    fireSelfForward,
     runSync,
     handleSubmit,
   };

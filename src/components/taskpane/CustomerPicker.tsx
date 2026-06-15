@@ -22,13 +22,11 @@ import {
 } from "./customerSearchHelpers";
 import { CustomerSearchEmptyState } from "./CustomerSearchEmptyState";
 import { dlog, dtime } from "../../debug";
-import { TaskpaneSearchDropdown } from "./TaskpaneSearchDropdown";
-import { TaskpaneSelectionRow } from "./TaskpaneSelectionRow";
+import { TaskpaneSearchDropdown, TaskpaneSelectionRow } from "@/design-system/taskpane";
+import { TaskpanePickerPanel } from "./TaskpanePickerPanel";
 import {
-  TASKPANE_SEARCH_PANEL_HEADER,
   TASKPANE_SEARCH_PANEL_SHELL,
   TASKPANE_SEARCH_PANEL_SHELL_HEADER,
-  TASKPANE_SEARCH_PANEL_TITLE,
 } from "./taskpaneSearchPanelLayout";
 import { useCustomerSearchSession } from "./useCustomerSearchSession";
 
@@ -93,14 +91,41 @@ export function CustomerPicker({
   }
 
   return (
-    <section className={embedded ? "" : "bg-card-soft rounded-xl shadow-edge"}>
+    <SelectedCustomerPanel
+      customer={selectedCustomer}
+      embedded={embedded}
+      onChange={openSearch}
+    />
+  );
+}
+
+function SelectedCustomerPanel({
+  customer,
+  embedded,
+  onChange,
+}: {
+  customer: CustomerRecord;
+  embedded: boolean;
+  onChange: () => void;
+}) {
+  const shell = embedded ? TASKPANE_SEARCH_PANEL_SHELL_HEADER : TASKPANE_SEARCH_PANEL_SHELL;
+
+  return (
+    <TaskpanePickerPanel
+      as="section"
+      title="Pick a customer"
+      titleId="customer-picker-title"
+      shellClassName={shell}
+      className={embedded ? undefined : "bg-card-soft rounded-xl shadow-edge"}
+    >
       <TaskpaneSelectionRow
         dataRow="customer"
         icon={<UserRound className="size-4" />}
-        label={selectedCustomer.name}
-        onChange={openSearch}
+        label={customer.name}
+        inset={false}
+        onChange={onChange}
       />
-    </section>
+    </TaskpanePickerPanel>
   );
 }
 
@@ -193,31 +218,15 @@ function SearchPanel({
   const shell = embedded ? TASKPANE_SEARCH_PANEL_SHELL_HEADER : TASKPANE_SEARCH_PANEL_SHELL;
 
   return (
-    <section
-      ref={boundaryRef}
+    <TaskpanePickerPanel
+      as="section"
+      title="Pick a customer"
+      titleId="customer-picker-title"
+      panelRef={boundaryRef}
       onBlur={handlePanelBlur}
-      className={
-        embedded
-          ? `${shell}${exiting ? " panel-exit" : ""}`
-          : `bg-card-soft rounded-xl ${shell} shadow-edge${exiting ? " panel-exit" : ""}`
-      }
+      shellClassName={shell}
+      className={`${embedded ? "" : "bg-card-soft rounded-xl shadow-edge"}${exiting ? " panel-exit" : ""}`}
     >
-      <div className={TASKPANE_SEARCH_PANEL_HEADER}>
-        <span className={TASKPANE_SEARCH_PANEL_TITLE}>Pick a customer</span>
-        <div className="flex items-center gap-1">
-          {currentUserOpenId ? (
-            <button
-              type="button"
-              aria-pressed={showMine}
-              onClick={handleShowMine}
-              className="data-[on=true]:bg-accent data-[on=true]:text-accent-foreground text-muted-foreground inline-flex min-h-10 items-center rounded-md px-3 text-[11px] font-semibold transition-transform active:scale-[0.96]"
-              data-on={showMine}
-            >
-              Show mine
-            </button>
-          ) : null}
-        </div>
-      </div>
       <TaskpaneSearchDropdown
         label="Search customers"
         value={query}
@@ -227,6 +236,19 @@ function SearchPanel({
         listLabel="Customer results"
         emptyMessage={customerSearchEmptyMessage(q, showMine, query)}
         onEscape={() => (q ? handleQueryChange("") : onDismiss?.())}
+        rightSlot={
+        currentUserOpenId ? (
+          <button
+            type="button"
+            aria-pressed={showMine}
+            onClick={handleShowMine}
+            className="data-[on=true]:bg-accent data-[on=true]:text-accent-foreground text-muted-foreground inline-flex min-h-8 shrink-0 items-center rounded-md px-2.5 text-[11px] font-semibold transition-transform active:scale-[0.96]"
+            data-on={showMine}
+          >
+            Show mine
+          </button>
+        ) : null
+      }
       >
         {matches.length > 0 ? (
           matches.slice(0, 8).map((customer) => (
@@ -276,6 +298,6 @@ function SearchPanel({
           </button>
         ) : undefined}
       </TaskpaneSearchDropdown>
-    </section>
+    </TaskpanePickerPanel>
   );
 }

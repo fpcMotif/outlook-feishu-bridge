@@ -6,7 +6,7 @@
 
 import type { ReactNode } from "react";
 
-import type { IntakeScreenName, SelfForwardStatus } from "./intakeReducer";
+import type { IntakeScreenName } from "./intakeReducer";
 import { ReceivedScreen } from "./ReceivedScreen";
 import { SyncScreen } from "./SyncScreen";
 import { AuthResolvingScreen } from "./AuthResolvingScreen";
@@ -19,14 +19,12 @@ export interface IntakeRouterProps {
   isLoggedIn: boolean;
   isAuthLoading: boolean;
   coworkerCount: number;
-  selfForwardStatus: SelfForwardStatus;
   syncError: string | null;
   bitableRecordId: string | null;
   bitableDetailUrl: string | null;
   /** Deferred attachment-fill status from getBitableSyncByConversation; gates the open_feishu CTA (ADR-0027). */
   attachmentStatus?: "pending" | "filling" | "filled" | "failed" | null;
   syncPreview: SyncPreviewPayload;
-  onRetrySelfForward: () => void;
   onRetrySync: () => void;
   onBackToBuild: () => void;
   onLogin: () => void;
@@ -45,8 +43,6 @@ export function resolveIntakeScreen(props: IntakeRouterProps): ReactNode | null 
         coworkerCount={props.coworkerCount}
         recordId={props.bitableRecordId}
         detailUrl={props.bitableDetailUrl}
-        selfForwardStatus={props.selfForwardStatus}
-        onRetrySelfForward={props.onRetrySelfForward}
         attachmentStatus={props.attachmentStatus}
       />
     );

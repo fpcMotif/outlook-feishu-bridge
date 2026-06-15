@@ -35,7 +35,7 @@ afterEach(() => {
 });
 
 describe("CustomerPicker", () => {
-  it("renders the selected Customer's name as the chip", () => {
+  it("renders the selected Customer inside the picker panel", () => {
     render(
       <CustomerPicker
         directory={{ status: "ready", records: [] }}
@@ -46,6 +46,8 @@ describe("CustomerPicker", () => {
       />,
     );
 
+    expect(screen.getByText("Pick a customer")).toBeInTheDocument();
+    expect(document.querySelector('[data-customer-row="true"]')).not.toBeNull();
     expect(screen.getByText("Bayer Pharma")).toBeInTheDocument();
   });
 

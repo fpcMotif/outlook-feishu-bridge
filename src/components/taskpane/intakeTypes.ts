@@ -8,8 +8,6 @@ import type { CustomerRecord } from "./customers";
 
 export type IntakeScreenName = "build" | "sync" | "received" | "error";
 
-export type SelfForwardStatus = "pending" | "ok" | "failed" | null;
-
 export type UploadStatus =
   | "pending"
   | "uploading"
@@ -46,11 +44,11 @@ export interface IntakeState {
   bitableRecordId: string | null;
   bitableDetailUrl: string | null;
   syncError: string | null;
-  selfForwardStatus: SelfForwardStatus;
-  selfForwardError: { code: string; message: string } | null;
   // ADR-0022 attachments: checked mail-attachment ids (opt-in, default []) and
   // the user's uploaded files. Sources are gathered + staged at submit time.
   selectedAttachmentIds: string[];
+  /** Outlook attachment ids already considered for initial auto-selection. */
+  seenMailAttachmentIds: string[];
   /** Outlook mail attachment ids hidden via row remove (still on the message). */
   dismissedMailAttachmentIds: string[];
   uploadedFiles: UploadedFile[];
@@ -68,9 +66,7 @@ export type IntakeAction =
   | { type: "syncStarted" }
   | { type: "syncSucceeded"; recordId: string; detailUrl?: string | null }
   | { type: "syncFailed"; message: string }
-  | { type: "selfForwardStarted" }
-  | { type: "selfForwardSucceeded" }
-  | { type: "selfForwardFailed"; code: string; message: string }
+  | { type: "mailAttachmentsDiscovered"; ids: string[] }
   | { type: "attachmentToggled"; id: string }
   | { type: "mailAttachmentRemoved"; id: string }
   | { type: "filesAdded"; files: UploadedFile[] }

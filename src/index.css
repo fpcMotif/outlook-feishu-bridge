@@ -212,6 +212,26 @@
   animation: pop-in 0.22s var(--ease-out-strong) backwards;
 }
 
+/* Attachment counter: a restrained countdown bounce when selections are removed. */
+@keyframes attachment-count-down-bounce {
+  0% {
+    transform: translateY(0) scale(1);
+  }
+  42% {
+    transform: translateY(-1px) scale(1.045);
+  }
+  72% {
+    transform: translateY(0) scale(0.985);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+  }
+}
+.attachment-count-down-bounce {
+  transform-origin: center;
+  animation: attachment-count-down-bounce 0.24s var(--ease-out-strong);
+}
+
 @keyframes panel-exit {
   from {
     opacity: 1;
@@ -358,6 +378,7 @@
   .animate-pulse-dot,
   .animate-pulse-ring,
   .animate-pop-in,
+  .attachment-count-down-bounce,
   .profile-pop,
   .taskpane-selection-enter-group > * {
     animation: none;
@@ -399,6 +420,20 @@
   transition: transform 150ms var(--ease-out-strong);
 }
 
+/* "Checking attachments" countdown ring: depletes once across the confirm
+   window (duration set inline to track SubmitDock's CONFIRM_COUNTDOWN_SECONDS).
+   r=11 -> circumference 2*pi*11 = 69.12. */
+.submit-dock-countdown-ring {
+  stroke-dasharray: 69.12;
+  stroke-dashoffset: 0;
+  animation: submit-dock-countdown-ring linear forwards;
+}
+@keyframes submit-dock-countdown-ring {
+  to {
+    stroke-dashoffset: 69.12;
+  }
+}
+
 @media (hover: hover) and (pointer: fine) {
   .submit-dock-btn[data-live]:hover {
     background-color: var(--primary-deep);
@@ -435,5 +470,10 @@
   }
   .submit-dock-btn[data-live]:hover .submit-dock-arrow {
     transform: none;
+  }
+  /* Freeze the countdown ring (full); seconds still tick via the digit. */
+  .submit-dock-countdown-ring {
+    animation: none;
+    stroke-dashoffset: 0;
   }
 }

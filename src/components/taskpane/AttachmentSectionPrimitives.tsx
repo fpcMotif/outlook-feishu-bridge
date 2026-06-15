@@ -2,8 +2,7 @@ import { type ReactNode } from "react";
 
 import { AlertCircle } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Badge, Button } from "@/design-system";
 import { cn } from "@/lib/utils";
 
 import { extOf, iconFor } from "./attachmentFileDisplay";
@@ -43,13 +42,13 @@ function FileTypeIcon({ name }: { name: string }) {
   return (
     <span
       className={cn(
-        "flex size-10 shrink-0 items-center justify-center rounded-xl border",
+        "flex size-9 shrink-0 items-center justify-center rounded-lg border",
         bg,
         border,
       )}
       aria-hidden="true"
     >
-      <Icon className={cn("size-5", tint)} strokeWidth={1.75} />
+      <Icon className={cn("size-4.5", tint)} strokeWidth={1.75} />
     </span>
   );
 }
@@ -86,6 +85,26 @@ function ExtBadge({ name }: { name: string }) {
     >
       {ext}
     </Badge>
+  );
+}
+
+function InlineFileMeta({
+  name,
+  subtitle,
+}: {
+  name: string;
+  subtitle?: ReactNode;
+}) {
+  if (!subtitle) return <ExtBadge name={name} />;
+
+  const ext = extOf(name);
+  if (!ext) return null;
+
+  return (
+    <span className="border-border/60 bg-muted/25 text-muted-foreground inline-flex h-4.5 shrink-0 items-center overflow-hidden rounded-full border text-[9.5px] leading-none font-medium tabular-nums">
+      <span className="border-border/50 px-1 uppercase tracking-wide border-r">{ext}</span>
+      <span className="px-1">{subtitle}</span>
+    </span>
   );
 }
 
@@ -149,10 +168,12 @@ function AttachmentIdentity({
   name,
   displayName,
   subtitle,
+  inlineMeta = false,
 }: {
   name: string;
   displayName?: string;
   subtitle?: ReactNode;
+  inlineMeta?: boolean;
 }) {
   return (
     <div className="min-w-0 flex-1">
@@ -160,9 +181,13 @@ function AttachmentIdentity({
         <span className="truncate text-sm font-medium text-foreground">
           {displayName ?? name}
         </span>
-        <ExtBadge name={name} />
+        {inlineMeta ? (
+          <InlineFileMeta name={name} subtitle={subtitle} />
+        ) : (
+          <ExtBadge name={name} />
+        )}
       </div>
-      {subtitle ? (
+      {subtitle && !inlineMeta ? (
         <div className="text-muted-foreground mt-0.5 flex min-w-0 items-center gap-2 text-[11px] leading-4 tabular-nums">
           {subtitle}
         </div>
@@ -225,6 +250,7 @@ interface AttachmentRowProps {
   status?: ReactNode;
   selected?: boolean;
   fileIcon?: ReactNode;
+  inlineMeta?: boolean;
   onRemove?: () => void;
   removeLabel?: string;
   pinControls?: boolean;
@@ -240,6 +266,7 @@ export function AttachmentRow({
   status,
   selected = false,
   fileIcon,
+  inlineMeta = false,
   onRemove,
   removeLabel,
   pinControls = false,
@@ -249,7 +276,7 @@ export function AttachmentRow({
     <div
       title={title}
       className={cn(
-        "group/attachment relative flex items-center gap-3 px-4 py-3 transition-colors duration-150 ease-[var(--ease-out-strong)]",
+        "group/attachment relative flex min-h-14 items-center gap-3 px-4 py-2 transition-colors duration-150 ease-[var(--ease-out-strong)]",
         selected ? "bg-primary/5" : ROW_HOVER_BG,
       )}
     >
@@ -259,6 +286,7 @@ export function AttachmentRow({
         name={name}
         displayName={displayName}
         subtitle={subtitle}
+        inlineMeta={inlineMeta}
       />
       <AttachmentTrailing
         status={status}

@@ -1,4 +1,9 @@
-import { initialIntakeState, intakeReducer, type IntakeState, type UploadedFile } from "./intakeReducer";
+import {
+  initialIntakeState,
+  intakeReducer,
+  type IntakeState,
+  type UploadedFile,
+} from "./intakeReducer";
 
 const MAX_INTAKE_DRAFTS = 30;
 const drafts = new Map<string, IntakeState>();
@@ -19,10 +24,11 @@ export function loadIntakeDraft(
   key: string | null,
   mailFrom: string,
   restoredUploads: UploadedFile[] = [],
+  defaultSales: IntakeState["selectedSales"] = null,
 ): IntakeState {
-  if (key === null) return initialIntakeState({ mailFrom, restoredUploads });
+  if (key === null) return initialIntakeState({ mailFrom, restoredUploads, defaultSales });
   const saved = drafts.get(key);
-  if (!saved) return initialIntakeState({ mailFrom, restoredUploads });
+  if (!saved) return initialIntakeState({ mailFrom, restoredUploads, defaultSales });
 
   drafts.delete(key);
   drafts.set(key, saved);

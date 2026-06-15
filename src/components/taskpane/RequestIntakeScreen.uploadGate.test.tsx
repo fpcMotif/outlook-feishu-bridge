@@ -1,5 +1,5 @@
 /* eslint-disable max-lines-per-function, require-unicode-regexp */
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Proves the submit-dock upload gate end-to-end (gate logic: submitSyncGate.ts,
@@ -17,10 +17,6 @@ vi.mock("../../hooks/useRequestSync", () => ({
     correct: vi.fn(() => Promise.resolve({ recordId: "rec1" })),
     existingSync: null,
   }),
-}));
-
-vi.mock("../../hooks/useSelfForward", () => ({
-  useSelfForward: () => ({ sendNote: vi.fn(() => Promise.resolve({ ok: true })) }),
 }));
 
 // generateUploadUrl never resolves, so a picked file is parked mid-upload and
@@ -74,7 +70,6 @@ import { RequestIntakeScreen } from "./RequestIntakeScreen";
 import { clearIntakeDraftCache } from "./intakeDraftCache";
 import { resetUploadDrafts } from "./uploadDraftCache";
 import { resetIntakeUploadCaches } from "./uploadIntakeFile";
-import { resetSalesDefaultForTests } from "./scheduleSalesDefault";
 import type { MailItemData } from "../../office/useMailItem";
 
 const SAMPLE: MailItemData = {
@@ -105,8 +100,8 @@ function renderScreen() {
 }
 
 // Customer auto-matches from the sender domain; add a request note + coworker so
-// the only remaining gate is the uploads.
-async function reachReadyToSync() {
+// the only remaining gate is the attachment confirmation countdown.
+async function reachReadyCoworker() {
   renderScreen();
   fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
     target: { value: "Need a quarterly L-Carnitine quote." },
@@ -114,8 +109,12 @@ async function reachReadyToSync() {
   fireEvent.change(screen.getByLabelText("Search Feishu coworkers"), {
     target: { value: "Jenny Xu" },
   });
-  fireEvent.click(await screen.findByRole("button", { name: /^Jenny Xu/i }));
-  return await screen.findByRole("button", { name: /Sync with Jenny Xu/i });
+  return await screen.findByRole("button", { name: /^Jenny Xu/i });
+}
+
+async function startReadyCountdown() {
+  fireEvent.click(await reachReadyCoworker());
+  return screen.getByRole("button", { name: /Checking attachments/i });
 }
 
 function pickFile(name = "report.pdf") {
@@ -125,7 +124,6 @@ function pickFile(name = "report.pdf") {
 }
 
 beforeEach(() => {
-  resetSalesDefaultForTests();
   clearIntakeDraftCache();
   resetUploadDrafts();
   resetIntakeUploadCaches();
@@ -134,12 +132,28 @@ beforeEach(() => {
 });
 
 describe("RequestIntakeScreen — submit dock upload gate", () => {
-  it("is live once the content prerequisites are met (baseline)", async () => {
-    expect(await reachReadyToSync()).toBeEnabled();
+  it("starts the attachment countdown once the content prerequisites are met (baseline)", async () => {
+    const coworker = await reachReadyCoworker();
+
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(coworker);
+      const checking = screen.getByRole("button", { name: /Checking attachments/i });
+      expect(checking).toBeDisabled();
+      expect(within(checking).getByText("3")).toBeInTheDocument();
+
+      await act(async () => {
+        vi.advanceTimersByTime(3000);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(screen.getByRole("button", { name: /Sync with Jenny Xu/i })).toBeEnabled();
   });
 
   it("grays the dock while a picked attachment is still uploading", async () => {
-    await reachReadyToSync();
+    await startReadyCountdown();
     pickFile();
 
     const waiting = await screen.findByRole("button", {
@@ -147,21 +161,108 @@ describe("RequestIntakeScreen — submit dock upload gate", () => {
     });
     expect(waiting).toBeDisabled();
     expect(
-      screen.queryByRole("button", { name: /Sync with Jenny Xu/i }),
+      screen.queryByRole("button", { name: /Check attachments/i }),
     ).not.toBeInTheDocument();
   });
 
   it("re-enables the dock once the unfinished upload is removed (cancel)", async () => {
-    await reachReadyToSync();
+    await startReadyCountdown();
     pickFile("report.pdf");
     await screen.findByRole("button", {
       name: /Waiting for attachments to finish uploading/i,
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /Remove report\.pdf/i }));
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(screen.getByRole("button", { name: /Remove report\.pdf/i }));
+      expect(screen.getByRole("button", { name: /Checking attachments/i })).toBeDisabled();
 
+      await act(async () => {
+        vi.advanceTimersByTime(3000);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(screen.getByRole("button", { name: /Sync with Jenny Xu/i })).toBeEnabled();
+  });
+
+  it("resets attachment confirmation when attachment selection changes", async () => {
+    const coworker = await reachReadyCoworker();
+
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(coworker);
+      expect(screen.getByRole("button", { name: /Checking attachments/i })).toBeDisabled();
+
+      await act(async () => {
+        vi.advanceTimersByTime(3000);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(screen.getByRole("button", { name: /Sync with Jenny Xu/i })).toBeEnabled();
+
+    pickFile("report.pdf");
+    await screen.findByRole("button", {
+      name: /Waiting for attachments to finish uploading/i,
+    });
+
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(screen.getByRole("button", { name: /Remove report\.pdf/i }));
+      expect(screen.getByRole("button", { name: /Checking attachments/i })).toBeDisabled();
+      expect(
+        screen.queryByRole("button", { name: /Sync with Jenny Xu/i }),
+      ).not.toBeInTheDocument();
+
+      await act(async () => {
+        vi.advanceTimersByTime(3000);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(screen.getByRole("button", { name: /Sync with Jenny Xu/i })).toBeEnabled();
     expect(
-      await screen.findByRole("button", { name: /Sync with Jenny Xu/i }),
-    ).toBeEnabled();
+      screen.queryByRole("button", { name: /Confirm sync/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("counts down before confirming an empty-attachment sync", async () => {
+    const coworker = await reachReadyCoworker();
+
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(coworker);
+      const checking = screen.getByRole("button", { name: /Checking attachments/i });
+      expect(checking).toBeDisabled();
+      expect(checking).toHaveClass("bg-muted/36", "text-muted-foreground/72");
+      expect(checking).not.toHaveAttribute("data-live");
+      expect(within(checking).getByText("3")).toBeInTheDocument();
+
+      await act(async () => {
+        vi.advanceTimersByTime(1000);
+      });
+      expect(within(checking).getByText("2")).toBeInTheDocument();
+
+      await act(async () => {
+        vi.advanceTimersByTime(1000);
+      });
+      expect(within(checking).getByText("1")).toBeInTheDocument();
+
+      await act(async () => {
+        vi.advanceTimersByTime(1000);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+
+    const ready = screen.getByRole("button", { name: /Sync with Jenny Xu/i });
+    expect(ready).toBeEnabled();
+    expect(ready).toHaveClass("bg-primary", "text-primary-foreground");
+    expect(ready).toHaveAttribute("data-live");
+    expect(screen.queryByRole("button", { name: /Check attachments/i })).not.toBeInTheDocument();
+    expect(ready.querySelector("svg.submit-dock-arrow")).toBeInTheDocument();
   });
 });

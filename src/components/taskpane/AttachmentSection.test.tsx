@@ -1,5 +1,5 @@
 /* eslint-disable max-lines-per-function */
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AttachmentSection } from "./AttachmentSection";
@@ -43,7 +43,7 @@ function setup(
     onRemoveUpload: vi.fn(),
     ...(onRetryUpload ? { onRetryUpload } : {}),
   };
-  render(
+  const view = render(
     <AttachmentSection
       mailAttachments={props.mailAttachments ?? []}
       selectedIds={props.selectedIds ?? []}
@@ -51,7 +51,7 @@ function setup(
       {...handlers}
     />,
   );
-  return handlers;
+  return { ...handlers, ...view };
 }
 
 afterEach(() => {
@@ -72,9 +72,7 @@ describe("AttachmentSection", () => {
     expect(screen.getByText("180.0 KB")).toBeInTheDocument();
     expect(screen.getByText("pdf")).toBeInTheDocument();
     expect(screen.getByText("docx")).toBeInTheDocument();
-    expect(
-      screen.getByText("Drag & drop files or click to upload"),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Drag & drop or click")).toBeInTheDocument();
     expect(screen.queryByText(/pdf.*xls.*doc.*image/i)).not.toBeInTheDocument();
     expect(screen.queryByText("Ready")).not.toBeInTheDocument();
     expect(
@@ -195,6 +193,57 @@ describe("AttachmentSection", () => {
     expect(screen.queryByText(/selected/i)).not.toBeInTheDocument();
     expect(screen.getByText(/2\/10/)).toBeInTheDocument();
     expect(screen.getByText(/total/)).toBeInTheDocument();
+  });
+
+  it("bounces the header count only when the attachment count decreases", async () => {
+    const mailAttachments = [
+      mail("a1", "RFQ-2026-Q1.pdf"),
+      mail("a2", "specification.docx"),
+    ];
+    const view = setup({
+      mailAttachments,
+      selectedIds: ["a1", "a2"],
+      uploadedFiles: [],
+    });
+    const countPill = () => screen.getByText(/\/10/);
+
+    expect(countPill()).not.toHaveClass("attachment-count-down-bounce");
+
+    view.rerender(
+      <AttachmentSection
+        mailAttachments={mailAttachments}
+        selectedIds={["a1"]}
+        uploadedFiles={[]}
+        onToggleMail={view.onToggleMail}
+        onRemoveMail={view.onRemoveMail}
+        onToggleUpload={view.onToggleUpload}
+        onSetUploadedSelection={view.onSetUploadedSelection}
+        onAddFiles={view.onAddFiles}
+        onRemoveUpload={view.onRemoveUpload}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(countPill()).toHaveClass("attachment-count-down-bounce"),
+    );
+
+    view.rerender(
+      <AttachmentSection
+        mailAttachments={mailAttachments}
+        selectedIds={["a1", "a2"]}
+        uploadedFiles={[]}
+        onToggleMail={view.onToggleMail}
+        onRemoveMail={view.onRemoveMail}
+        onToggleUpload={view.onToggleUpload}
+        onSetUploadedSelection={view.onSetUploadedSelection}
+        onAddFiles={view.onAddFiles}
+        onRemoveUpload={view.onRemoveUpload}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(countPill()).not.toHaveClass("attachment-count-down-bounce"),
+    );
   });
 
   it("sums only selected mail attachments in the header total", () => {

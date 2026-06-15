@@ -1,5 +1,5 @@
 /* eslint-disable max-lines-per-function, require-unicode-regexp */
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 type SyncResult =
@@ -30,16 +30,6 @@ vi.mock("../../hooks/useRequestSync", () => ({
     correct: mockCorrect,
     existingSync: mockExistingSync,
   }),
-}));
-const mockSendSelfForward = vi.fn(
-  (
-    _payload: unknown,
-  ): Promise<
-    { ok: true } | { ok: false; step: string; code: string; message: string }
-  > => Promise.resolve({ ok: true }),
-);
-vi.mock("../../hooks/useSelfForward", () => ({
-  useSelfForward: () => ({ sendNote: mockSendSelfForward }),
 }));
 
 vi.mock("../../hooks/useAttachmentStaging", () => ({
@@ -148,14 +138,28 @@ async function searchCoworker(name: string) {
   });
 }
 
+async function selectCoworkerAndConfirm(name: string) {
+  const coworker = await searchCoworker(name);
+
+  vi.useFakeTimers();
+  try {
+    fireEvent.click(coworker);
+    expect(screen.getByRole("button", { name: /Checking attachments/i })).toBeDisabled();
+    await act(async () => {
+      vi.advanceTimersByTime(3000);
+    });
+  } finally {
+    vi.useRealTimers();
+  }
+  fireEvent.click(screen.getByRole("button", { name: new RegExp(`Sync with ${name}`, "i") }));
+}
+
 describe("RequestIntakeScreen sync wiring", () => {
   beforeEach(() => {
     clearIntakeDraftCache();
     mockSync.mockClear();
     mockCorrect.mockClear();
     mockExistingSync = null;
-    mockSendSelfForward.mockClear();
-    mockSendSelfForward.mockImplementation(() => Promise.resolve({ ok: true }));
     mockStageAttachments.mockReset();
     mockStageAttachments.mockResolvedValue({ sources: [], failed: [] });
     localStorage.clear();
@@ -169,10 +173,7 @@ describe("RequestIntakeScreen sync wiring", () => {
         target: { value: "Need a quarterly L-Carnitine quote." },
       },
     );
-    fireEvent.click(await searchCoworker("Jenny Xu"));
-    fireEvent.click(
-      screen.getByRole("button", { name: /Sync with Jenny Xu/i }),
-    );
+    await selectCoworkerAndConfirm("Jenny Xu");
 
     await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(1));
     expect(
@@ -239,10 +240,7 @@ describe("RequestIntakeScreen sync wiring", () => {
         target: { value: "Need a quarterly L-Carnitine quote." },
       },
     );
-    fireEvent.click(await searchCoworker("Jenny Xu"));
-    fireEvent.click(
-      screen.getByRole("button", { name: /Sync with Jenny Xu/i }),
-    );
+    await selectCoworkerAndConfirm("Jenny Xu");
 
     await screen.findByRole("heading", { name: /^Synced$/i });
 
@@ -290,10 +288,7 @@ describe("RequestIntakeScreen sync wiring", () => {
         target: { value: "Need a quarterly L-Carnitine quote." },
       },
     );
-    fireEvent.click(await searchCoworker("Jenny Xu"));
-    fireEvent.click(
-      screen.getByRole("button", { name: /Sync with Jenny Xu/i }),
-    );
+    await selectCoworkerAndConfirm("Jenny Xu");
 
     expect(
       await screen.findByRole("heading", { name: /Syncing to Feishu Base/i }),
@@ -340,10 +335,7 @@ describe("RequestIntakeScreen sync wiring", () => {
         target: { value: "Need a quarterly L-Carnitine quote." },
       },
     );
-    fireEvent.click(await searchCoworker("Jenny Xu"));
-    fireEvent.click(
-      screen.getByRole("button", { name: /Sync with Jenny Xu/i }),
-    );
+    await selectCoworkerAndConfirm("Jenny Xu");
 
     await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(1));
     expect(mockSync.mock.calls[0][0]).toMatchObject({
@@ -371,10 +363,7 @@ describe("RequestIntakeScreen sync wiring", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: /STOCKMEIER Chemie/i }));
 
-    fireEvent.click(await searchCoworker("Jenny Xu"));
-    fireEvent.click(
-      screen.getByRole("button", { name: /Sync with Jenny Xu/i }),
-    );
+    await selectCoworkerAndConfirm("Jenny Xu");
 
     await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(1));
     expect(mockSync.mock.calls[0][0]).toMatchObject({
@@ -393,10 +382,7 @@ describe("RequestIntakeScreen sync wiring", () => {
         target: { value: "Need a quarterly L-Carnitine quote." },
       },
     );
-    fireEvent.click(await searchCoworker("Jenny Xu"));
-    fireEvent.click(
-      screen.getByRole("button", { name: /Sync with Jenny Xu/i }),
-    );
+    await selectCoworkerAndConfirm("Jenny Xu");
 
     await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(1));
     expect(mockSync.mock.calls[0][0]).toMatchObject({
@@ -416,10 +402,7 @@ describe("RequestIntakeScreen sync wiring", () => {
         target: { value: "Need a quarterly L-Carnitine quote." },
       },
     );
-    fireEvent.click(await searchCoworker("Jenny Xu"));
-    fireEvent.click(
-      screen.getByRole("button", { name: /Sync with Jenny Xu/i }),
-    );
+    await selectCoworkerAndConfirm("Jenny Xu");
 
     await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(1));
     expect(mockSync.mock.calls[0][0]).toMatchObject({
@@ -428,38 +411,7 @@ describe("RequestIntakeScreen sync wiring", () => {
     });
   });
 
-  // ADR-0017: the Self-Forward "Note to myself" fires in parallel with the
-  // Base sync. Both calls are issued from the same submit click.
-  it("fires the Self-Forward `sendNote` alongside `sync` on submit", async () => {
-    renderScreen();
-    fireEvent.change(
-      screen.getByPlaceholderText(/Describe your requirements/i),
-      {
-        target: { value: "Need a quarterly L-Carnitine quote." },
-      },
-    );
-    fireEvent.click(await searchCoworker("Jenny Xu"));
-    fireEvent.click(
-      screen.getByRole("button", { name: /Sync with Jenny Xu/i }),
-    );
-
-    await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(mockSendSelfForward).toHaveBeenCalledTimes(1));
-    expect(mockSendSelfForward.mock.calls[0][0]).toMatchObject({
-      originalMessageId: "item-1",
-      selfEmail: "jenny.xu@fenchem.com",
-      customerName: "Bayer Pharma",
-      clientEmail: "m.hoffmann@bayerpharma.de",
-      requestSelections: [
-        {
-          requestType: "Quotation",
-          note: "Need a quarterly L-Carnitine quote.",
-        },
-      ],
-    });
-  });
-
-  it("keeps attachment token minting on the sync critical path while Self-Forward runs in parallel", async () => {
+  it("keeps attachment token minting on the sync critical path", async () => {
     let resolveStage!: (value: AttachmentSyncResult) => void;
     mockStageAttachments.mockReturnValueOnce(
       new Promise<AttachmentSyncResult>((resolve) => {
@@ -492,16 +444,15 @@ describe("RequestIntakeScreen sync wiring", () => {
         target: { value: "Need a quarterly L-Carnitine quote." },
       },
     );
-    fireEvent.click(screen.getByRole("checkbox", { name: /rfq\.pdf/i }));
-    fireEvent.click(await searchCoworker("Jenny Xu"));
-    fireEvent.click(
-      screen.getByRole("button", { name: /Sync with Jenny Xu/i }),
+    await waitFor(() =>
+      expect(screen.getByRole("checkbox", { name: /rfq\.pdf/i })).toBeChecked(),
     );
+    await selectCoworkerAndConfirm("Jenny Xu");
 
+    // The sync screen shows immediately, but the row write waits on staging.
     expect(
       await screen.findByRole("heading", { name: /Syncing to Feishu Base/i }),
     ).toBeInTheDocument();
-    await waitFor(() => expect(mockSendSelfForward).toHaveBeenCalledTimes(1));
     expect(mockSync).not.toHaveBeenCalled();
 
     resolveStage({ sources: [{ storageId: "stSLOW", fileName: "slow.pdf" }], failed: [] });
@@ -510,85 +461,6 @@ describe("RequestIntakeScreen sync wiring", () => {
     expect(mockSync.mock.calls[0][0]).toMatchObject({
       attachmentSources: [{ storageId: "stSLOW", fileName: "slow.pdf" }],
     });
-  });
-
-  // ADR-0017 soft-fail: if Self-Forward fails but Base succeeded, the user
-  // still lands on the success ("received") screen — the row is authoritative
-  // — and a `Note-to-myself failed — retry` chip surfaces.
-  it("shows the success screen with a retry chip when Self-Forward fails but sync succeeds", async () => {
-    mockSendSelfForward.mockImplementationOnce(() =>
-      Promise.resolve({
-        ok: false,
-        step: "send",
-        code: "ErrorAccessDenied",
-        message: "Graph scopes not consented",
-      }),
-    );
-    renderScreen();
-    fireEvent.change(
-      screen.getByPlaceholderText(/Describe your requirements/i),
-      {
-        target: { value: "Need a quarterly L-Carnitine quote." },
-      },
-    );
-    fireEvent.click(await searchCoworker("Jenny Xu"));
-    fireEvent.click(
-      screen.getByRole("button", { name: /Sync with Jenny Xu/i }),
-    );
-
-    expect(
-      await screen.findByRole("heading", { name: /^Synced$/i }),
-    ).toBeInTheDocument();
-    expect(
-      await screen.findByRole("button", { name: /Retry note-to-myself/i }),
-    ).toBeInTheDocument();
-  });
-
-  it("re-arms the pending note-to-myself chip while retrying Self-Forward", async () => {
-    mockSendSelfForward.mockImplementationOnce(() =>
-      Promise.resolve({
-        ok: false,
-        step: "send",
-        code: "ErrorAccessDenied",
-        message: "Graph scopes not consented",
-      }),
-    );
-    let resolveRetry!: (value: { ok: true }) => void;
-    mockSendSelfForward.mockImplementationOnce(
-      () =>
-        new Promise<{ ok: true }>((resolve) => {
-          resolveRetry = resolve;
-        }),
-    );
-    renderScreen();
-    fireEvent.change(
-      screen.getByPlaceholderText(/Describe your requirements/i),
-      {
-        target: { value: "Need a quarterly L-Carnitine quote." },
-      },
-    );
-    fireEvent.click(await searchCoworker("Jenny Xu"));
-    fireEvent.click(
-      screen.getByRole("button", { name: /Sync with Jenny Xu/i }),
-    );
-
-    const retry = await screen.findByRole("button", {
-      name: /Retry note-to-myself/i,
-    });
-    fireEvent.click(retry);
-
-    expect(
-      await screen.findByText(/Sending Note to myself/i),
-    ).toBeInTheDocument();
-    expect(mockSendSelfForward).toHaveBeenCalledTimes(2);
-
-    resolveRetry({ ok: true });
-    await waitFor(() => {
-      expect(
-        screen.queryByText(/Sending Note to myself/i),
-      ).not.toBeInTheDocument();
-    });
-    expect(screen.queryByText(/Note to myself sent/i)).not.toBeInTheDocument();
   });
 
   // ADR-0027: a checked mail attachment is staged at submit and its Convex
@@ -625,11 +497,10 @@ describe("RequestIntakeScreen sync wiring", () => {
         target: { value: "Need a quarterly L-Carnitine quote." },
       },
     );
-    fireEvent.click(screen.getByRole("checkbox", { name: /rfq\.pdf/i }));
-    fireEvent.click(await searchCoworker("Jenny Xu"));
-    fireEvent.click(
-      screen.getByRole("button", { name: /Sync with Jenny Xu/i }),
+    await waitFor(() =>
+      expect(screen.getByRole("checkbox", { name: /rfq\.pdf/i })).toBeChecked(),
     );
+    await selectCoworkerAndConfirm("Jenny Xu");
 
     await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(1));
     expect(mockStageAttachments).toHaveBeenCalledWith(
@@ -667,14 +538,13 @@ describe("RequestIntakeScreen sync wiring", () => {
       screen.getByPlaceholderText(/Describe your requirements/i),
       { target: { value: "Need a quarterly L-Carnitine quote." } },
     );
-    fireEvent.click(await searchCoworker("Jenny Xu"));
-    fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
+    await selectCoworkerAndConfirm("Jenny Xu");
 
     expect(
       await screen.findByRole("heading", { name: /Syncing to Feishu Base/i }),
     ).toBeInTheDocument();
 
-    // The server completes the row out-of-band (Base + self-forward succeeded).
+    // The server completes the row out-of-band (Base sync succeeded).
     mockExistingSync = {
       status: "synced",
       recordId: "rec_recovered",
@@ -730,10 +600,7 @@ describe("RequestIntakeScreen sync wiring", () => {
         target: { value: "Need a quarterly L-Carnitine quote." },
       },
     );
-    fireEvent.click(await searchCoworker("Jenny Xu"));
-    fireEvent.click(
-      screen.getByRole("button", { name: /Sync with Jenny Xu/i }),
-    );
+    await selectCoworkerAndConfirm("Jenny Xu");
 
     expect(
       await screen.findByRole("heading", { name: /Sync failed/i }),

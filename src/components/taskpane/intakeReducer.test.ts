@@ -37,10 +37,19 @@ describe("initialIntakeState", () => {
       customerTouched: false,
       bitableRecordId: null,
       syncError: null,
-      selfForwardStatus: null,
-      selfForwardError: null,
     });
     expect(s.notes).toEqual({});
+  });
+
+  it("can seed Sales from the signed-in user before first render", () => {
+    const defaultSales: Coworker = { openId: "ou_self", name: "Jenny Xu" };
+    const s = initialIntakeState({
+      mailFrom: "a@b.com",
+      defaultSales,
+    });
+
+    expect(s.selectedSales).toBe(defaultSales);
+    expect(s.salesTouched).toBe(false);
   });
 });
 
@@ -178,23 +187,15 @@ describe("intakeReducer customer auto-match guard", () => {
   });
 });
 
-describe("intakeReducer sync and self-forward state", () => {
+describe("intakeReducer sync state", () => {
   const base = initialIntakeState("a@b.com");
 
-  it("syncStarted shows the sync screen and arms the pending Self-Forward chip", () => {
+  it("syncStarted shows the sync screen", () => {
     const next = intakeReducer(base, { type: "syncStarted" });
     expect(next).toMatchObject({
       screen: "sync",
       syncError: null,
-      selfForwardStatus: "pending",
-      selfForwardError: null,
     });
-  });
-
-  it("syncStarted keeps a prior successful Self-Forward status across sync retries", () => {
-    const ok = intakeReducer(base, { type: "selfForwardSucceeded" });
-    const next = intakeReducer(ok, { type: "syncStarted" });
-    expect(next.selfForwardStatus).toBe("ok");
   });
 
   it("syncSucceeded captures the bitableRecordId so a retry can correct in place", () => {
@@ -213,41 +214,6 @@ describe("intakeReducer sync and self-forward state", () => {
     });
     expect(next).toMatchObject({ screen: "error", syncError: "Base down" });
   });
-
-  it("selfForwardStarted re-arms the pending chip", () => {
-    const failed = intakeReducer(base, {
-      type: "selfForwardFailed",
-      code: "x",
-      message: "y",
-    });
-    const next = intakeReducer(failed, { type: "selfForwardStarted" });
-    expect(next.selfForwardStatus).toBe("pending");
-    expect(next.selfForwardError).toBeNull();
-  });
-
-  it("selfForwardSucceeded clears any prior error", () => {
-    const failed = intakeReducer(base, {
-      type: "selfForwardFailed",
-      code: "x",
-      message: "y",
-    });
-    const next = intakeReducer(failed, { type: "selfForwardSucceeded" });
-    expect(next.selfForwardStatus).toBe("ok");
-    expect(next.selfForwardError).toBeNull();
-  });
-
-  it("selfForwardFailed records the code and message for the retry chip", () => {
-    const next = intakeReducer(base, {
-      type: "selfForwardFailed",
-      code: "ErrorAccessDenied",
-      message: "no consent",
-    });
-    expect(next.selfForwardStatus).toBe("failed");
-    expect(next.selfForwardError).toEqual({
-      code: "ErrorAccessDenied",
-      message: "no consent",
-    });
-  });
 });
 
 describe("intakeReducer attachment selection", () => {
@@ -257,8 +223,49 @@ describe("intakeReducer attachment selection", () => {
 
   it("seeds empty attachment selections", () => {
     expect(base.selectedAttachmentIds).toEqual([]);
+    expect(base.seenMailAttachmentIds).toEqual([]);
     expect(base.dismissedMailAttachmentIds).toEqual([]);
     expect(base.uploadedFiles).toEqual([]);
+  });
+
+  it("auto-selects newly discovered outlook attachments up to open slots", () => {
+    const withUpload = intakeReducer(base, {
+      type: "filesAdded",
+      files: [
+        { id: "u1", file: file("a.pdf"), rejection: null, selected: true },
+      ],
+    });
+
+    const next = intakeReducer(withUpload, {
+      type: "mailAttachmentsDiscovered",
+      ids: Array.from({ length: MAX_ATTACHMENT_COUNT }, (_, i) => `att_${i}`),
+    });
+
+    expect(next.selectedAttachmentIds).toHaveLength(MAX_ATTACHMENT_COUNT - 1);
+    expect(next.selectedAttachmentIds.at(0)).toBe("att_0");
+    expect(next.selectedAttachmentIds.at(-1)).toBe(
+      `att_${MAX_ATTACHMENT_COUNT - 2}`,
+    );
+    expect(next.seenMailAttachmentIds).toHaveLength(MAX_ATTACHMENT_COUNT);
+  });
+
+  it("does not auto-reselect an outlook attachment after manual deselect", () => {
+    const discovered = intakeReducer(base, {
+      type: "mailAttachmentsDiscovered",
+      ids: ["att_1"],
+    });
+    const deselected = intakeReducer(discovered, {
+      type: "attachmentToggled",
+      id: "att_1",
+    });
+
+    const rediscovered = intakeReducer(deselected, {
+      type: "mailAttachmentsDiscovered",
+      ids: ["att_1"],
+    });
+
+    expect(rediscovered.selectedAttachmentIds).toEqual([]);
+    expect(rediscovered.seenMailAttachmentIds).toEqual(["att_1"]);
   });
 
   it("mailAttachmentRemoved deselects and dismisses an outlook attachment", () => {
@@ -546,6 +553,7 @@ describe("intakeReducer attachment selection", () => {
     });
     const reset = intakeReducer(s, { type: "startedOver" });
     expect(reset.selectedAttachmentIds).toEqual([]);
+    expect(reset.seenMailAttachmentIds).toEqual([]);
     expect(reset.dismissedMailAttachmentIds).toEqual([]);
     expect(reset.uploadedFiles).toEqual([]);
   });
@@ -558,11 +566,6 @@ describe("intakeReducer startedOver reset", () => {
     s = intakeReducer(s, { type: "coworkerSelected", coworker: COWORKER });
     s = intakeReducer(s, { type: "customerOverridden", customer: STOCK });
     s = intakeReducer(s, { type: "syncSucceeded", recordId: "rec_1" });
-    s = intakeReducer(s, {
-      type: "selfForwardFailed",
-      code: "c",
-      message: "m",
-    });
 
     const reset = intakeReducer(s, { type: "startedOver" });
     expect(reset).toMatchObject({
@@ -575,8 +578,6 @@ describe("intakeReducer startedOver reset", () => {
       customerTouched: false,
       bitableRecordId: null,
       syncError: null,
-      selfForwardStatus: null,
-      selfForwardError: null,
     });
     expect(reset.mailFrom).toBe("a@b.com");
   });

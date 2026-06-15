@@ -1,8 +1,6 @@
 /* eslint-disable require-unicode-regexp */
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-import { resetSalesDefaultForTests, SALES_DEFAULT_DELAY_MS } from "./scheduleSalesDefault";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 let mockExistingSync:
   | {
@@ -18,12 +16,6 @@ vi.mock("../../hooks/useRequestSync", () => ({
     sync: vi.fn(() => Promise.resolve({ recordId: "rec1" })),
     correct: vi.fn(() => Promise.resolve({ recordId: "rec1" })),
     existingSync: mockExistingSync,
-  }),
-}));
-
-vi.mock("../../hooks/useSelfForward", () => ({
-  useSelfForward: () => ({
-    sendNote: vi.fn(() => Promise.resolve({ ok: true })),
   }),
 }));
 
@@ -150,8 +142,27 @@ async function searchCoworker(name: string) {
   });
 }
 
+async function selectCoworkerAndConfirm(name: string) {
+  const coworker = await searchCoworker(name);
+
+  vi.useFakeTimers();
+  try {
+    fireEvent.click(coworker);
+    expect(
+      screen.getByRole("button", { name: /Checking attachments/i }),
+    ).toBeDisabled();
+    await act(async () => {
+      vi.advanceTimersByTime(3000);
+    });
+  } finally {
+    vi.useRealTimers();
+  }
+  fireEvent.click(
+    screen.getByRole("button", { name: new RegExp(`Sync with ${name}`, "i") }),
+  );
+}
+
 beforeEach(() => {
-  resetSalesDefaultForTests();
   clearIntakeDraftCache();
   localStorage.clear();
   customerDirectoryRecords = [FANPC, MICROSOFT];
@@ -235,9 +246,9 @@ describe("RequestIntakeScreen login gate", () => {
     expect(
       screen.getByPlaceholderText(/Describe your requirements/i),
     ).toBeInTheDocument();
-    const coworkerSection = screen.getByText("Customer, sales & coworker");
+    const coworkerSection = screen.getByText("Participants");
     expect(
-      coworkerSection.compareDocumentPosition(screen.getByText("New request")),
+      coworkerSection.compareDocumentPosition(screen.getByText("Request")),
     ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(screen.queryByText(/Recent & suggested/i)).not.toBeInTheDocument();
     expect(document.querySelector('[data-client-row="true"]')).toBeNull();
@@ -249,24 +260,7 @@ describe("RequestIntakeScreen login gate", () => {
 });
 
 describe("RequestIntakeScreen sales default", () => {
-  const rafCallbacks: FrameRequestCallback[] = [];
-
-  beforeEach(() => {
-    rafCallbacks.length = 0;
-    vi.useFakeTimers();
-    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
-      rafCallbacks.push(cb);
-      return rafCallbacks.length;
-    });
-    vi.stubGlobal("cancelAnimationFrame", () => {});
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-    vi.unstubAllGlobals();
-  });
-
-  it("shows Pick a sale before deferring to the signed-in user", () => {
+  it("seeds the signed-in user as the sales pick on first render", () => {
     render(
       <RequestIntakeScreen
         isLoggedIn
@@ -282,23 +276,16 @@ describe("RequestIntakeScreen sales default", () => {
       />,
     );
 
-    expect(screen.getByText("Pick a sale")).toBeInTheDocument();
-    expect(document.querySelector('[data-sales-row="true"]')).toBeNull();
-
-    act(() => {
-      for (const cb of rafCallbacks) cb(0);
-      vi.advanceTimersByTime(SALES_DEFAULT_DELAY_MS - 1);
-    });
-
-    expect(screen.getByText("Pick a sale")).toBeInTheDocument();
-    expect(document.querySelector('[data-sales-row="true"]')).toBeNull();
-
-    act(() => {
-      vi.advanceTimersByTime(1);
-    });
-
     expect(screen.getByText("Jenny Xu")).toBeInTheDocument();
-    expect(document.querySelector('[data-sales-row="true"]')).not.toBeNull();
+    const row = document.querySelector(
+      '[data-sales-row="true"]',
+    ) as HTMLElement;
+    expect(row).not.toBeNull();
+    const panel = screen
+      .getByText("Pick a sale")
+      .closest('[aria-labelledby="sales-picker-title"]');
+    expect(panel).not.toBeNull();
+    expect(panel).toContainElement(row);
   });
 
   it("keeps customer owner out of the default sales pick", () => {
@@ -318,14 +305,6 @@ describe("RequestIntakeScreen sales default", () => {
         onLoginFallback={vi.fn()}
       />,
     );
-
-    expect(screen.getByText("Pick a sale")).toBeInTheDocument();
-    expect(screen.queryByText("Ruhollah Hosseini (Ali)")).toBeNull();
-
-    act(() => {
-      for (const cb of rafCallbacks) cb(0);
-      vi.advanceTimersByTime(SALES_DEFAULT_DELAY_MS);
-    });
 
     expect(screen.getByText("NJ Sales")).toBeInTheDocument();
     expect(screen.queryByText("Ruhollah Hosseini (Ali)")).toBeNull();
@@ -349,7 +328,7 @@ describe("RequestIntakeScreen request details", () => {
     renderRequestIntakeScreen(true);
     fillRequestNote();
 
-    expect(screen.getByText("Customer, sales & coworker")).toBeInTheDocument();
+    expect(screen.getByText("Participants")).toBeInTheDocument();
     expect(
       screen.getByDisplayValue("Need a quarterly L-Carnitine quote."),
     ).toBeInTheDocument();
@@ -387,6 +366,15 @@ describe("RequestIntakeScreen customer auto-match", () => {
     renderRequestIntakeScreen(true, "microsoft-noreply@microsoft.com");
 
     expect(screen.getByText("Microsoft")).toBeInTheDocument();
+    const row = document.querySelector(
+      '[data-customer-row="true"]',
+    ) as HTMLElement;
+    expect(row).not.toBeNull();
+    const panel = screen
+      .getByText("Pick a customer")
+      .closest('[aria-labelledby="customer-picker-title"]');
+    expect(panel).not.toBeNull();
+    expect(panel).toContainElement(row);
     expect(screen.queryByText(/No match/i)).not.toBeInTheDocument();
   });
 
@@ -421,10 +409,19 @@ describe("RequestIntakeScreen coworker selection", () => {
     renderRequestIntakeScreen(true, "fanpc@fenchem.com");
     fillRequestNote();
 
-    fireEvent.click(await searchCoworker("Jenny Xu"));
+    const jenny = await searchCoworker("Jenny Xu");
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(jenny);
+      expect(
+        screen.getByRole("button", { name: /Checking attachments/i }),
+      ).toBeDisabled();
+    } finally {
+      vi.useRealTimers();
+    }
     expect(screen.getByText("Jenny Xu")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /Sync with Jenny Xu/i }),
+      screen.getByRole("button", { name: /Checking attachments/i }),
     ).toBeInTheDocument();
 
     // Replacing the coworker requires re-opening the search via the row's Change
@@ -436,10 +433,19 @@ describe("RequestIntakeScreen coworker selection", () => {
       within(coworkerRow).getByRole("button", { name: /change/i }),
     );
 
-    fireEvent.click(await searchCoworker("Michael Chen"));
+    const michael = await searchCoworker("Michael Chen");
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(michael);
+      expect(
+        screen.getByRole("button", { name: /Checking attachments/i }),
+      ).toBeDisabled();
+    } finally {
+      vi.useRealTimers();
+    }
     expect(screen.getByText("Michael Chen")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /Sync with Michael Chen/i }),
+      screen.getByRole("button", { name: /Checking attachments/i }),
     ).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /Remove coworker/i }),
@@ -452,10 +458,7 @@ describe("RequestIntakeScreen sync flow", () => {
     renderRequestIntakeScreen(true, "fanpc@fenchem.com");
     fillRequestNote();
 
-    fireEvent.click(await searchCoworker("Jenny Xu"));
-    fireEvent.click(
-      screen.getByRole("button", { name: /Sync with Jenny Xu/i }),
-    );
+    await selectCoworkerAndConfirm("Jenny Xu");
 
     expect(
       screen.getByRole("heading", { name: /Syncing to Feishu Base/i }),

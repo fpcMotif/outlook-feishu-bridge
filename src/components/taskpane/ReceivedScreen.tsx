@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
-import { Check, ExternalLink, MailWarning } from "lucide-react";
+import { Check, ExternalLink } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
+import { TaskpaneScrollShell } from "@/design-system/taskpane";
 import { cn } from "@/lib/utils";
 
 type StepState = "done" | "active";
@@ -12,12 +12,6 @@ interface Step {
   state: StepState;
 }
 
-// ADR-0017: the parallel Self-Forward ("Note to myself") landed in the
-// Initiator's own mailbox plus audit recipient — or didn't. `null` means we
-// didn't try (dev preview
-// without Office.js); the chip is hidden in that case.
-type SelfForwardStatus = "pending" | "ok" | "failed" | null;
-
 // Deferred attachment-fill lifecycle (ADR-0027), surfaced from
 // getBitableSyncByConversation. `null` = no attachments were staged (nothing to
 // wait for). The soft-gate treats `filled` and `null` as ready; the Sales fields'
@@ -25,7 +19,7 @@ type SelfForwardStatus = "pending" | "ok" | "failed" | null;
 type AttachmentFillStatus = "pending" | "filling" | "filled" | "failed" | null;
 
 function attachmentsReady(status: AttachmentFillStatus | undefined): boolean {
-  return status == null || status === "filled";
+  return status === null || status === undefined || status === "filled";
 }
 
 import { relativeSubmittedTime } from "./relativeSubmittedTime";
@@ -102,7 +96,7 @@ function buildSteps(
   ];
   // Only show the attachment leg when there were attachments to fill. The Sales
   // fields can be empty/partial/full independently — they never gate this step.
-  if (attachmentStatus != null) {
+  if (attachmentStatus !== null && attachmentStatus !== undefined) {
     const filled = attachmentStatus === "filled";
     const failed = attachmentStatus === "failed";
     steps.push({
@@ -122,38 +116,42 @@ function buildSteps(
   return steps;
 }
 
-function SelfForwardChip({
-  status,
-  onRetry,
+function BitableRecordLink({
+  detailUrl,
+  ready,
 }: {
-  status: SelfForwardStatus;
-  onRetry?: () => void;
+  detailUrl: string;
+  ready: boolean;
 }) {
-  if (status === null) return null;
-  if (status === "ok") return null;
-  if (status === "pending") {
-    return (
-      <div className="text-muted-foreground mt-3 inline-flex items-center gap-1.5 rounded-full bg-muted/80 px-3 py-1 text-xs">
-        Sending Note to myself…
-      </div>
-    );
-  }
   return (
-    <div className="mt-3 flex flex-col items-center gap-1.5">
-      <div className="text-destructive inline-flex items-center gap-1.5 rounded-full bg-destructive/10 px-3 py-1 text-xs">
-        <MailWarning className="size-3.5" />
-        Note-to-myself failed
-      </div>
-      {onRetry ? (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 px-2 text-xs transition-transform active:scale-[0.96]"
-          onClick={onRetry}
-        >
-          Retry note-to-myself
-        </Button>
-      ) : null}
+    <a
+      href={detailUrl}
+      target="_blank"
+      rel="noreferrer"
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-sm text-sm font-medium underline-offset-4 transition-colors hover:underline focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/20",
+        ready ? "text-primary mt-3" : "text-muted-foreground",
+      )}
+    >
+      <ExternalLink className="size-3.5" />
+      {ready ? "Open in Feishu" : "Open in Feishu anyway"}
+    </a>
+  );
+}
+
+function AttachmentStatusChip({ status }: { status?: AttachmentFillStatus }) {
+  return (
+    <div
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs",
+        status === "failed"
+          ? "text-destructive bg-destructive/10"
+          : "text-muted-foreground bg-muted/80",
+      )}
+    >
+      {status === "failed"
+        ? "Some attachments couldn't finish"
+        : "Uploading attachments…"}
     </div>
   );
 }
@@ -177,20 +175,7 @@ function BitableRecordAction({
   }
 
   const ready = attachmentsReady(attachmentStatus);
-  const link = (
-    <a
-      href={detailUrl}
-      target="_blank"
-      rel="noreferrer"
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-sm text-sm font-medium underline-offset-4 transition-colors hover:underline focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/20",
-        ready ? "text-primary mt-3" : "text-muted-foreground",
-      )}
-    >
-      <ExternalLink className="size-3.5" />
-      {ready ? "Open in Feishu" : "Open in Feishu anyway"}
-    </a>
-  );
+  const link = <BitableRecordLink detailUrl={detailUrl} ready={ready} />;
 
   // The row exists the instant it is created, so the link always works. The soft
   // gate keeps it secondary — under an "uploading…" chip — until the deferred fill
@@ -198,18 +183,7 @@ function BitableRecordAction({
   if (ready) return link;
   return (
     <div className="mt-3 flex flex-col items-center gap-1.5">
-      <div
-        className={cn(
-          "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs",
-          attachmentStatus === "failed"
-            ? "text-destructive bg-destructive/10"
-            : "text-muted-foreground bg-muted/80",
-        )}
-      >
-        {attachmentStatus === "failed"
-          ? "Some attachments couldn't finish"
-          : "Uploading attachments…"}
-      </div>
+      <AttachmentStatusChip status={attachmentStatus} />
       {link}
     </div>
   );
@@ -229,6 +203,16 @@ function ReceivedTimeline({ steps }: { steps: Step[] }) {
   );
 }
 
+interface ReceivedScreenProps {
+  coworkerCount: number;
+  recordId?: string | null;
+  detailUrl?: string | null;
+  submittedAt?: number;
+  devFixtureLabel?: string;
+  alreadySynced?: boolean;
+  attachmentStatus?: AttachmentFillStatus;
+}
+
 export function ReceivedScreen({
   coworkerCount,
   recordId,
@@ -236,24 +220,12 @@ export function ReceivedScreen({
   submittedAt,
   devFixtureLabel,
   alreadySynced = false,
-  selfForwardStatus = null,
-  onRetrySelfForward,
   attachmentStatus,
-}: {
-  coworkerCount: number;
-  recordId?: string | null;
-  detailUrl?: string | null;
-  submittedAt?: number;
-  devFixtureLabel?: string;
-  alreadySynced?: boolean;
-  selfForwardStatus?: SelfForwardStatus;
-  onRetrySelfForward?: () => void;
-  attachmentStatus?: AttachmentFillStatus;
-}) {
+}: ReceivedScreenProps) {
   const steps = buildSteps(coworkerCount, submittedAt, attachmentStatus);
 
   return (
-    <div className="bg-background text-foreground no-scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto px-5 py-8">
+    <TaskpaneScrollShell>
       <div className="intake-stagger grid min-h-0 flex-1 -translate-y-3 grid-rows-[minmax(0,1fr)_auto_minmax(0,1fr)] justify-items-center py-7">
         <header className="sync-enter row-start-2 w-full max-w-[420px] shrink-0 px-1 text-center">
           <SuccessHalo />
@@ -270,13 +242,9 @@ export function ReceivedScreen({
             detailUrl={detailUrl}
             attachmentStatus={attachmentStatus}
           />
-          <SelfForwardChip
-            status={selfForwardStatus}
-            onRetry={onRetrySelfForward}
-          />
         </header>
         <ReceivedTimeline steps={steps} />
       </div>
-    </div>
+    </TaskpaneScrollShell>
   );
 }

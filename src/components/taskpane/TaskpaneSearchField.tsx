@@ -26,7 +26,7 @@ export function TaskpaneSearchField({
 }) {
   const isCombobox = controlsId !== undefined;
   return (
-    <div className="bg-background flex h-11 items-center gap-3 rounded-xl pr-3 pl-0 shadow-edge transition-[box-shadow] duration-150 focus-within:ring-[3px] focus-within:ring-ring/20">
+    <div className="bg-background flex h-11 items-center gap-3 rounded-xl px-3 shadow-edge transition-[box-shadow] duration-150 focus-within:ring-[3px] focus-within:ring-ring/20">
       <span className="text-primary flex size-8 shrink-0 items-center justify-center" aria-hidden="true">
         <Search className="size-4" />
       </span>

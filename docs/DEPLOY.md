@@ -64,7 +64,11 @@ PROVISION_SSH_TARGET=root@<instance-ip> # ONE-TIME bootstrap identity (Aliyun's 
 3. Lays down the nginx config from [`deploy/nginx/`](../deploy/nginx/): renders the `wmdev.conf`
    server block (`__ADDIN_DOMAIN__` → `ADDIN_ECS_HOST`) into `sites-available` + a `sites-enabled`
    symlink, copies the snippets (`addin-headers`, `addin-assets-cache`, `feishu-auth`,
-   `sentry-tunnel`) into `/etc/nginx/snippets/`, and enables gzip for JS/CSS.
+   `sentry-tunnel`) into `/etc/nginx/snippets/` (stripping the repo files' CRLF line endings),
+   enables gzip for JS/CSS via an idempotent `/etc/nginx/conf.d/gzip.conf` drop-in, **installs the
+   systemd nginx self-heal drop-in + `systemctl daemon-reload` + `reset-failed`**, and runs
+   `nginx -t`. The `wmdev.conf` server block now carries the `include` lines for all four snippets
+   directly, so the tunnel + fallback auth + assets cache are wired on a verbatim render.
 4. `certbot --nginx -d $ADDIN_ECS_HOST -m $CERTBOT_EMAIL --agree-tos -n` — adds the `listen 443`
    block, the http→https redirect, and a systemd auto-renew timer.
 5. Installs the [`feishu-auth.service`](../deploy/feishu-auth.service) unit and `systemctl enable`s
@@ -79,6 +83,41 @@ the **CSP header** — *load-bearing for Outlook* (`frame-ancestors` must allow
 refuses to frame the taskpane; `connect-src` must reach `*.convex.cloud` +
 `wss://*.convex.cloud` + `*.convex.site` + `open.feishu.cn`); and `Cache-Control: no-cache`
 on `index.html` so Outlook never serves a stale — possibly crashing — bundle after a redeploy.
+
+**Resilience (added after the 2026-06-12 outage).** Two repo-tracked artifacts that
+`provision-ecs.sh` lays down automatically (no hand steps) — see [ADR-0029](adr/0029-lazy-sentry-resolver-and-nginx-self-heal.md):
+
+- The Sentry tunnel ([`sentry-tunnel.conf`](../deploy/nginx/sentry-tunnel.conf))
+  resolves its upstream **lazily** — a `resolver` directive + a `$variable` in
+  `proxy_pass`. A *bare* hostname there is resolved at config-load and a transient DNS
+  failure is **fatal** (`[emerg] host not found in upstream`); on 2026-06-12 a DNS blip
+  during the daily `unattended-upgrade` made `nginx -t` (the unit's `ExecStartPre`) fail
+  on restart and the whole box stayed down for 3 days. The variable form defers
+  resolution to request time, so nginx **always starts**; only `/_sentry/` telemetry
+  degrades if Sentry DNS is briefly unreachable. (With a variable in `proxy_pass`, nginx
+  does **not** append the matched URI — the full `/api/.../envelope/` path stays spelled
+  out in the snippet.) This is the **primary** defense.
+- The **systemd self-heal drop-in**
+  ([`deploy/systemd/nginx.service.d/override.conf`](../deploy/systemd/nginx.service.d/override.conf),
+  `Restart=on-failure`, `RestartSec=10s`, `StartLimitIntervalSec=0`) so a failed start
+  retries — **indefinitely** — instead of staying dead. Stock Ubuntu 24.04 ships
+  `nginx.service` with **no** `Restart=`. `StartLimitIntervalSec=0` disables the
+  start-rate limiter; a *bounded* burst (e.g. 30 tries / 5 min) would latch the unit into
+  a permanent `failed (start-limit-hit)` state and would **not** self-heal a multi-hour
+  outage. A deliberate `systemctl stop` exits 0 and is still honored.
+
+Both are installed by `provision-ecs.sh` (step 3 above). To apply them to a box that
+is **already** hand-built (the live box) without a full re-render, install the two files
+surgically and reload — do **not** re-run the provisioner against a live snowflake
+(it refuses unless `PROVISION_FORCE=1`):
+
+```bash
+sudo install -D -m644 deploy/systemd/nginx.service.d/override.conf \
+  /etc/systemd/system/nginx.service.d/override.conf
+sudo systemctl daemon-reload && sudo systemctl reset-failed nginx
+sudo install -m644 deploy/nginx/sentry-tunnel.conf /etc/nginx/snippets/sentry-tunnel.conf
+sudo nginx -t && sudo systemctl reload nginx
+```
 
 > The `*.convex.*` CSP wildcards mean a Convex team/deployment swap needs **no nginx change**.
 > See [ADR-0028](adr/0028-reproducible-ecs-provisioning.md) for why the box is bootstrapped

@@ -163,6 +163,7 @@ async function runServerSearch(
   return result.records;
 }
 
+// eslint-disable-next-line max-lines-per-function -- cohesive hook: the coalesced + debounced `search` and `matchEmail` callbacks plus the assembled CustomerSearch return.
 export function useCustomerSearchServerIndex(): CustomerSearch {
   const convex: ConvexClient = useConvex();
   const searchCustomersAction = useAction(api.feishu.customersMirror.searchCustomers);

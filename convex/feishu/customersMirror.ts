@@ -394,8 +394,6 @@ function customerRowChanged(
     existing.name !== next.name ||
     existing.domain !== next.domain ||
     // domainKey participates so the first full sync after the column shipped
-    // re-stamps every pre-existing row (undefined !== canonical value).
-    // domainKey participates so the first full sync after the column shipped
     // re-stamps every row (undefined !== canonical value). The applyPage
     // explicit-undefined spread also triggers this check when a cell is cleared.
     existing.domainKey !== next.domainKey ||
@@ -1006,35 +1004,12 @@ export const matchEmailAndCacheMiss = action({
     }
     const appToken = requireAppToken();
     const started = Date.now();
-    const allRecords: CustomerRecord[] = [];
-    let pageToken: string | undefined;
-    // Strict canonical equality (findCustomerByEmail), NOT "first row returned":
-    // `contains` can pull in superstring domains (e.g. notacme.com for acme.com)
-    // that belong in the mirror but must not auto-match this email.
-    let customer: CustomerRecord | null = null;
-    for (let page = 0; page < MAX_CACHE_MISS_PAGES; page++) {
-      const data: SearchResponse = await callFeishu<SearchResponse>(ctx, {
-        path: `/bitable/v1/apps/${appToken}/tables/${CUSTOMER_TABLE_ID}/records/search`,
-        method: "POST",
-        auth: "tenant",
-        json: {
-          field_names: CUSTOMER_FIELD_NAMES,
-          filter: {
-            conjunction: "and",
-            conditions: [{ field_name: "域名", operator: "contains", value: [domain] }],
-          },
-        },
-        query: pageToken
-          ? { page_size: String(CACHE_MISS_PAGE_SIZE), page_token: pageToken }
-          : { page_size: String(CACHE_MISS_PAGE_SIZE) },
-        label: "Customers mirror — live domain match on cache miss",
-      });
-      const pageRecords = (data.items ?? []).map((item) => mapFeishuItemToCustomer(item));
-      allRecords.push(...pageRecords);
-      customer = findCustomerByEmail(allRecords, args.email);
-      if (customer !== null || !data.has_more || !data.page_token) break;
-      pageToken = data.page_token;
-    }
+    const { customer, allRecords } = await pageDomainMatchOnCacheMiss(
+      ctx,
+      appToken,
+      domain,
+      args.email,
+    );
     if (allRecords.length > 0) {
       await ctx.runMutation(internal.feishu.customersMirror.applyPage, {
         rows: allRecords.map((c) => projectionToRow(c)),
@@ -1048,6 +1023,46 @@ export const matchEmailAndCacheMiss = action({
     return { customer, backfilled: allRecords.length };
   },
 });
+
+// Page the Customer Table by `域名 contains <domain>` until a strict canonical
+// match is found (findCustomerByEmail — NOT "first row returned", since `contains`
+// can pull in superstring domains like notacme.com for acme.com) or the pages run
+// out (≤ MAX_CACHE_MISS_PAGES). Returns the match plus every row seen so the
+// caller can backfill the mirror with them.
+async function pageDomainMatchOnCacheMiss(
+  ctx: ActionCtx,
+  appToken: string,
+  domain: string,
+  email: string,
+): Promise<{ customer: CustomerRecord | null; allRecords: CustomerRecord[] }> {
+  const allRecords: CustomerRecord[] = [];
+  let pageToken: string | undefined;
+  let customer: CustomerRecord | null = null;
+  for (let page = 0; page < MAX_CACHE_MISS_PAGES; page++) {
+    const data: SearchResponse = await callFeishu<SearchResponse>(ctx, {
+      path: `/bitable/v1/apps/${appToken}/tables/${CUSTOMER_TABLE_ID}/records/search`,
+      method: "POST",
+      auth: "tenant",
+      json: {
+        field_names: CUSTOMER_FIELD_NAMES,
+        filter: {
+          conjunction: "and",
+          conditions: [{ field_name: "域名", operator: "contains", value: [domain] }],
+        },
+      },
+      query: pageToken
+        ? { page_size: String(CACHE_MISS_PAGE_SIZE), page_token: pageToken }
+        : { page_size: String(CACHE_MISS_PAGE_SIZE) },
+      label: "Customers mirror — live domain match on cache miss",
+    });
+    const pageRecords = (data.items ?? []).map((item) => mapFeishuItemToCustomer(item));
+    allRecords.push(...pageRecords);
+    customer = findCustomerByEmail(allRecords, email);
+    if (customer !== null || !data.has_more || !data.page_token) break;
+    pageToken = data.page_token;
+  }
+  return { customer, allRecords };
+}
 
 // Ranked mirror search. Uses Convex's `withSearchIndex` for prefix + score
 // ranking on the `searchBlob` column. Optional `mineFor` filters to customers

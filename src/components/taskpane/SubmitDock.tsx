@@ -103,25 +103,30 @@ export function SubmitDock({
   // confirm is off or the dock isn't live; any change to it restarts the window.
   const cycleKey = confirmEnabled && live ? (confirmResetKey ?? "") : null;
 
+  // Reseed the countdown state DURING RENDER when the cycle changes — React's
+  // "adjust state when a prop changes" pattern, rather than syncing prop-derived
+  // state from inside an effect. Seeded with the initial cycleKey so it only fires
+  // on an actual change; the initial live cycle reads as "counting" via
+  // effectivePhase below. The timer owns the tick-down; this just (re)arms it.
+  const [renderedCycleKey, setRenderedCycleKey] = useState(cycleKey);
+  if (cycleKey !== renderedCycleKey) {
+    setRenderedCycleKey(cycleKey);
+    setConfirmPhase(cycleKey === null ? "idle" : "counting");
+    setConfirmRemaining(CONFIRM_COUNTDOWN_SECONDS);
+  }
+
   // onReviewStart scrolls the attachments into view — a DOM side effect that must
   // never run during render. Hold it in a ref so the lifecycle effect can call
   // the latest version without taking an unstable inline prop as a dependency.
   const onReviewStartRef = useRef(onReviewStart);
   onReviewStartRef.current = onReviewStart;
 
-  // The entire confirm lifecycle lives in ONE effect keyed on cycleKey: no
-  // render-phase state writes, no render-phase side effects. A fresh reviewable
-  // snapshot scrolls to the attachments, arms a 3s window, and ticks it down to
-  // "ready"; leaving live resets to idle.
+  // SIDE EFFECTS ONLY, keyed on cycleKey: scroll the attachments into view and run
+  // the 1s tick that walks confirmRemaining down to "ready". No prop->state sync
+  // here (that's the render-phase reseed above); the tick is genuinely temporal.
   useEffect(() => {
-    if (cycleKey === null) {
-      setConfirmPhase("idle");
-      setConfirmRemaining(CONFIRM_COUNTDOWN_SECONDS);
-      return;
-    }
+    if (cycleKey === null) return;
     onReviewStartRef.current?.();
-    setConfirmPhase("counting");
-    setConfirmRemaining(CONFIRM_COUNTDOWN_SECONDS);
     const timer = window.setInterval(() => {
       setConfirmRemaining((remaining) => {
         if (remaining <= 1) {
@@ -135,8 +140,8 @@ export function SubmitDock({
     return () => window.clearInterval(timer);
   }, [cycleKey]);
 
-  // Until the effect arms the countdown, a live+enabled dock already reads as
-  // "counting" so the label never flashes the ready copy for a frame.
+  // Belt-and-braces: should any frame render before the timer ticks, a live+enabled
+  // dock still reads as "counting" rather than flashing the ready copy.
   const effectivePhase: ConfirmPhase =
     cycleKey !== null && confirmPhase === "idle" ? "counting" : confirmPhase;
 

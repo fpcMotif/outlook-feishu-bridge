@@ -106,7 +106,7 @@ const noteField = () =>
 function reopenSalesSearch(row: Element | null) {
   expect(row).not.toBeNull();
   fireEvent.click(
-    within(row as HTMLElement).getByRole("button", { name: /change/i }),
+    within(row as HTMLElement).getByRole("button", { name: /pick another/i }),
   );
 }
 

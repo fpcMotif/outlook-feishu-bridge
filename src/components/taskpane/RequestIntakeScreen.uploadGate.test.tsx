@@ -239,12 +239,32 @@ describe("RequestIntakeScreen — submit dock upload gate", () => {
       expect(checking).toBeDisabled();
       expect(checking).toHaveClass("bg-muted/36", "text-muted-foreground/72");
       expect(checking).not.toHaveAttribute("data-live");
-      expect(within(checking).getByText("3")).toBeInTheDocument();
+      expect(checking).not.toHaveAttribute("data-busy");
+      expect(checking.querySelector(".submit-dock-loading-dot")).not.toBeInTheDocument();
+      expect(checking).toHaveAccessibleName("Checking attachments");
+      expect(checking.querySelector(".submit-dock-busy-dots")).toHaveAttribute(
+        "aria-hidden",
+        "true",
+      );
+      expect(checking.querySelectorAll(".submit-dock-busy-dot")).toHaveLength(3);
+      const countdown = within(checking).getByText("3");
+      expect(countdown).toHaveClass(
+        "animate-pop-in",
+        "[color:var(--submit-dock-countdown-color)]",
+      );
+      expect(countdown).not.toHaveClass("submit-dock-countdown-spark");
+      expect(checking.firstElementChild).toContainElement(countdown);
+      expect(checking.querySelector(".submit-dock-countdown-ring")).toHaveClass(
+        "[stroke:var(--submit-dock-countdown-color)]",
+      );
 
       await act(async () => {
         vi.advanceTimersByTime(1000);
       });
-      expect(within(checking).getByText("2")).toBeInTheDocument();
+      const two = within(checking).getByText("2");
+      expect(two).toBeInTheDocument();
+      expect(two).toHaveClass("animate-pop-in");
+      expect(two).not.toHaveClass("submit-dock-countdown-spark");
 
       await act(async () => {
         vi.advanceTimersByTime(1000);

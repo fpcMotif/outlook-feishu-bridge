@@ -343,7 +343,7 @@ describe("RequestIntakeScreen sync wiring", () => {
     });
   });
 
-  // Override wins over auto-match (ADR-0013): tapping Change → typing →
+  // Override wins over auto-match (ADR-0013): tapping the row action, typing,
   // picking a different Customer changes which selectedCustomer rides to sync.
   it("uses the user's Customer override instead of the auto-match when one is picked", async () => {
     renderScreen();
@@ -354,7 +354,7 @@ describe("RequestIntakeScreen sync wiring", () => {
       },
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /change/i }));
+    fireEvent.click(screen.getByRole("button", { name: /pick another/i }));
     fireEvent.change(
       screen.getByRole("combobox", { name: /search customers/i }),
       {

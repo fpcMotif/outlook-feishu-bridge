@@ -17,7 +17,11 @@ vi.mock("../../hooks/useCoworkerSearch", () => {
   return {
     useCoworkerSearch: () =>
       vi.fn((query: string) =>
-        Promise.resolve(coworkers.filter((c) => c.name.toLowerCase().includes(query.toLowerCase()))),
+        Promise.resolve(
+          coworkers.filter((c) =>
+            c.name.toLowerCase().includes(query.toLowerCase()),
+          ),
+        ),
       ),
   };
 });
@@ -25,7 +29,11 @@ vi.mock("../../hooks/useCoworkerSearch", () => {
 describe("CoworkerPicker selected row", () => {
   it("does not render an editable client email row", () => {
     render(
-      <CoworkerPicker sessionId="sess" selectedCoworker={null} onSelect={() => {}} />,
+      <CoworkerPicker
+        sessionId="sess"
+        selectedCoworker={null}
+        onSelect={() => {}}
+      />,
     );
 
     expect(document.querySelector('[data-client-row="true"]')).toBeNull();
@@ -46,16 +54,18 @@ describe("CoworkerPicker selected row", () => {
       />,
     );
 
-    const row = document.querySelector('[data-coworker-row="true"]') as HTMLElement;
+    const row = document.querySelector(
+      '[data-coworker-row="true"]',
+    ) as HTMLElement;
     expect(row).not.toBeNull();
     const panel = screen
-      .getByText("Pick a coworker")
+      .getByText("coworker")
       .closest('[aria-labelledby="coworker-picker-title"]');
     expect(panel).not.toBeNull();
     expect(panel).toContainElement(row);
-    expect(row.querySelector(':scope > span[aria-hidden="true"]')).not.toHaveClass(
-      "text-muted-foreground",
-    );
+    expect(
+      row.querySelector(':scope > span[aria-hidden="true"]'),
+    ).not.toHaveClass("text-muted-foreground");
     expect(row.querySelector('[data-slot="avatar"]')).toBeInTheDocument();
   });
 
@@ -68,14 +78,18 @@ describe("CoworkerPicker selected row", () => {
       />,
     );
 
-    const row = document.querySelector('[data-coworker-row="true"]') as HTMLElement;
+    const row = document.querySelector(
+      '[data-coworker-row="true"]',
+    ) as HTMLElement;
     expect(row).not.toBeNull();
     // Matches SalesPicker: the selected row always shows a circular avatar whose
     // fallback is the UserRound person glyph, even with no avatarUrl.
     expect(row.querySelector('[data-slot="avatar"]')).toBeInTheDocument();
     expect(row.querySelector('[data-slot="avatar-image"]')).toBeNull();
     expect(row.querySelector(".lucide-user-round")).toBeInTheDocument();
-    expect(within(row as HTMLElement).getByText("Sales Ops")).toBeInTheDocument();
+    expect(
+      within(row as HTMLElement).getByText("Sales Ops"),
+    ).toBeInTheDocument();
   });
 
   it("shows a quiet person icon in search when avatarUrl is missing", async () => {
@@ -92,12 +106,7 @@ describe("CoworkerPicker selected row", () => {
 
   it("passes avatarUrl when selecting a coworker from search", async () => {
     const onSelect = vi.fn();
-    render(
-      <CoworkerPicker
-        sessionId="sess"
-        onSelect={onSelect}
-      />,
-    );
+    render(<CoworkerPicker sessionId="sess" onSelect={onSelect} />);
 
     fireEvent.change(screen.getByLabelText("Search Feishu coworkers"), {
       target: { value: "Jenny" },
@@ -124,7 +133,9 @@ describe("CoworkerPicker selected row", () => {
     });
     expect(await screen.findByLabelText("Search results")).toBeInTheDocument();
 
-    fireEvent.mouseDown(screen.getByRole("button", { name: "Outside section" }));
+    fireEvent.mouseDown(
+      screen.getByRole("button", { name: "Outside section" }),
+    );
 
     expect(screen.queryByLabelText("Search results")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Search Feishu coworkers")).toHaveValue("");
@@ -146,12 +157,18 @@ describe("CoworkerPicker selected row", () => {
       </div>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /change/i }));
-    expect(screen.getByLabelText("Search Feishu coworkers")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /pick another/i }));
+    expect(
+      screen.getByLabelText("Search Feishu coworkers"),
+    ).toBeInTheDocument();
 
-    fireEvent.mouseDown(screen.getByRole("button", { name: "Outside section" }));
+    fireEvent.mouseDown(
+      screen.getByRole("button", { name: "Outside section" }),
+    );
 
-    expect(screen.queryByLabelText("Search Feishu coworkers")).not.toBeInTheDocument();
+    expect(
+      screen.queryByLabelText("Search Feishu coworkers"),
+    ).not.toBeInTheDocument();
     expect(screen.getByText("Jenny Xu")).toBeInTheDocument();
   });
 

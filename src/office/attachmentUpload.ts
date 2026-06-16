@@ -250,13 +250,14 @@ export async function uploadBlobWithRetry(
       new Promise<void>((resolve) => {
         setTimeout(resolve, ms);
       }));
-  let lastError: unknown;
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+
+  const uploadAttempt = async (
+    attempt: number,
+  ): Promise<{ storageId: string }> => {
     try {
       const url = await generateUploadUrl();
       return await postBytes(url, blob, onProgress, timeoutMs);
     } catch (err) {
-      lastError = err;
       if (!isRetryableUploadError(err) || attempt === attempts) throw err;
       // Full jitter on top of the exponential base: when a whole batch retries at
       // once, an un-jittered schedule makes every file's wave land on the same
@@ -264,12 +265,11 @@ export async function uploadBlobWithRetry(
       // [base, 2·base) de-syncs them. random() defaults to Math.random.
       const base = backoffMs * 2 ** (attempt - 1);
       await delay(base + Math.floor(random() * base));
+      return uploadAttempt(attempt + 1);
     }
-  }
-  // Unreachable: the final attempt always returns or throws above.
-  throw lastError instanceof Error
-    ? lastError
-    : new Error("Convex storage upload failed");
+  };
+
+  return uploadAttempt(1);
 }
 
 // --- Reading picked-file bytes (cloud-aware) ---------------------------------
@@ -314,15 +314,20 @@ export async function readFileBytesWithRetry(
       new Promise<void>((resolve) => {
         setTimeout(resolve, ms);
       }));
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+
+  const readAttempt = async (attempt: number): Promise<ArrayBuffer> => {
     try {
       return await file.arrayBuffer();
     } catch {
-      if (attempt === attempts) break;
+      if (attempt === attempts) {
+        const unreadable = new Error(UNREADABLE_FILE_MESSAGE);
+        unreadable.name = FILE_UNREADABLE_ERROR;
+        throw unreadable;
+      }
       await delay(backoffMs * 2 ** (attempt - 1));
+      return readAttempt(attempt + 1);
     }
-  }
-  const unreadable = new Error(UNREADABLE_FILE_MESSAGE);
-  unreadable.name = FILE_UNREADABLE_ERROR;
-  throw unreadable;
+  };
+
+  return readAttempt(1);
 }

@@ -38,6 +38,11 @@ account-bound console prefix and an idempotent in-box bootstrap codified in
 `scripts/provision-ecs.sh` ([ADR-0028](adr/0028-reproducible-ecs-provisioning.md)). The
 script is safe to re-run on an existing box.
 
+> Migrating the **whole** project at once — new Aliyun box **and/or** a Convex
+> personal→company project swap (new IP, new PEM, re-issued cert, re-set env vars,
+> Feishu redirect re-whitelist) — has a single cross-cutting runbook:
+> [MIGRATION.md](MIGRATION.md).
+
 **2a. Aliyun console (manual — 3 steps, not scriptable):**
 
 1. Create an ECS instance (**Ubuntu 24**).

@@ -1,5 +1,5 @@
 /* eslint-disable max-lines, max-lines-per-function */
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -245,22 +245,20 @@ function AttachmentSectionHeader({
   count: number;
   total: number;
 }) {
-  const previousCountRef = useRef(count);
+  const prevCountRef = useRef(count);
   const [countBounceKey, setCountBounceKey] = useState(0);
   const [isCountBouncing, setIsCountBouncing] = useState(false);
 
-  useEffect(() => {
-    const previousCount = previousCountRef.current;
-
-    if (count < previousCount) {
+  const prevCount = prevCountRef.current;
+  if (count !== prevCount) {
+    if (count < prevCount) {
       setIsCountBouncing(true);
       setCountBounceKey((key) => key + 1);
     } else {
       setIsCountBouncing(false);
     }
-
-    previousCountRef.current = count;
-  }, [count]);
+    prevCountRef.current = count;
+  }
 
   return (
     <header className="flex flex-wrap items-center justify-between gap-3 px-1">

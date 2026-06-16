@@ -23,9 +23,8 @@ import {
   selectedAttachmentsForPreview,
   type SyncPreviewPayload,
 } from "./syncPreviewModel";
-import { buildSyncPayload } from "./buildSyncPayload";
-import { dlog, dtime } from "../../debug";
 import { useIntakeAttachments } from "./useIntakeAttachments";
+import { useSyncOrchestration } from "./useSyncOrchestration";
 import {
   buildUploadDraftKey,
   clearUploadDraft,
@@ -67,7 +66,7 @@ export function useRequestIntakeScreen(
   const existingSyncStatus = existingSync?.status ?? null;
   const defaultSales = useMemo(
     () => salesDefaultForUser(user),
-    [user?.openId, user?.userName, user?.avatarUrl],
+    [user],
   );
 
   // Per-conversation draft restore for pinned panes: the Core is keyed by
@@ -96,13 +95,13 @@ export function useRequestIntakeScreen(
           : restoreUploadDraft(uploadDraftKey),
       defaultSales,
     },
-    ({ intakeDraftKey: key, mailFrom, restoredUploads, defaultSales }) =>
-      loadIntakeDraft(key, mailFrom, restoredUploads, defaultSales),
+    ({
+      intakeDraftKey: key,
+      mailFrom,
+      restoredUploads,
+      defaultSales: restoredDefaultSales,
+    }) => loadIntakeDraft(key, mailFrom, restoredUploads, restoredDefaultSales),
   );
-  const generationRef = useRef(0);
-  const activeSyncGenerationRef = useRef<number | null>(null);
-  const draftClearedRef = useRef(false);
-
   // Kept current each render so the unmount-cleanup effect snapshots the LEAVING
   // conversation's FRESH state. It reads reducer state (including selected
   // Sales/customer/coworker/notes and upload storageIds), NOT completedStorage —
@@ -157,6 +156,10 @@ export function useRequestIntakeScreen(
     dispatch,
     import.meta.env.DEV ? mockStagingDeps : undefined,
   );
+  const mailAttachmentIds = useMemo(
+    () => mailAttachments.map((attachment) => attachment.id),
+    [mailAttachments],
+  );
 
   const filledRequests = useMemo(() => buildFilledRequests(state.notes), [state.notes]);
   const selectedCustomerName = state.selectedCustomer?.name;
@@ -187,10 +190,35 @@ export function useRequestIntakeScreen(
     uploadsParked,
   };
 
+  // The full Base Sync pipeline (generation guards, phase milestones, latency
+  // spans, draft teardown) lives in its own hook so this one stays an assembly
+  // point. It reconciles the authoritative query internally via its own effect.
+  const { runSync, draftClearedRef } = useSyncOrchestration({
+    dispatch,
+    sync,
+    stageSelected,
+    mailItem,
+    state,
+    user,
+    requestNote,
+    uploadDraftKey,
+    intakeDraftKey,
+    existingSync,
+    existingSyncStatus,
+  });
+
   useEffect(() => {
     if (!defaultSales) return;
     dispatch({ type: "salesDefaulted", sales: defaultSales });
   }, [defaultSales]);
+
+  useEffect(() => {
+    if (mailAttachmentIds.length === 0) return;
+    dispatch({
+      type: "mailAttachmentsDiscovered",
+      ids: mailAttachmentIds,
+    });
+  }, [mailAttachmentIds]);
 
   // On unmount (conversation switch on a pinned pane) snapshot this conversation
   // so returning restores the Sales/customer/coworker/notes/attachments. If it
@@ -237,103 +265,6 @@ export function useRequestIntakeScreen(
   const openCreateCustomerMock = useCallback((customerName: string) => {
     window.open(buildCreateCustomerTaskUrl(customerName), "_blank", "noopener,noreferrer");
   }, []);
-
-  const runSync = useCallback(() => {
-    const syncGeneration = generationRef.current + 1;
-    generationRef.current = syncGeneration;
-    activeSyncGenerationRef.current = syncGeneration;
-    dispatch({ type: "syncStarted" });
-    // Upload-latency trace: stamp the click (epoch for server correlation, perf
-    // for the client span) and mint a trace id threaded through syncRequest so the
-    // server [fillTotal] log can join this click to the deferred fill's fence.
-    const submitClickedAt = Date.now();
-    const syncTraceId = globalThis.crypto.randomUUID();
-    const clickPerf = performance.now();
-    dlog(`[intake] submit click trace=${syncTraceId}`);
-    const payload = buildSyncPayload(mailItem, state, user, requestNote);
-    const baseWrite = stageSelected()
-      .then((staged) => {
-        if (staged.failed.length > 0) {
-          console.warn(
-            `[intake] skipped ${staged.failed.length} attachment(s): ${staged.failed.map((f) => f.name).join(", ")}`,
-          );
-        }
-        // Hand the staged Convex storageIds straight to syncRequest; the row is
-        // created with an empty Sales Files cell and the deferred Attachment Fill
-        // writes the files server-side (ADR-0027), so submit never blocks on the
-        // serial Drive uploads. Staging already finished above — the only wait.
-        return sync({
-          ...payload,
-          attachmentSources: staged.sources,
-          syncTraceId,
-          submitClickedAt,
-        });
-      })
-      .then((result) => {
-        if (activeSyncGenerationRef.current !== syncGeneration || !result.recordId) return;
-        activeSyncGenerationRef.current = null;
-        // Client-observed leg: click → row created/visible. The attachment-fill
-        // tail runs server-side after this; the server [fillTotal] log closes the
-        // full click→fully-written span under the same trace id.
-        dtime(`intake submit→row (trace ${syncTraceId})`, clickPerf);
-        dispatch({
-          type: "syncSucceeded",
-          recordId: result.recordId,
-          detailUrl: result.detailUrl ?? null,
-        });
-        // The staged blobs are deleted server-side after a successful Drive mint,
-        // so this conversation's cached storageIds are now dead — drop the draft.
-        draftClearedRef.current = true;
-        clearUploadDraft(uploadDraftKey);
-        clearIntakeDraft(intakeDraftKey);
-      })
-      .catch((e: unknown) => {
-        if (activeSyncGenerationRef.current !== syncGeneration) return;
-        activeSyncGenerationRef.current = null;
-        dispatch({ type: "syncFailed", message: e instanceof Error ? e.message : "Sync failed" });
-      });
-    return baseWrite;
-  }, [
-    sync,
-    mailItem,
-    state,
-    user,
-    requestNote,
-    stageSelected,
-    uploadDraftKey,
-    intakeDraftKey,
-  ]);
-
-  const applyExistingSyncUpdate = useCallback(() => {
-    if (activeSyncGenerationRef.current === null) return;
-    if (existingSyncStatus === "synced" && existingSync?.recordId) {
-      activeSyncGenerationRef.current = null;
-      dispatch({
-        type: "syncSucceeded",
-        recordId: existingSync.recordId,
-        detailUrl: existingSync.detailUrl ?? null,
-      });
-      return;
-    }
-    if (existingSyncStatus === "failed") {
-      activeSyncGenerationRef.current = null;
-      dispatch({
-        type: "syncFailed",
-        message: existingSync?.error ?? "Could not sync to Feishu Base.",
-      });
-    }
-  }, [
-    existingSync?.detailUrl,
-    existingSync?.error,
-    existingSync?.recordId,
-    existingSyncStatus,
-  ]);
-
-  useEffect(() => {
-    applyExistingSyncUpdate();
-  }, [
-    applyExistingSyncUpdate,
-  ]);
 
   useEffect(() => {
     if (existingSyncStatus !== "synced" || !existingSync?.recordId) return;

@@ -41,7 +41,10 @@ function resolveExistingSyncOverlay({
     );
   }
   return existingSyncStatus === "pending" && screen === "build" ? (
-    <SyncScreen preview={syncPreview} />
+    // Cold-open overlay for a server-side pending sync: we only know it's
+    // pending, not which leg it reached, so show the conservative first phase
+    // rather than implying the row is already being written.
+    <SyncScreen preview={syncPreview} phase="staging" />
   ) : null;
 }
 
@@ -70,6 +73,7 @@ export function RequestIntakeScreenCore(
     bitableRecordId: state.bitableRecordId,
     bitableDetailUrl: state.bitableDetailUrl,
     attachmentStatus: liveAttachmentStatus(existingSync),
+    syncPhase: state.syncPhase,
     syncPreview,
     onRetrySync: runSync,
     onBackToBuild: () => dispatch({ type: "screenChanged", screen: "build" }),

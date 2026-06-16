@@ -1,0 +1,9 @@
+{
+  "$schema": "https://www.react.doctor/schema.json",
+  "ignore": {
+    "files": [
+      ".claude/worktrees/**",
+      "**/.claude/worktrees/**"
+    ]
+  }
+}

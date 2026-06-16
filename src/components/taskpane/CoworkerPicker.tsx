@@ -159,7 +159,8 @@ function CoworkerSearchPanel({
 
   return (
     <TaskpanePickerPanel
-      title="Pick a coworker"
+      title="coworker"
+      srTitle="Coworker"
       titleId="coworker-picker-title"
       panelRef={panelRef}
       shellClassName={TASKPANE_SEARCH_PANEL_SHELL_FOOTER}
@@ -279,7 +280,8 @@ export function CoworkerPicker({
   const coworkerContent =
     selectedCoworker && !showCoworkerSearch ? (
       <TaskpanePickerPanel
-        title="Pick a coworker"
+        title="coworker"
+        srTitle="Coworker"
         titleId="coworker-picker-title"
         shellClassName={TASKPANE_SEARCH_PANEL_SHELL_FOOTER}
       >

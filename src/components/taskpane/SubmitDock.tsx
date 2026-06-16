@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, Loader2 } from "lucide-react";
+/* eslint-disable max-lines-per-function -- cohesive submit-dock component; the bulk is countdown-ring SVG markup. */
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowRight } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -24,7 +25,7 @@ function dockLabel({
   confirmEnabled: boolean;
   confirmPhase: ConfirmPhase;
 }) {
-  if (sending) return "Submitting...";
+  if (sending) return "Working";
   if (confirmEnabled && live && confirmPhase === "idle") return "Checking attachments";
   if (confirmPhase === "counting") return "Checking attachments";
   if (confirmPhase === "ready") {
@@ -60,6 +61,19 @@ const submitDockScrollFadeClass = cn(
   "from-background via-background/55 supports-[backdrop-filter]:from-background/88 supports-[backdrop-filter]:via-background/40",
 );
 
+function SubmitDockBusyLabel({ label }: { label: string }) {
+  return (
+    <span className="inline-flex min-w-0 items-center gap-1.5">
+      <span className="min-w-0 truncate text-pretty">{label}</span>
+      <span className="submit-dock-busy-dots inline-flex shrink-0 items-end gap-0.5" aria-hidden>
+        <span className="submit-dock-busy-dot" />
+        <span className="submit-dock-busy-dot" />
+        <span className="submit-dock-busy-dot" />
+      </span>
+    </span>
+  );
+}
+
 export function SubmitDock({
   count,
   canSubmit,
@@ -83,14 +97,51 @@ export function SubmitDock({
   const confirmEnabled = confirmResetKey !== undefined;
   const [confirmPhase, setConfirmPhase] = useState<ConfirmPhase>("idle");
   const [confirmRemaining, setConfirmRemaining] = useState(CONFIRM_COUNTDOWN_SECONDS);
-  const waitingForConfirm = confirmEnabled && live && confirmPhase !== "ready";
+
+  // The single source of truth for the review countdown: a stable key for "the
+  // dock is live and reviewable as this exact form snapshot". `null` whenever
+  // confirm is off or the dock isn't live; any change to it restarts the window.
+  const cycleKey = confirmEnabled && live ? (confirmResetKey ?? "") : null;
+
+  // onReviewStart scrolls the attachments into view — a DOM side effect that must
+  // never run during render. Hold it in a ref so the lifecycle effect can call
+  // the latest version without taking an unstable inline prop as a dependency.
+  const onReviewStartRef = useRef(onReviewStart);
+  onReviewStartRef.current = onReviewStart;
+
+  // The entire confirm lifecycle lives in ONE effect keyed on cycleKey: no
+  // render-phase state writes, no render-phase side effects. A fresh reviewable
+  // snapshot scrolls to the attachments, arms a 3s window, and ticks it down to
+  // "ready"; leaving live resets to idle.
+  useEffect(() => {
+    if (cycleKey === null) {
+      setConfirmPhase("idle");
+      setConfirmRemaining(CONFIRM_COUNTDOWN_SECONDS);
+      return;
+    }
+    onReviewStartRef.current?.();
+    setConfirmPhase("counting");
+    setConfirmRemaining(CONFIRM_COUNTDOWN_SECONDS);
+    const timer = window.setInterval(() => {
+      setConfirmRemaining((remaining) => {
+        if (remaining <= 1) {
+          setConfirmPhase("ready");
+          window.clearInterval(timer);
+          return 0;
+        }
+        return remaining - 1;
+      });
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [cycleKey]);
+
+  // Until the effect arms the countdown, a live+enabled dock already reads as
+  // "counting" so the label never flashes the ready copy for a frame.
+  const effectivePhase: ConfirmPhase =
+    cycleKey !== null && confirmPhase === "idle" ? "counting" : confirmPhase;
+
+  const waitingForConfirm = confirmEnabled && live && effectivePhase !== "ready";
   const visuallyLive = live && !waitingForConfirm;
-  const displayConfirmPhase =
-    confirmEnabled && live && confirmPhase === "idle"
-      ? "counting"
-      : confirmEnabled
-        ? confirmPhase
-        : "idle";
   const displayLabel = dockLabel({
     count,
     sending,
@@ -98,16 +149,27 @@ export function SubmitDock({
     hint,
     live,
     confirmEnabled,
-    confirmPhase: displayConfirmPhase,
+    confirmPhase: confirmEnabled ? effectivePhase : "idle",
   });
+  const showingConfirmCountdown = waitingForConfirm;
+  const showingBusyFeedback = sending || showingConfirmCountdown;
+  // The visual ring/number is aria-hidden, so the countdown is announced through
+  // the sr-only live region below (the previous build left it silent for AT).
+  const liveAnnouncement =
+    confirmEnabled && live
+      ? effectivePhase === "ready"
+        ? "Attachments reviewed — ready to submit."
+        : `Reviewing attachments — submitting in ${confirmRemaining} second${
+            confirmRemaining === 1 ? "" : "s"
+          }.`
+      : "";
   const icon = useMemo(() => {
-    if (sending) return <Loader2 className="size-4 shrink-0 animate-spin" />;
+    if (sending) return null;
     if (!live || !confirmEnabled) return null;
-    if (confirmPhase !== "ready") {
+    if (effectivePhase !== "ready") {
       return (
-        // Countdown: a primary ring that depletes across the confirm window
-        // (one continuous animation keyed to confirmResetKey so each review
-        // restarts it), with the remaining seconds popping in beneath it.
+        // Countdown: a destructive ring depletes across the confirm window
+        // (one continuous animation keyed to confirmResetKey so each review restarts it).
         <span
           key={confirmResetKey}
           className="relative inline-flex size-7 shrink-0 items-center justify-center"
@@ -119,7 +181,7 @@ export function SubmitDock({
               cy="14"
               r="11"
               strokeWidth="2.5"
-              className="[stroke:color-mix(in_oklch,var(--foreground)_14%,transparent)]"
+              className="[stroke:color-mix(in_oklch,var(--submit-dock-countdown-color)_22%,transparent)]"
             />
             <circle
               cx="14"
@@ -127,65 +189,30 @@ export function SubmitDock({
               r="11"
               strokeWidth="2.5"
               strokeLinecap="round"
-              className="submit-dock-countdown-ring [stroke:var(--primary)]"
+              className="submit-dock-countdown-ring [stroke:var(--submit-dock-countdown-color)]"
               style={{ animationDuration: `${CONFIRM_COUNTDOWN_SECONDS}s` }}
             />
           </svg>
           <span
             key={confirmRemaining}
-            className="animate-pop-in text-[12px] font-bold tabular-nums text-foreground/75"
+            className="animate-pop-in text-[12px] font-bold tabular-nums [color:var(--submit-dock-countdown-color)]"
           >
             {confirmRemaining}
           </span>
         </span>
       );
     }
-    if (confirmPhase === "ready") {
+    if (effectivePhase === "ready") {
       return <ArrowRight className="submit-dock-arrow size-[18px] shrink-0 opacity-90" aria-hidden />;
     }
     return null;
-  }, [confirmEnabled, confirmPhase, confirmRemaining, confirmResetKey, live, sending]);
-
-  useEffect(() => {
-    setConfirmPhase("idle");
-    setConfirmRemaining(CONFIRM_COUNTDOWN_SECONDS);
-  }, [confirmResetKey, live]);
-
-  useEffect(() => {
-    if (!confirmEnabled || !live || confirmPhase !== "idle") return;
-    onReviewStart?.();
-    setConfirmPhase("counting");
-    setConfirmRemaining(CONFIRM_COUNTDOWN_SECONDS);
-  }, [confirmEnabled, confirmPhase, live, onReviewStart]);
-
-  useEffect(() => {
-    if (confirmPhase !== "counting") return undefined;
-    const timer = window.setInterval(() => {
-      setConfirmRemaining((remaining) => {
-        if (remaining <= 1) {
-          setConfirmPhase("ready");
-          return 0;
-        }
-        return remaining - 1;
-      });
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, [confirmPhase]);
+  }, [confirmEnabled, effectivePhase, confirmRemaining, confirmResetKey, live, sending]);
 
   const handleClick = () => {
     if (!live) return;
-    if (!confirmEnabled) {
-      onSubmit();
-      return;
-    }
-    if (confirmPhase === "counting") return;
-    if (confirmPhase === "ready") {
-      onSubmit();
-      return;
-    }
-    onReviewStart?.();
-    setConfirmPhase("counting");
-    setConfirmRemaining(CONFIRM_COUNTDOWN_SECONDS);
+    // While confirm is armed, the button is disabled until the review window
+    // elapses, so a click only ever lands when there's nothing left to wait for.
+    if (!confirmEnabled || effectivePhase === "ready") onSubmit();
   };
 
   return (
@@ -196,14 +223,23 @@ export function SubmitDock({
         onClick={handleClick}
         disabled={!live || waitingForConfirm}
         data-live={visuallyLive ? "" : undefined}
-        aria-live={confirmPhase === "idle" ? undefined : "polite"}
-        className={submitDockButtonClass(visuallyLive, displayConfirmPhase)}
+        className={submitDockButtonClass(visuallyLive, confirmEnabled ? effectivePhase : "idle")}
       >
+        {showingConfirmCountdown ? icon : null}
         <span className="inline-flex min-w-0 flex-1 items-center gap-2">
-          <span className="min-w-0 truncate text-pretty">{displayLabel}</span>
+          {showingBusyFeedback ? (
+            <SubmitDockBusyLabel label={displayLabel} />
+          ) : (
+            <span className="min-w-0 truncate text-pretty">{displayLabel}</span>
+          )}
         </span>
-        {icon}
+        {showingConfirmCountdown ? null : icon}
       </button>
+      {/* Countdown/readiness announcement for assistive tech; the visual ring is
+          aria-hidden, so this is the only channel that voices the seconds. */}
+      <span className="sr-only" aria-live="polite">
+        {liveAnnouncement}
+      </span>
     </div>
   );
 }

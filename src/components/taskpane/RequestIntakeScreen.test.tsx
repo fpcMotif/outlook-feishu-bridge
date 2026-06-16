@@ -282,7 +282,7 @@ describe("RequestIntakeScreen sales default", () => {
     ) as HTMLElement;
     expect(row).not.toBeNull();
     const panel = screen
-      .getByText("Pick a sale")
+      .getByText("sales")
       .closest('[aria-labelledby="sales-picker-title"]');
     expect(panel).not.toBeNull();
     expect(panel).toContainElement(row);
@@ -371,7 +371,7 @@ describe("RequestIntakeScreen customer auto-match", () => {
     ) as HTMLElement;
     expect(row).not.toBeNull();
     const panel = screen
-      .getByText("Pick a customer")
+      .getByText("customer")
       .closest('[aria-labelledby="customer-picker-title"]');
     expect(panel).not.toBeNull();
     expect(panel).toContainElement(row);
@@ -389,7 +389,9 @@ describe("RequestIntakeScreen customer auto-match", () => {
     renderRequestIntakeScreen(true, "fanpc@fenchem.com");
 
     expect(screen.getByText("fanpc")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /change/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /pick another/i }),
+    ).toBeInTheDocument();
     expect(screen.queryByText(/No match/i)).not.toBeInTheDocument();
   });
 
@@ -424,13 +426,13 @@ describe("RequestIntakeScreen coworker selection", () => {
       screen.getByRole("button", { name: /Checking attachments/i }),
     ).toBeInTheDocument();
 
-    // Replacing the coworker requires re-opening the search via the row's Change
+    // Replacing the coworker requires re-opening the search via the row action
     // action (the picker collapses to the selected row after a pick).
     const coworkerRow = screen
       .getByText("Jenny Xu")
       .closest('[data-coworker-row="true"]') as HTMLElement;
     fireEvent.click(
-      within(coworkerRow).getByRole("button", { name: /change/i }),
+      within(coworkerRow).getByRole("button", { name: /pick another/i }),
     );
 
     const michael = await searchCoworker("Michael Chen");

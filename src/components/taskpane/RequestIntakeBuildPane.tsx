@@ -32,7 +32,7 @@ function submitConfirmationKey({
     customerId: customerId ?? null,
     coworkerId: coworkerId ?? null,
     notes,
-    selectedAttachmentIds: [...selectedAttachmentIds].sort(),
+    selectedAttachmentIds: selectedAttachmentIds.toSorted(),
     uploadedFiles: uploadedFiles.map((file) => ({
       id: file.id,
       name: file.file.name,

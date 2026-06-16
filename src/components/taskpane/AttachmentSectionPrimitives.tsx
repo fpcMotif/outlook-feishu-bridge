@@ -88,26 +88,6 @@ function ExtBadge({ name }: { name: string }) {
   );
 }
 
-function InlineFileMeta({
-  name,
-  subtitle,
-}: {
-  name: string;
-  subtitle?: ReactNode;
-}) {
-  if (!subtitle) return <ExtBadge name={name} />;
-
-  const ext = extOf(name);
-  if (!ext) return null;
-
-  return (
-    <span className="border-border/60 bg-muted/25 text-muted-foreground inline-flex h-4.5 shrink-0 items-center overflow-hidden rounded-full border text-[9.5px] leading-none font-medium tabular-nums">
-      <span className="border-border/50 px-1 uppercase tracking-wide border-r">{ext}</span>
-      <span className="px-1">{subtitle}</span>
-    </span>
-  );
-}
-
 function RowTrashAction({
   label,
   onRemove,
@@ -178,14 +158,13 @@ function AttachmentIdentity({
   return (
     <div className="min-w-0 flex-1">
       <div className="flex min-w-0 items-center gap-2">
-        <span className="truncate text-sm font-medium text-foreground">
+        <span
+          className="truncate text-sm font-medium text-foreground"
+          title={name}
+        >
           {displayName ?? name}
         </span>
-        {inlineMeta ? (
-          <InlineFileMeta name={name} subtitle={subtitle} />
-        ) : (
-          <ExtBadge name={name} />
-        )}
+        {inlineMeta ? null : <ExtBadge name={name} />}
       </div>
       {subtitle && !inlineMeta ? (
         <div className="text-muted-foreground mt-0.5 flex min-w-0 items-center gap-2 text-[11px] leading-4 tabular-nums">

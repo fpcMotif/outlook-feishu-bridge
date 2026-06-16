@@ -69,9 +69,9 @@ describe("AttachmentSection", () => {
     expect(screen.queryByText(/From Outlook/i)).not.toBeInTheDocument();
     expect(screen.getByText("Uploaded")).toBeInTheDocument();
     expect(screen.queryByText(/Local upload/i)).not.toBeInTheDocument();
-    expect(screen.getByText("180.0 KB")).toBeInTheDocument();
-    expect(screen.getByText("pdf")).toBeInTheDocument();
-    expect(screen.getByText("docx")).toBeInTheDocument();
+    expect(screen.queryByText("180.0 KB")).not.toBeInTheDocument();
+    expect(screen.queryByText("pdf")).not.toBeInTheDocument();
+    expect(screen.queryByText("docx")).not.toBeInTheDocument();
     expect(screen.getByText("Drag & drop or click")).toBeInTheDocument();
     expect(screen.queryByText(/pdf.*xls.*doc.*image/i)).not.toBeInTheDocument();
     expect(screen.queryByText("Ready")).not.toBeInTheDocument();
@@ -173,14 +173,14 @@ describe("AttachmentSection", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("shows size-only metadata without a date on mail rows", () => {
+  it("hides row file metadata while keeping header totals", () => {
     setup({
       mailAttachments: [mail("a1", "RFQ-2026-Q1.pdf", 180 * 1024)],
       selectedIds: [],
     });
-    const meta = screen.getByText("180.0 KB");
-    expect(meta.textContent).toBe("180.0 KB");
-    expect(meta.textContent).not.toMatch(/•|may|jun|\d{1,2}\/\d/i);
+
+    expect(screen.queryByText("180.0 KB")).not.toBeInTheDocument();
+    expect(screen.getByText(/0 B total/)).toBeInTheDocument();
   });
 
   it("renders attachment count metadata in the header", () => {
@@ -291,19 +291,25 @@ describe("AttachmentSection", () => {
     expect(removeButton.className).toContain("hover:bg-muted");
   });
 
-  it("uses the same base-name plus extension-badge display for every source", () => {
+  it("shows base names with full filenames as native hover titles", () => {
     setup({
       mailAttachments: [mail("a1", "RFQ-2026-Q1.pdf")],
       uploadedFiles: [upload("u1", "Untitled spreadsheet.xlsx")],
     });
-    expect(screen.getByText("RFQ-2026-Q1")).toBeInTheDocument();
+    expect(screen.getByText("RFQ-2026-Q1")).toHaveAttribute(
+      "title",
+      "RFQ-2026-Q1.pdf",
+    );
     expect(screen.queryByText("RFQ-2026-Q1.pdf")).not.toBeInTheDocument();
-    expect(screen.getByText("Untitled spreadsheet")).toBeInTheDocument();
+    expect(screen.getByText("Untitled spreadsheet")).toHaveAttribute(
+      "title",
+      "Untitled spreadsheet.xlsx",
+    );
     expect(
       screen.queryByText("Untitled spreadsheet.xlsx"),
     ).not.toBeInTheDocument();
-    expect(screen.getByText("pdf")).toBeInTheDocument();
-    expect(screen.getByText("xlsx")).toBeInTheDocument();
+    expect(screen.queryByText("pdf")).not.toBeInTheDocument();
+    expect(screen.queryByText("xlsx")).not.toBeInTheDocument();
   });
 
   it("deselects all uploaded files from the uploaded header action", () => {

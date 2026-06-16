@@ -113,6 +113,45 @@ describe("intakeReducer sales selection", () => {
 
 });
 
+describe("intake sync phase machine", () => {
+  const base = initialIntakeState("a@b.com");
+
+  it("opens on the staging leg when sync starts", () => {
+    const started = intakeReducer(base, { type: "syncStarted" });
+    expect(started.screen).toBe("sync");
+    expect(started.syncPhase).toBe("staging");
+    expect(started.syncError).toBeNull();
+  });
+
+  it("advances staging → writing → finalizing without leaving the sync screen", () => {
+    const started = intakeReducer(base, { type: "syncStarted" });
+    const writing = intakeReducer(started, { type: "syncPhaseChanged", phase: "writing" });
+    expect(writing.syncPhase).toBe("writing");
+    expect(writing.screen).toBe("sync");
+    const finalizing = intakeReducer(writing, { type: "syncPhaseChanged", phase: "finalizing" });
+    expect(finalizing.syncPhase).toBe("finalizing");
+    expect(finalizing.screen).toBe("sync");
+    const done = intakeReducer(finalizing, {
+      type: "syncSucceeded",
+      recordId: "rec1",
+      detailUrl: null,
+    });
+    expect(done.screen).toBe("received");
+    expect(done.bitableRecordId).toBe("rec1");
+  });
+
+  it("returns to build on startedOver and re-arms staging on the next sync", () => {
+    const finalizing = intakeReducer(
+      intakeReducer(base, { type: "syncStarted" }),
+      { type: "syncPhaseChanged", phase: "finalizing" },
+    );
+    const reset = intakeReducer(finalizing, { type: "startedOver" });
+    expect(reset.screen).toBe("build");
+    // syncPhase is dormant on the build screen; the next sync re-arms it.
+    expect(intakeReducer(reset, { type: "syncStarted" }).syncPhase).toBe("staging");
+  });
+});
+
 describe("intakeReducer request state", () => {
   const base = initialIntakeState("a@b.com");
 

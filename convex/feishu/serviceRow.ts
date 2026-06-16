@@ -112,8 +112,11 @@ function shouldPatchSalesAfterCreate(input: ServiceRowInput): boolean {
 
 /**
  * Phase-1 create fields: everything except `Sales` (including `Data From` =
- * `Email `). Sales is patched in a follow-up PUT (bitable.ts) so Feishu Base
- * automations can settle on the row before the User column is set.
+ * `Email `). Sales is set in a follow-up PUT (bitable.ts), NOT on the create:
+ * writing the Sales User column in the create payload does not link reliably —
+ * the row must exist (and its create-time Base automations settle) first.
+ * Load-bearing — do NOT merge Sales into the create to save the round-trip
+ * (ADR-0030; commit 75a055c).
  */
 export function buildServiceCreateFields(
   input: ServiceRowInput,

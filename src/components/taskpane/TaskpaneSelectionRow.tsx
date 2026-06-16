@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { ArrowRightLeft } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -26,7 +27,7 @@ export function TaskpaneSelectionRow({
   leading,
   label,
   onChange,
-  changeLabel = "Change",
+  changeLabel = "Pick another",
   dataRow,
   enterStagger = false,
   inset = true,
@@ -67,9 +68,10 @@ export function TaskpaneSelectionRow({
         <button
           type="button"
           onClick={onChange}
-          className="text-primary inline-flex min-h-8 items-center rounded-md px-2 text-[11px] font-semibold"
+          aria-label={changeLabel}
+          className="text-primary/85 hover:bg-primary/10 hover:text-primary inline-flex size-10 shrink-0 items-center justify-center rounded-full outline-none transition-[background-color,color,transform] duration-150 ease-[var(--ease-out-strong)] active:scale-[0.97] focus-visible:ring-[3px] focus-visible:ring-ring/20"
         >
-          {changeLabel}
+          <ArrowRightLeft className="size-4" strokeWidth={2} aria-hidden="true" />
         </button>
       ) : null}
     </div>

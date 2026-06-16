@@ -165,8 +165,10 @@ export function logServiceRecordIntake(
 export const createServiceRecord = internalAction({
   args: serviceRowArgs,
   handler: async (ctx, args): Promise<{ recordId: string }> => {
+    const tStart = Date.now();
     const { appToken, tableId } = requireBitableEnv();
     const clientRecordId = await resolveClientRecordId(ctx, appToken, args);
+    const tResolved = Date.now();
     const createFields = buildServiceCreateFields(args, clientRecordId);
     logServiceRecordIntake(args, clientRecordId, createFields);
     const data = await withFeishuRateLimitRetry(() =>
@@ -179,6 +181,7 @@ export const createServiceRecord = internalAction({
         label: "Bitable create service row",
       }),
     );
+    const tCreated = Date.now();
     const recordId = data.record?.record_id ?? "";
     const salesFields = buildServiceSalesFields(args);
     if (recordId && Object.keys(salesFields).length > 0) {
@@ -192,6 +195,15 @@ export const createServiceRecord = internalAction({
         }),
       );
     }
+    const tDone = Date.now();
+    // Per-step timing of the two serial cross-border writes (ADR-0030): the create
+    // POST and the deferred Sales PUT are the bulk of the SyncScreen's wait. Each
+    // callFeishu also logs its own duration; this ties them into one line.
+    console.log(
+      `[bitable] createServiceRecord timing resolveClient=${tResolved - tStart}ms ` +
+        `createPost=${tCreated - tResolved}ms salesPut=${tDone - tCreated}ms ` +
+        `total=${tDone - tStart}ms recordId=${recordId}`,
+    );
     return { recordId };
   },
 });

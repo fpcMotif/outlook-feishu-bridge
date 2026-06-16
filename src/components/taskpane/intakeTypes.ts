@@ -8,6 +8,13 @@ import type { CustomerRecord } from "./customers";
 
 export type IntakeScreenName = "build" | "sync" | "received" | "error";
 
+// Sub-phase while screen === "sync": which real leg of the submit is in flight.
+// Drives the SyncScreen meter off actual milestones instead of a fake timer.
+//   staging    — downloading + staging attachment bytes to Convex (the one wait)
+//   writing    — the Base row create (syncRequest) is in flight
+//   finalizing — recordId is in hand; brief 100% "done" beat before handoff
+export type SyncPhase = "staging" | "writing" | "finalizing";
+
 export type UploadStatus =
   | "pending"
   | "uploading"
@@ -36,6 +43,8 @@ export interface IntakeState {
   clientEmail: string;
   mailFrom: string;
   screen: IntakeScreenName;
+  /** Which real leg of the submit is running (only meaningful while screen==="sync"). */
+  syncPhase: SyncPhase;
   selectedCoworker: Coworker | null;
   selectedSales: Coworker | null;
   salesTouched: boolean;
@@ -64,6 +73,9 @@ export type IntakeAction =
   | { type: "customerAutoMatched"; customer: CustomerRecord | null }
   | { type: "customerOverridden"; customer: CustomerRecord | null }
   | { type: "syncStarted" }
+  // Real-milestone progress: runSync advances this as each leg completes so the
+  // SyncScreen meter reflects the actual sync, not a clock (staging→writing→finalizing).
+  | { type: "syncPhaseChanged"; phase: SyncPhase }
   | { type: "syncSucceeded"; recordId: string; detailUrl?: string | null }
   | { type: "syncFailed"; message: string }
   | { type: "mailAttachmentsDiscovered"; ids: string[] }

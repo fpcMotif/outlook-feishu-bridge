@@ -6,7 +6,7 @@
 
 import type { ReactNode } from "react";
 
-import type { IntakeScreenName } from "./intakeReducer";
+import type { IntakeScreenName, SyncPhase } from "./intakeReducer";
 import { ReceivedScreen } from "./ReceivedScreen";
 import { SyncScreen } from "./SyncScreen";
 import { AuthResolvingScreen } from "./AuthResolvingScreen";
@@ -24,6 +24,8 @@ export interface IntakeRouterProps {
   bitableDetailUrl: string | null;
   /** Deferred attachment-fill status from getBitableSyncByConversation; gates the open_feishu CTA (ADR-0027). */
   attachmentStatus?: "pending" | "filling" | "filled" | "failed" | null;
+  /** Live sync leg, drives the SyncScreen meter off real milestones. */
+  syncPhase: SyncPhase;
   syncPreview: SyncPreviewPayload;
   onRetrySync: () => void;
   onBackToBuild: () => void;
@@ -49,7 +51,7 @@ export function resolveIntakeScreen(props: IntakeRouterProps): ReactNode | null 
   }
   if (screen === "sync") {
     return (
-      <SyncScreen preview={props.syncPreview} />
+      <SyncScreen preview={props.syncPreview} phase={props.syncPhase} />
     );
   }
   if (screen === "error") {

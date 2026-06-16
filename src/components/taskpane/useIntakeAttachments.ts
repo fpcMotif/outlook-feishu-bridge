@@ -6,7 +6,7 @@
 // server-side Attachment Fill's job). Keeps RequestIntakeScreen focused and the
 // Convex/Office coupling out of the component body.
 
-import { useCallback, useEffect, useMemo, useRef, type Dispatch } from "react";
+import { useCallback, useMemo, useRef, type Dispatch } from "react";
 
 import {
   MAX_ATTACHMENT_COUNT,
@@ -141,14 +141,6 @@ export function useIntakeAttachments(
     () => selectableMail(mailItem.attachments, state.dismissedMailAttachmentIds),
     [mailItem.attachments, state.dismissedMailAttachmentIds],
   );
-
-  useEffect(() => {
-    if (mailAttachments.length === 0) return;
-    dispatch({
-      type: "mailAttachmentsDiscovered",
-      ids: mailAttachments.map((attachment) => attachment.id),
-    });
-  }, [mailAttachments, dispatch]);
 
   const addFiles = useCallback(
     (files: File[]) =>

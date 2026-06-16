@@ -53,4 +53,20 @@ describe("TaskpaneSelectionRow", () => {
     expect(row).toHaveClass("min-h-11", "rounded-xl", "bg-background", "shadow-edge");
     expect(row).not.toHaveClass("min-h-14", "px-3");
   });
+
+  it("renders the picker action as an icon-only 40px target", () => {
+    render(
+      <TaskpaneSelectionRow
+        dataRow="sales"
+        label="Jenny Xu"
+        inset={false}
+        onChange={() => {}}
+      />,
+    );
+
+    const action = screen.getByRole("button", { name: /pick another/i });
+    expect(action).toHaveClass("size-10", "rounded-full");
+    expect(action).not.toHaveTextContent(/change/i);
+    expect(action.querySelector("svg")).toBeInTheDocument();
+  });
 });

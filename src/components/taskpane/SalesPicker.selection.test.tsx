@@ -28,11 +28,26 @@ vi.mock("../../hooks/useCoworkerSearch", () => {
 });
 
 describe("SalesPicker selected row", () => {
-  it("shows Pick a sale prompt before any selection", () => {
+  it("shows sales prompt before any selection", () => {
     render(<SalesPicker sessionId="sess" onSelect={() => {}} />);
 
-    expect(screen.getByText("Pick a sale")).toBeInTheDocument();
+    expect(screen.getByText("sales")).toBeInTheDocument();
     expect(document.querySelector('[data-sales-row="true"]')).toBeNull();
+  });
+
+  it("gives assistive tech a full heading while the visible chip stays terse", () => {
+    render(<SalesPicker sessionId="sess" onSelect={() => {}} />);
+
+    // Visible chip is decorative; the labelled element carries the fuller name.
+    expect(screen.getByText("sales")).toHaveAttribute("aria-hidden", "true");
+    const label = document.getElementById("sales-picker-title");
+    expect(label).toHaveTextContent("Sales rep");
+    expect(label).toHaveClass("sr-only");
+    expect(
+      screen
+        .getByText("sales")
+        .closest('[aria-labelledby="sales-picker-title"]'),
+    ).not.toBeNull();
   });
 
   it("enters the selected row with stagger when the system applies a default", () => {
@@ -58,7 +73,7 @@ describe("SalesPicker selected row", () => {
     ) as HTMLElement;
     expect(row).not.toBeNull();
     const panel = screen
-      .getByText("Pick a sale")
+      .getByText("sales")
       .closest('[aria-labelledby="sales-picker-title"]');
     expect(panel).not.toBeNull();
     expect(panel).toContainElement(row);
@@ -142,9 +157,8 @@ describe("SalesPicker selected row", () => {
       '[data-sales-row="true"]',
     ) as HTMLElement;
     expect(row).not.toBeNull();
-    expect(
-      row.querySelector(':scope > span[aria-hidden="true"]'),
-    ).not.toHaveClass("text-muted-foreground");
+    const leadingSlot = row.querySelector(':scope > span[aria-hidden="true"]');
+    expect(leadingSlot).not.toHaveClass("text-muted-foreground");
     expect(row.querySelector('[data-slot="avatar"]')).toBeInTheDocument();
   });
 

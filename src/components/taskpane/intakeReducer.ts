@@ -8,6 +8,7 @@ import type { IntakeAction, IntakeState, UploadedFile } from "./intakeTypes";
 
 export type {
   IntakeScreenName,
+  SyncPhase,
   UploadStatus,
   UploadedFile,
   IntakeState,
@@ -47,6 +48,7 @@ export function initialIntakeState(arg: InitialIntakeArg): IntakeState {
     clientEmail: mailFrom,
     mailFrom,
     screen: "build",
+    syncPhase: "staging",
     selectedCoworker: null,
     selectedSales: defaultSales,
     salesTouched: false,
@@ -98,11 +100,9 @@ export function intakeReducer(
         customerTouched: true,
       };
     case "syncStarted":
-      return {
-        ...state,
-        screen: "sync",
-        syncError: null,
-      };
+      return { ...state, screen: "sync", syncPhase: "staging", syncError: null };
+    case "syncPhaseChanged":
+      return { ...state, syncPhase: action.phase };
     case "syncSucceeded":
       return {
         ...state,

@@ -10,7 +10,10 @@ import {
 import { UserRound } from "lucide-react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/design-system";
-import { TaskpaneSearchDropdown, TaskpaneSelectionRow } from "@/design-system/taskpane";
+import {
+  TaskpaneSearchDropdown,
+  TaskpaneSelectionRow,
+} from "@/design-system/taskpane";
 import { CoworkerOption } from "./CoworkerPicker";
 import type { Coworker } from "./coworkers";
 import { useCoworkerSearch } from "../../hooks/useCoworkerSearch";
@@ -97,7 +100,8 @@ function SalesSearchPanel({
 
   return (
     <TaskpanePickerPanel
-      title="Pick a sale"
+      title="sales"
+      srTitle="Sales rep"
       titleId="sales-picker-title"
       panelRef={panelRef}
       shellClassName={TASKPANE_SEARCH_PANEL_SHELL_HEADER}
@@ -222,7 +226,8 @@ export function SalesPicker({
   if (!showSearch) {
     return (
       <TaskpanePickerPanel
-        title="Pick a sale"
+        title="sales"
+        srTitle="Sales rep"
         titleId="sales-picker-title"
         shellClassName={TASKPANE_SEARCH_PANEL_SHELL_HEADER}
       >

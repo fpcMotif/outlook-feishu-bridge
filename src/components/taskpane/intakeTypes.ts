@@ -8,7 +8,12 @@ import type { CustomerRecord } from "./customers";
 
 export type IntakeScreenName = "build" | "sync" | "received" | "error";
 
-export type SelfForwardStatus = "pending" | "ok" | "failed" | null;
+// Sub-phase while screen === "sync": which real leg of the submit is in flight.
+// Drives the SyncScreen meter off actual milestones instead of a fake timer.
+//   staging    — downloading + staging attachment bytes to Convex (the one wait)
+//   writing    — the Base row create (syncRequest) is in flight
+//   finalizing — recordId is in hand; brief 100% "done" beat before handoff
+export type SyncPhase = "staging" | "writing" | "finalizing";
 
 export type UploadStatus =
   | "pending"
@@ -38,6 +43,8 @@ export interface IntakeState {
   clientEmail: string;
   mailFrom: string;
   screen: IntakeScreenName;
+  /** Which real leg of the submit is running (only meaningful while screen==="sync"). */
+  syncPhase: SyncPhase;
   selectedCoworker: Coworker | null;
   selectedSales: Coworker | null;
   salesTouched: boolean;
@@ -46,11 +53,11 @@ export interface IntakeState {
   bitableRecordId: string | null;
   bitableDetailUrl: string | null;
   syncError: string | null;
-  selfForwardStatus: SelfForwardStatus;
-  selfForwardError: { code: string; message: string } | null;
   // ADR-0022 attachments: checked mail-attachment ids (opt-in, default []) and
   // the user's uploaded files. Sources are gathered + staged at submit time.
   selectedAttachmentIds: string[];
+  /** Outlook attachment ids already considered for initial auto-selection. */
+  seenMailAttachmentIds: string[];
   /** Outlook mail attachment ids hidden via row remove (still on the message). */
   dismissedMailAttachmentIds: string[];
   uploadedFiles: UploadedFile[];
@@ -66,11 +73,12 @@ export type IntakeAction =
   | { type: "customerAutoMatched"; customer: CustomerRecord | null }
   | { type: "customerOverridden"; customer: CustomerRecord | null }
   | { type: "syncStarted" }
+  // Real-milestone progress: runSync advances this as each leg completes so the
+  // SyncScreen meter reflects the actual sync, not a clock (staging→writing→finalizing).
+  | { type: "syncPhaseChanged"; phase: SyncPhase }
   | { type: "syncSucceeded"; recordId: string; detailUrl?: string | null }
   | { type: "syncFailed"; message: string }
-  | { type: "selfForwardStarted" }
-  | { type: "selfForwardSucceeded" }
-  | { type: "selfForwardFailed"; code: string; message: string }
+  | { type: "mailAttachmentsDiscovered"; ids: string[] }
   | { type: "attachmentToggled"; id: string }
   | { type: "mailAttachmentRemoved"; id: string }
   | { type: "filesAdded"; files: UploadedFile[] }

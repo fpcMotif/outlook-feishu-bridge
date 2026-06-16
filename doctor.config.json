@@ -1,6 +1,11 @@
 {
+  "$schema": "https://www.react.doctor/schema.json",
   "ignore": {
-    "files": ["convex/**"],
+    "files": [
+      "convex/**",
+      ".claude/worktrees/**",
+      "**/.claude/worktrees/**"
+    ],
     "overrides": [
       {
         "files": ["package.json"],

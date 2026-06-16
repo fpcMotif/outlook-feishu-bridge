@@ -5,7 +5,8 @@ import { MailOpen } from "lucide-react";
 import { dload } from "../debug";
 import { useFeishuAuth } from "../hooks/useFeishuAuth";
 import { useMailItem, type MailItemData } from "../office/useMailItem";
-import { Button } from "./ui/button";
+import { Button } from "@/design-system";
+import { TaskpaneAppFrame, TaskpaneMain, TaskpaneStateMessage } from "@/design-system/taskpane";
 import { RequestIntakeScreen } from "./taskpane/RequestIntakeScreen";
 import { FeishuProfile } from "./taskpane/FeishuProfile";
 import { ThemeToggle } from "./ThemeToggle";
@@ -37,10 +38,9 @@ const DEV_SAMPLE: MailItemData = {
   internetMessageId: "<dev-sample@fenchem.com>",
   itemId: "dev-sample",
   conversationId: "dev-sample",
-  // The Self-Forward primary recipient is the signed-in user's own mailbox; in
-  // dev preview that is fanpc@fenchem.com (the test user). jenny.xu is just
-  // a fictional "to" recipient on the sample inbound email; never a sendable
-  // address from this add-in.
+  // The signed-in Outlook mailbox; in dev preview that is fanpc@fenchem.com (the
+  // test user). jenny.xu is just a fictional "to" recipient on the sample inbound
+  // email. Used as the per-conversation draft-cache / recovery-record key.
   userEmail: "fanpc@fenchem.com",
   attachments: [
     { id: "a1", name: "RFQ-2026-Q1.pdf", attachmentType: "file", size: 184320, isInline: false },
@@ -78,7 +78,6 @@ function DevScreenPreview({
       detailUrl={fixture.detailUrl}
       submittedAt={submittedAtForDevEmailFixture(fixture)}
       devFixtureLabel={fixture.label}
-      selfForwardStatus={null}
     />
   );
 }
@@ -91,18 +90,18 @@ function EmptyState({
   onRead: () => void;
 }) {
   return (
-    <div className="animate-pop-in flex flex-1 flex-col items-center justify-center px-8 text-center">
-      <span className="bg-card-soft text-muted-foreground mb-4 flex size-14 items-center justify-center rounded-2xl shadow-edge">
-        <MailOpen className="size-6" strokeWidth={1.75} aria-hidden="true" />
-      </span>
-      <h2 className="text-2xl font-semibold tracking-tight text-balance">No message open</h2>
-      <p className="text-muted-foreground mt-1.5 max-w-[32ch] text-sm leading-relaxed text-pretty">
-        {error ?? "Open a received message in Outlook, then sync it to Feishu from here."}
-      </p>
-      <Button variant="secondary" className="mt-4" onClick={onRead}>
-        Read current email
-      </Button>
-    </div>
+    <TaskpaneStateMessage
+      title="No message open"
+      titleAs="h2"
+      description={error ?? "Open a received message in Outlook, then sync it to Feishu from here."}
+      descriptionClassName="max-w-[32ch]"
+      icon={<MailOpen className="size-6" strokeWidth={1.75} aria-hidden="true" />}
+      actions={
+        <Button variant="secondary" onClick={onRead}>
+          Read current email
+        </Button>
+      }
+    />
   );
 }
 
@@ -197,11 +196,11 @@ export function TaskPane({ host }: { host: string | null }) {
     ) : null;
 
   return (
-    <div className="bg-background relative flex h-screen w-full flex-col overflow-hidden">
+    <TaskpaneAppFrame>
       {host !== null && !feishuAuth.isLoading ? (
         <BootReadyMilestone host={host} isLoggedIn={feishuAuth.isLoggedIn} />
       ) : null}
-      <main className="flex min-h-0 flex-1 flex-col">
+      <TaskpaneMain>
         {devScreen ? (
           <DevScreenPreview screen={devScreen} devFixtureKey={devFixtureKey} />
         ) : item ? (
@@ -225,7 +224,7 @@ export function TaskPane({ host }: { host: string | null }) {
         ) : loading ? null : (
           <EmptyState error={error} onRead={readCurrentItem} />
         )}
-      </main>
-    </div>
+      </TaskpaneMain>
+    </TaskpaneAppFrame>
   );
 }

@@ -216,6 +216,16 @@ export const markBitableSyncSucceeded = internalMutation({
         requestSyncKey: args.requestSyncKey,
       });
     }
+    // [syncTotal]: click → row synced — the SyncScreen's server-side span,
+    // mirroring [fillTotal] for the deferred-fill tail. clickToSynced uses the
+    // client-minted submitClickedAt; armToSynced is the server-internal create.
+    const syncedAt = args.attemptedAt;
+    const clickToSyncedMs = existing.submitClickedAt ? syncedAt - existing.submitClickedAt : null;
+    const armToSyncedMs = existing.syncReceivedAt ? syncedAt - existing.syncReceivedAt : null;
+    console.log(
+      `[syncTotal] trace=${existing.syncTraceId ?? "—"} recordId=${args.bitableRecordId} ` +
+        `clickToSynced=${clickToSyncedMs ?? "?"}ms armToSynced=${armToSyncedMs ?? "?"}ms`,
+    );
     return { detailUrl: buildConfiguredBitableRecordDetailUrl(args.bitableRecordId) };
   },
 });

@@ -1,6 +1,6 @@
 import type { CustomerSearchEmptyKind } from "./customerSearchHelpers";
 import { CustomerSearchEmptyIllustration } from "./CustomerSearchEmptyIllustration";
-import { Button } from "../ui/button";
+import { Button } from "@/design-system";
 
 export function CustomerSearchEmptyState({
   kind,

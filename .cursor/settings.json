@@ -2,6 +2,9 @@
   "plugins": {
     "impeccable/impeccable": {
       "enabled": true
+    },
+    "figma": {
+      "enabled": true
     }
   }
 }

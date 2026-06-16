@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useFeishuAuth } from "../hooks/useFeishuAuth";
@@ -21,10 +21,6 @@ vi.mock("../hooks/useRequestSync", () => ({
   }),
 }));
 
-vi.mock("../hooks/useSelfForward", () => ({
-  useSelfForward: () => ({ sendNote: vi.fn(() => Promise.resolve({ ok: true })) }),
-}));
-
 vi.mock("../hooks/useAttachmentStaging", () => ({
   useAttachmentStaging: () => ({
     generateUploadUrl: vi.fn().mockResolvedValue("https://up/test"),
@@ -34,8 +30,8 @@ vi.mock("../hooks/useAttachmentStaging", () => ({
 
 vi.mock("../hooks/useCoworkerSearch", () => {
   const coworkers = [
-    { openId: "ou_jenny", name: "Jenny Xu", avatarUrl: "https://example.test/jenny.png" },
-    { openId: "ou_michael", name: "Michael Chen", avatarUrl: "https://example.test/michael.png" },
+    { openId: "ou_live_jenny", name: "Jenny Xu", avatarUrl: "https://example.test/jenny.png" },
+    { openId: "ou_live_michael", name: "Michael Chen", avatarUrl: "https://example.test/michael.png" },
   ];
   return {
     useCoworkerSearch: () =>
@@ -107,6 +103,23 @@ async function searchCoworker(name: string) {
     target: { value: name },
   });
   return await screen.findByRole("button", { name: new RegExp(`^${name}`, "i") });
+}
+
+// Selecting a coworker makes the dock live, which starts the SubmitDock
+// "Checking attachments" confirm countdown (3s). Advance past it with fake timers
+// so the dock exposes the live "Sync with <name>" button. Mirrors the gate
+// traversal in RequestIntakeScreen.uploadGate.test.tsx.
+async function pickCoworkerAndConfirm(name: string) {
+  const result = await searchCoworker(name);
+  vi.useFakeTimers();
+  try {
+    fireEvent.click(result);
+    await act(async () => {
+      vi.advanceTimersByTime(3000);
+    });
+  } finally {
+    vi.useRealTimers();
+  }
 }
 
 beforeEach(() => {
@@ -246,7 +259,6 @@ describe("TaskPane browser preview request flow", () => {
       "href",
       expect.stringContaining("dev_fixture_email_sync_fresh"),
     );
-    expect(screen.queryByText(/Note to myself sent/i)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Route another email/i })).not.toBeInTheDocument();
   });
 
@@ -271,7 +283,7 @@ describe("TaskPane browser preview request flow", () => {
       target: { value: "Need a quarterly L-Carnitine quote." },
     });
     expect(screen.getByDisplayValue("Need a quarterly L-Carnitine quote.")).toBeInTheDocument();
-    fireEvent.click(await searchCoworker("Jenny Xu"));
+    await pickCoworkerAndConfirm("Jenny Xu");
     fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
 
     expect(
@@ -291,7 +303,7 @@ describe("TaskPane browser preview request flow", () => {
     fireEvent.change(screen.getByPlaceholderText(/Describe your requirements/i), {
       target: { value: "Need a quarterly L-Carnitine quote." },
     });
-    fireEvent.click(await searchCoworker("Jenny Xu"));
+    await pickCoworkerAndConfirm("Jenny Xu");
     fireEvent.click(screen.getByRole("button", { name: /Sync with Jenny Xu/i }));
 
     expect(await screen.findByRole("heading", { name: /^Synced$/i })).toBeInTheDocument();

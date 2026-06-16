@@ -3,7 +3,7 @@
 // findCustomerByEmail; this module displays the chosen Customer and owns the
 // search-panel interaction for manual overrides.
 
-/* eslint-disable max-lines-per-function */
+/* eslint-disable max-lines-per-function, max-lines -- two cohesive panels (selected + search) for one picker. */
 import { useMemo, useRef, useState, type RefObject } from "react";
 import { Plus, UserRound } from "lucide-react";
 
@@ -22,13 +22,14 @@ import {
 } from "./customerSearchHelpers";
 import { CustomerSearchEmptyState } from "./CustomerSearchEmptyState";
 import { dlog, dtime } from "../../debug";
-import { TaskpaneSearchDropdown } from "./TaskpaneSearchDropdown";
-import { TaskpaneSelectionRow } from "./TaskpaneSelectionRow";
 import {
-  TASKPANE_SEARCH_PANEL_HEADER,
+  TaskpaneSearchDropdown,
+  TaskpaneSelectionRow,
+} from "@/design-system/taskpane";
+import { TaskpanePickerPanel } from "./TaskpanePickerPanel";
+import {
   TASKPANE_SEARCH_PANEL_SHELL,
   TASKPANE_SEARCH_PANEL_SHELL_HEADER,
-  TASKPANE_SEARCH_PANEL_TITLE,
 } from "./taskpaneSearchPanelLayout";
 import { useCustomerSearchSession } from "./useCustomerSearchSession";
 
@@ -59,7 +60,8 @@ export function CustomerPicker({
 }: CustomerPickerProps) {
   const session = useCustomerSearchSession();
   const defaultOpenedAt = useRef<number | null>(null);
-  if (defaultOpenedAt.current === null) defaultOpenedAt.current = performance.now();
+  if (defaultOpenedAt.current === null)
+    defaultOpenedAt.current = performance.now();
 
   // Opening the picker is purely local — no Mirror Kick. Freshness comes from
   // the typed-search cache-miss backfill once the user actually queries.
@@ -79,7 +81,9 @@ export function CustomerPicker({
         currentUserOpenId={currentUserOpenId}
         embedded={embedded}
         exiting={session.exiting}
-        boundaryRef={session.searchSession ? session.searchPanelBoundaryRef : undefined}
+        boundaryRef={
+          session.searchSession ? session.searchPanelBoundaryRef : undefined
+        }
         onDismiss={session.searchSession ? session.dismissSearch : undefined}
         onSelect={(customer) => {
           onChange(customer);
@@ -91,14 +95,44 @@ export function CustomerPicker({
   }
 
   return (
-    <section className={embedded ? "" : "bg-card-soft rounded-xl shadow-edge"}>
+    <SelectedCustomerPanel
+      customer={selectedCustomer}
+      embedded={embedded}
+      onChange={openSearch}
+    />
+  );
+}
+
+function SelectedCustomerPanel({
+  customer,
+  embedded,
+  onChange,
+}: {
+  customer: CustomerRecord;
+  embedded: boolean;
+  onChange: () => void;
+}) {
+  const shell = embedded
+    ? TASKPANE_SEARCH_PANEL_SHELL_HEADER
+    : TASKPANE_SEARCH_PANEL_SHELL;
+
+  return (
+    <TaskpanePickerPanel
+      as="section"
+      title="customer"
+      srTitle="Customer"
+      titleId="customer-picker-title"
+      shellClassName={shell}
+      className={embedded ? undefined : "bg-card-soft rounded-xl shadow-edge"}
+    >
       <TaskpaneSelectionRow
         dataRow="customer"
         icon={<UserRound className="size-4" />}
-        label={selectedCustomer.name}
-        onChange={openSearch}
+        label={customer.name}
+        inset={false}
+        onChange={onChange}
       />
-    </section>
+    </TaskpanePickerPanel>
   );
 }
 
@@ -138,7 +172,12 @@ function SearchPanel({
   const q = normalizedQuery(query);
 
   const localMatches = useMemo<CustomerRecord[]>(() => {
-    return filterLocalCustomers(directory.records, q, showMine, currentUserOpenId);
+    return filterLocalCustomers(
+      directory.records,
+      q,
+      showMine,
+      currentUserOpenId,
+    );
   }, [q, showMine, currentUserOpenId, directory.records]);
 
   const runServerSearch = (nextQuery: string, nextShowMine: boolean) => {
@@ -149,14 +188,20 @@ function SearchPanel({
       nextShowMine,
       currentUserOpenId,
     );
-    if (!nextQ || (directory.status === "ready" && nextLocalMatches.length > 0)) {
+    if (
+      !nextQ ||
+      (directory.status === "ready" && nextLocalMatches.length > 0)
+    ) {
       latestSearch.current += 1;
       setServerMatches([]);
       return;
     }
     const searchId = latestSearch.current + 1;
     latestSearch.current = searchId;
-    void searchCustomers(nextQ, ownerFilter(nextShowMine, currentUserOpenId, nextQ))
+    void searchCustomers(
+      nextQ,
+      ownerFilter(nextShowMine, currentUserOpenId, nextQ),
+    )
       .then((rows) => {
         if (latestSearch.current === searchId) setServerMatches(rows);
       })
@@ -183,39 +228,27 @@ function SearchPanel({
     if (!onDismiss) return;
     window.setTimeout(() => {
       const activeElement = document.activeElement;
-      if (activeElement && boundaryRef?.current?.contains(activeElement)) return;
+      if (activeElement && boundaryRef?.current?.contains(activeElement))
+        return;
       onDismiss();
     }, 0);
   };
 
-  const shell = embedded ? TASKPANE_SEARCH_PANEL_SHELL_HEADER : TASKPANE_SEARCH_PANEL_SHELL;
+  const shell = embedded
+    ? TASKPANE_SEARCH_PANEL_SHELL_HEADER
+    : TASKPANE_SEARCH_PANEL_SHELL;
 
   return (
-    <section
-      ref={boundaryRef}
+    <TaskpanePickerPanel
+      as="section"
+      title="customer"
+      srTitle="Customer"
+      titleId="customer-picker-title"
+      panelRef={boundaryRef}
       onBlur={handlePanelBlur}
-      className={
-        embedded
-          ? `${shell}${exiting ? " panel-exit" : ""}`
-          : `bg-card-soft rounded-xl ${shell} shadow-edge${exiting ? " panel-exit" : ""}`
-      }
+      shellClassName={shell}
+      className={`${embedded ? "" : "bg-card-soft rounded-xl shadow-edge"}${exiting ? " panel-exit" : ""}`}
     >
-      <div className={TASKPANE_SEARCH_PANEL_HEADER}>
-        <span className={TASKPANE_SEARCH_PANEL_TITLE}>Pick a customer</span>
-        <div className="flex items-center gap-1">
-          {currentUserOpenId ? (
-            <button
-              type="button"
-              aria-pressed={showMine}
-              onClick={handleShowMine}
-              className="data-[on=true]:bg-accent data-[on=true]:text-accent-foreground text-muted-foreground inline-flex min-h-10 items-center rounded-md px-3 text-[11px] font-semibold transition-transform active:scale-[0.96]"
-              data-on={showMine}
-            >
-              Show mine
-            </button>
-          ) : null}
-        </div>
-      </div>
       <TaskpaneSearchDropdown
         label="Search customers"
         value={query}
@@ -225,6 +258,19 @@ function SearchPanel({
         listLabel="Customer results"
         emptyMessage={customerSearchEmptyMessage(q, showMine, query)}
         onEscape={() => (q ? handleQueryChange("") : onDismiss?.())}
+        rightSlot={
+          currentUserOpenId ? (
+            <button
+              type="button"
+              aria-pressed={showMine}
+              onClick={handleShowMine}
+              className="data-[on=true]:bg-accent data-[on=true]:text-accent-foreground text-muted-foreground inline-flex min-h-8 shrink-0 items-center rounded-md px-2.5 text-[11px] font-semibold transition-transform active:scale-[0.96]"
+              data-on={showMine}
+            >
+              Show mine
+            </button>
+          ) : null
+        }
       >
         {matches.length > 0 ? (
           matches.slice(0, 8).map((customer) => (
@@ -239,7 +285,9 @@ function SearchPanel({
               className="bg-card hover:bg-accent data-[keyboard-active=true]:bg-accent sync-enter flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-xs shadow-edge transition-transform active:scale-[0.96]"
             >
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-semibold">{customer.name}</span>
+                <span className="block truncate text-sm font-semibold">
+                  {customer.name}
+                </span>
                 {customer.domain || customer.countryRegion || customer.owner ? (
                   <span className="text-muted-foreground block truncate text-[11px]">
                     {[
@@ -270,10 +318,12 @@ function SearchPanel({
             className="bg-card hover:bg-accent data-[keyboard-active=true]:bg-accent flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-xs font-semibold shadow-edge transition-transform active:scale-[0.96]"
           >
             <Plus className="text-primary size-4 shrink-0" />
-            <span className="min-w-0 flex-1 truncate">Create customer task "{query.trim()}"</span>
+            <span className="min-w-0 flex-1 truncate">
+              Create customer task "{query.trim()}"
+            </span>
           </button>
         ) : undefined}
       </TaskpaneSearchDropdown>
-    </section>
+    </TaskpanePickerPanel>
   );
 }

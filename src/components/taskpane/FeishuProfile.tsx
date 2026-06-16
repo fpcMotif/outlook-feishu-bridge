@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/design-system";
 import type { FeishuUser } from "./feishuUser";
 import { initials } from "./initials";
 

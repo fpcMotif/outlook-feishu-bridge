@@ -121,11 +121,7 @@ export function selectedAttachmentsForPreview(
   return [...fromMail, ...fromUpload];
 }
 
-/** Progress thresholds for staged “row written” animation in Base preview. */
-export function syncPreviewRowSynced(progress: number): boolean {
-  return progress >= 34;
-}
-
-export function syncPreviewAttachmentsVisible(progress: number): boolean {
-  return progress >= 52;
-}
+// The Base preview's "row written" / "attachments visible" reveal used to live
+// here as numeric progress thresholds (>= 34 / >= 52). They were coupled to the
+// meter's easing internals, not to the real sync leg, so the reveal model now
+// lives in syncPhaseView.ts and keys off SyncPhase directly. See ADR-0022.

@@ -1,4 +1,4 @@
-import { Textarea } from "@/components/ui/textarea";
+import { Textarea } from "@/design-system";
 
 import { REQUESTS } from "./requests";
 
@@ -33,8 +33,8 @@ export function RequestCards({
         value={value}
         onChange={(e) => onChange(primaryRequest.id, e.target.value)}
         placeholder={primaryRequest.placeholder}
-        rows={4}
-        className="min-h-[148px] rounded-2xl border-0 bg-transparent p-4 pb-10 shadow-none placeholder:text-[13px] placeholder:italic placeholder:font-normal focus-visible:bg-transparent focus-visible:ring-0"
+        rows={11}
+        className="min-h-[400px] rounded-2xl border-0 bg-transparent p-4 pb-10 shadow-none placeholder:text-[13px] placeholder:italic placeholder:font-normal focus-visible:bg-transparent focus-visible:ring-0"
       />
       <div className={CHAR_COUNTER_CLASS}>
         {value.length} char{value.length === 1 ? "" : "s"}

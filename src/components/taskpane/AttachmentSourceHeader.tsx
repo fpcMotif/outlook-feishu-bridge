@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 import { Mail, Upload } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
+import { Badge } from "@/design-system";
 import { cn } from "@/lib/utils";
 
 export type AttachmentSourceKind = "outlook" | "uploaded";

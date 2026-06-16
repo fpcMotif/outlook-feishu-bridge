@@ -2,7 +2,7 @@
 import { AlertCircle, RotateCw } from "lucide-react";
 import { useMemo, useRef, type ReactNode } from "react";
 
-import { Checkbox } from "@/components/ui/checkbox";
+import { Checkbox } from "@/design-system";
 import { cn } from "@/lib/utils";
 
 import {
@@ -17,7 +17,7 @@ import {
   type StatusTone,
 } from "./AttachmentSectionPrimitives";
 import type { UploadStatus } from "./intakeReducer";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/design-system";
 import { nameWithoutExt } from "./attachmentFileDisplay";
 import { humanizeUploadError, isUnreadableUploadError } from "./uploadError";
 
@@ -364,6 +364,7 @@ export function AttachmentItemRow(props: AttachmentItemRowProps) {
       name={name}
       displayName={nameWithoutExt(name)}
       subtitle={subtitleNode}
+      inlineMeta={!blocked && !errored}
       status={statusSlot}
       removeLabel={`Remove ${name}`}
       onRemove={onRemove}

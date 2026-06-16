@@ -30,6 +30,15 @@ describe("buildIntakeDraftKey", () => {
 });
 
 describe("intake draft round trip", () => {
+  it("uses the signed-in user default when no draft exists", () => {
+    const key = buildIntakeDraftKey("ou_a", "rep@fenchem.com", "conv:rep@fenchem.com\nconv-1");
+    const defaultSales = { openId: "ou_a", name: "Jenny Xu" };
+
+    expect(
+      loadIntakeDraft(key, "buyer@example.com", [], defaultSales).selectedSales,
+    ).toBe(defaultSales);
+  });
+
   it("restores memoized selections for the same conversation", () => {
     const key = buildIntakeDraftKey("ou_a", "rep@fenchem.com", "conv:rep@fenchem.com\nconv-1");
     const state = {

@@ -68,6 +68,7 @@
   --file-rose-soft: oklch(0.965 0.028 18);
   --file-amber: oklch(0.58 0.13 72);
   --file-amber-soft: oklch(0.965 0.038 85);
+  --submit-dock-countdown-color: var(--destructive);
   --destructive: oklch(0.523 0.206 25.85);
   --destructive-foreground: oklch(1 0 0);
   --border: oklch(0.918 0.006 255.477);
@@ -105,6 +106,7 @@
   --file-rose-soft: oklch(0.32 0.045 18);
   --file-amber: oklch(0.8 0.11 78);
   --file-amber-soft: oklch(0.34 0.05 78);
+  --submit-dock-countdown-color: var(--destructive);
   --destructive: oklch(0.702 0.159 16.869);
   --destructive-foreground: oklch(0.176 0.033 256.392);
   --border: oklch(0.385 0.042 254.044);
@@ -210,6 +212,26 @@
 }
 .animate-pop-in {
   animation: pop-in 0.22s var(--ease-out-strong) backwards;
+}
+
+/* Attachment counter: a restrained countdown bounce when selections are removed. */
+@keyframes attachment-count-down-bounce {
+  0% {
+    transform: translateY(0) scale(1);
+  }
+  42% {
+    transform: translateY(-1px) scale(1.045);
+  }
+  72% {
+    transform: translateY(0) scale(0.985);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+  }
+}
+.attachment-count-down-bounce {
+  transform-origin: center;
+  animation: attachment-count-down-bounce 0.24s var(--ease-out-strong);
 }
 
 @keyframes panel-exit {
@@ -358,6 +380,7 @@
   .animate-pulse-dot,
   .animate-pulse-ring,
   .animate-pop-in,
+  .attachment-count-down-bounce,
   .profile-pop,
   .taskpane-selection-enter-group > * {
     animation: none;
@@ -399,6 +422,52 @@
   transition: transform 150ms var(--ease-out-strong);
 }
 
+/* Busy label ellipsis: tiny opacity/transform only, used for waiting states. */
+.submit-dock-busy-dots {
+  padding-bottom: 0.18em;
+}
+.submit-dock-busy-dot {
+  width: 0.22rem;
+  height: 0.22rem;
+  border-radius: 9999px;
+  background: currentColor;
+  opacity: 0.4;
+  transform: translateY(0);
+  animation: submit-dock-busy-dot 1.05s var(--ease-out-strong) infinite;
+}
+.submit-dock-busy-dot:nth-child(2) {
+  animation-delay: 120ms;
+}
+.submit-dock-busy-dot:nth-child(3) {
+  animation-delay: 240ms;
+}
+@keyframes submit-dock-busy-dot {
+  0%,
+  68%,
+  100% {
+    opacity: 0.4;
+    transform: translateY(0);
+  }
+  34% {
+    opacity: 0.86;
+    transform: translateY(-2px);
+  }
+}
+
+/* "Checking attachments" destructive countdown ring: depletes once across the confirm
+   window (duration set inline to track SubmitDock's CONFIRM_COUNTDOWN_SECONDS).
+   r=11 -> circumference 2*pi*11 = 69.12. */
+.submit-dock-countdown-ring {
+  stroke-dasharray: 69.12;
+  stroke-dashoffset: 0;
+  animation: submit-dock-countdown-ring linear forwards;
+}
+@keyframes submit-dock-countdown-ring {
+  to {
+    stroke-dashoffset: 69.12;
+  }
+}
+
 @media (hover: hover) and (pointer: fine) {
   .submit-dock-btn[data-live]:hover {
     background-color: var(--primary-deep);
@@ -433,7 +502,17 @@
   .submit-dock-arrow {
     transition: none;
   }
+  .submit-dock-busy-dot {
+    animation: none;
+    opacity: 0.55;
+    transform: none;
+  }
   .submit-dock-btn[data-live]:hover .submit-dock-arrow {
     transform: none;
+  }
+  /* Freeze the countdown ring (full); seconds still tick via the digit. */
+  .submit-dock-countdown-ring {
+    animation: none;
+    stroke-dashoffset: 0;
   }
 }

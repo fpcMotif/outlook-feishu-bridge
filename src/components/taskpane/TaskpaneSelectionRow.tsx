@@ -1,4 +1,7 @@
 import type { ReactNode } from "react";
+import { ArrowRightLeft } from "lucide-react";
+
+import { cn } from "@/lib/utils";
 
 function SelectionRowLeading({ leading, icon }: { leading?: ReactNode; icon?: ReactNode }) {
   const left = leading ?? icon;
@@ -24,9 +27,10 @@ export function TaskpaneSelectionRow({
   leading,
   label,
   onChange,
-  changeLabel = "Change",
+  changeLabel = "Pick another",
   dataRow,
   enterStagger = false,
+  inset = true,
 }: {
   /** Lucide or custom icon in the muted icon slot. */
   icon?: ReactNode;
@@ -38,16 +42,22 @@ export function TaskpaneSelectionRow({
   dataRow?: "customer" | "sales" | "coworker";
   /** Staggered ease-out enter when the system applies a default selection. */
   enterStagger?: boolean;
+  /** Keep default row padding when rendered directly in a card stack. */
+  inset?: boolean;
 }) {
   const rowProps = dataRow ? { [`data-${dataRow}-row`]: "true" as const } : {};
+  const rowSpacing = inset ? "px-3 py-2" : "px-3 py-1";
+  const minHeight = inset ? "min-h-14" : "min-h-11";
 
   return (
     <div
-      className={
-        enterStagger
-          ? "taskpane-selection-enter-group flex min-h-14 min-w-0 items-center gap-3 px-3 py-2"
-          : "flex min-h-14 min-w-0 items-center gap-3 px-3 py-2"
-      }
+      className={cn(
+        "flex min-w-0 items-center gap-3",
+        minHeight,
+        rowSpacing,
+        !inset && "bg-background rounded-xl shadow-edge",
+        enterStagger && "taskpane-selection-enter-group",
+      )}
       {...rowProps}
     >
       <SelectionRowLeading leading={leading} icon={icon} />
@@ -58,9 +68,10 @@ export function TaskpaneSelectionRow({
         <button
           type="button"
           onClick={onChange}
-          className="text-primary inline-flex min-h-8 items-center rounded-md px-2 text-[11px] font-semibold"
+          aria-label={changeLabel}
+          className="text-primary/85 hover:bg-primary/10 hover:text-primary inline-flex size-10 shrink-0 items-center justify-center rounded-full outline-none transition-[background-color,color,transform] duration-150 ease-[var(--ease-out-strong)] active:scale-[0.97] focus-visible:ring-[3px] focus-visible:ring-ring/20"
         >
-          {changeLabel}
+          <ArrowRightLeft className="size-4" strokeWidth={2} aria-hidden="true" />
         </button>
       ) : null}
     </div>

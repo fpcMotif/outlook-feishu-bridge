@@ -1,5 +1,5 @@
 /* eslint-disable require-unicode-regexp */
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Minimal mocks so the logged-in intake tree renders without real Convex/Office.
@@ -9,10 +9,6 @@ vi.mock("../../hooks/useRequestSync", () => ({
     correct: vi.fn(() => Promise.resolve({ recordId: "rec1" })),
     existingSync: null,
   }),
-}));
-
-vi.mock("../../hooks/useSelfForward", () => ({
-  useSelfForward: () => ({ sendNote: vi.fn(() => Promise.resolve({ ok: true })) }),
 }));
 
 vi.mock("../../hooks/useAttachmentStaging", () => ({
@@ -51,7 +47,6 @@ vi.mock("./useAttachmentSync", () => ({
 }));
 
 import { RequestIntakeScreen } from "./RequestIntakeScreen";
-import { resetSalesDefaultForTests } from "./scheduleSalesDefault";
 import {
   buildUploadDraftKey,
   resetUploadDrafts,
@@ -108,10 +103,14 @@ function screenFor(mailItem: MailItemData) {
 const noteField = () =>
   screen.getByPlaceholderText(/Describe your requirements/i) as HTMLTextAreaElement;
 
+function reopenSalesSearch(row: Element | null) {
+  expect(row).not.toBeNull();
+  fireEvent.click(
+    within(row as HTMLElement).getByRole("button", { name: /pick another/i }),
+  );
+}
+
 beforeEach(() => {
-  // Keep the first-load Sales delay so the auto-default does not fire mid-test and
-  // collapse the SalesPicker dropdown (the flag is module-global, ADR-0025).
-  resetSalesDefaultForTests();
   clearIntakeDraftCache();
   resetUploadDrafts();
   localStorage.clear();
@@ -159,6 +158,7 @@ describe("RequestIntakeScreen — pinned-pane email switch", () => {
     const { rerender } = render(screenFor(BASE));
 
     // Reassign Sales to a colleague for this conversation.
+    reopenSalesSearch(salesRow());
     fireEvent.change(screen.getByLabelText("Search Feishu sales"), {
       target: { value: "Michael" },
     });
@@ -182,6 +182,7 @@ describe("RequestIntakeScreen — pinned-pane email switch", () => {
     const salesRow = () => document.querySelector('[data-sales-row="true"]');
     const { rerender } = render(screenFor(BASE));
 
+    reopenSalesSearch(salesRow());
     fireEvent.change(screen.getByLabelText("Search Feishu sales"), {
       target: { value: "Michael" },
     });
@@ -197,7 +198,7 @@ describe("RequestIntakeScreen — pinned-pane email switch", () => {
         from: "buyer@acme.com",
       }),
     );
-    expect(salesRow()).toBeNull();
+    expect(salesRow()).toHaveTextContent("Rep");
 
     rerender(screenFor(BASE));
 

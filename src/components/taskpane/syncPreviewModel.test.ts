@@ -7,8 +7,6 @@ import {
   summarizeRequestNotes,
   SYNC_PREVIEW_MULTI_NOTE_MAX,
   SYNC_PREVIEW_SINGLE_NOTE_MAX,
-  syncPreviewAttachmentsVisible,
-  syncPreviewRowSynced,
   truncatePreviewNoteText,
 } from "./syncPreviewModel";
 
@@ -47,13 +45,6 @@ describe("syncPreviewModel", () => {
       ],
     });
     expect(preview).toEqual([{ name: "rfq.pdf" }, { name: "addendum.pdf" }]);
-  });
-
-  it("gates preview animation thresholds", () => {
-    expect(syncPreviewRowSynced(33)).toBe(false);
-    expect(syncPreviewRowSynced(34)).toBe(true);
-    expect(syncPreviewAttachmentsVisible(51)).toBe(false);
-    expect(syncPreviewAttachmentsVisible(52)).toBe(true);
   });
 
   it("summarizes a single note as one teaser line", () => {

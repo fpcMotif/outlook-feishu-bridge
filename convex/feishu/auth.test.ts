@@ -1,7 +1,7 @@
 /* eslint-disable max-lines-per-function */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { getTenantAccessToken, pruneTokenRows, selectFreshToken } from "./auth";
+import { getTenantAccessToken, planTokenStore, selectFreshToken } from "./auth";
 import { FEISHU_BASE, FeishuError, feishuFetch } from "./client";
 
 vi.mock("./client", async () => {
@@ -24,10 +24,79 @@ describe("selectFreshToken", () => {
   });
 });
 
-describe("pruneTokenRows", () => {
-  it("returns every row id it is handed", () => {
-    const rows = Array.from({ length: 13 }, (_, i) => ({ _id: `id${i}` }));
-    expect(pruneTokenRows(rows)).toEqual(rows.map((r) => r._id));
+describe("planTokenStore", () => {
+  const NOW = 1_000_000;
+  const row = (id: string, expiresAt: number) => ({ _id: id, expiresAt });
+
+  it("inserts when the table is empty", () => {
+    expect(planTokenStore([], NOW)).toEqual({ action: "insert", deleteIds: [] });
+  });
+
+  it("patches the single row in place when it is stale", () => {
+    expect(planTokenStore([row("a", NOW - 1)], NOW)).toEqual({
+      action: "patch",
+      target: "a",
+      deleteIds: [],
+    });
+  });
+
+  it("treats expiresAt === now as stale (strict >, matching selectFreshToken)", () => {
+    expect(planTokenStore([row("a", NOW)], NOW)).toEqual({
+      action: "patch",
+      target: "a",
+      deleteIds: [],
+    });
+  });
+
+  it("skips the write when a still-fresh row exists (first-committer-wins)", () => {
+    expect(planTokenStore([row("a", NOW + 1)], NOW)).toEqual({
+      action: "skip",
+      deleteIds: [],
+    });
+  });
+
+  it("keeps the fresh row and prunes stragglers when fresh is not first", () => {
+    expect(
+      planTokenStore(
+        [row("stale1", NOW - 1), row("fresh", NOW + 5000), row("stale2", NOW - 2)],
+        NOW,
+      ),
+    ).toEqual({ action: "skip", deleteIds: ["stale1", "stale2"] });
+  });
+
+  it("keeps the longest-lived fresh row when several are fresh", () => {
+    expect(
+      planTokenStore(
+        [row("soon", NOW + 1000), row("late", NOW + 9000), row("mid", NOW + 5000)],
+        NOW,
+      ),
+    ).toEqual({ action: "skip", deleteIds: ["soon", "mid"] });
+  });
+
+  it("patches one row and prunes the rest when every row is stale", () => {
+    expect(planTokenStore([row("a", NOW - 1), row("b", NOW - 2)], NOW)).toEqual({
+      action: "patch",
+      target: "a",
+      deleteIds: ["b"],
+    });
+  });
+
+  it("always converges to a single canonical row (exactly one survivor)", () => {
+    const inputs = [
+      [],
+      [row("a", NOW + 1)],
+      [row("a", NOW - 1)],
+      [row("a", NOW - 1), row("b", NOW + 1), row("c", NOW + 2)],
+      [row("a", NOW - 1), row("b", NOW - 2), row("c", NOW - 3)],
+    ];
+    for (const rows of inputs) {
+      const plan = planTokenStore(rows, NOW);
+      const deleted = new Set(plan.deleteIds);
+      const survivors = rows.filter((r) => !deleted.has(r._id));
+      // Empty input -> the freshly inserted row is the only survivor (0 existing
+      // rows kept). Non-empty -> exactly one existing row survives, rest deleted.
+      expect(survivors.length).toBe(rows.length === 0 ? 0 : 1);
+    }
   });
 });
 
@@ -90,6 +159,21 @@ describe("getTenantAccessToken", () => {
       token: "tok",
       expiresAt: 1_000_000 + (7200 - 300) * 1000,
     });
+  });
+
+  it("returns the freshly fetched token even when caching it fails (best-effort store)", async () => {
+    mockFetch.mockResolvedValue({ tenant_access_token: "tok2", expire: 7200 });
+    const runMutation = vi.fn(async () => {
+      throw new Error(
+        "Documents read from or written to the table feishuTokens changed",
+      );
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    await expect(
+      getTenantAccessToken(fakeCtx({ cached: null, runMutation })),
+    ).resolves.toBe("tok2");
+    expect(warn).toHaveBeenCalledTimes(1);
   });
 
   it("propagates Feishu errors and does not store a token", async () => {

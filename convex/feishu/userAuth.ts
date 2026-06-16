@@ -71,6 +71,27 @@ export const getUserSession = query({
 
 // ── Mutations ────────────────────────────────────────────────────────
 
+// `feishuUserTokens` holds at most ONE row per `sessionId` (the `by_sessionId`
+// index + `.unique()` lookup in getSession). `storeUserToken` writes that row
+// IN PLACE when it already exists rather than delete-then-insert: the old shape
+// changed the row's `_id` on every refresh, so two concurrent refreshes of the
+// SAME session would OCC-conflict on `feishuUserTokens` against itself — the same
+// failure mode fixed for the tenant token in ADR-0031. Different sessions touch
+// different documents and never collide, so this is the lower-risk twin of that
+// fix; patching a stable `_id` removes the residual same-session risk and keeps
+// the two store paths consistent. Extracted as a pure planner so the
+// patch-vs-insert decision is unit-testable without the Convex runtime (the
+// registered handler is v8-ignored, ADR-0019).
+export type StoreUserTokenPlan<TId> =
+  | { action: "patch"; target: TId }
+  | { action: "insert" };
+
+export function planUserTokenStore<TId>(
+  existing: { _id: TId } | null,
+): StoreUserTokenPlan<TId> {
+  return existing ? { action: "patch", target: existing._id } : { action: "insert" };
+}
+
 export const storeUserToken = internalMutation({
   args: {
     sessionId: v.string(),
@@ -83,13 +104,15 @@ export const storeUserToken = internalMutation({
     avatarUrl: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    // Remove any existing session for this sessionId
     const existing = await getSession(ctx, args.sessionId);
-    if (existing) {
-      await ctx.db.delete(existing._id);
-    }
-    await ctx.db.insert("feishuUserTokens", {
-      sessionId: args.sessionId,
+    const plan = planUserTokenStore(existing);
+    // patch is a SHALLOW merge: a refresh that omits userName/avatarUrl leaves the
+    // last-known values in place, because Convex patch ignores `undefined` — it
+    // does NOT clear a field. That is the intended state here: the same user owns
+    // the session across refreshes, so keeping the prior name/avatar is preferable
+    // to blanking the UI on a user_info response that happened to omit them. If
+    // clearing were ever required, it would have to be set explicitly.
+    const fields = {
       accessToken: args.accessToken,
       refreshToken: args.refreshToken,
       expiresAt: args.expiresAt,
@@ -97,7 +120,12 @@ export const storeUserToken = internalMutation({
       openId: args.openId,
       userName: args.userName,
       avatarUrl: args.avatarUrl,
-    });
+    };
+    if (plan.action === "patch") {
+      await ctx.db.patch(plan.target, fields);
+    } else {
+      await ctx.db.insert("feishuUserTokens", { sessionId: args.sessionId, ...fields });
+    }
   },
 });
 

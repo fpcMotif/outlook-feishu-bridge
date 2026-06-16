@@ -4,6 +4,11 @@ import { v } from "convex/values";
 import { emailRecordFields } from "./emailRecord";
 
 export default defineSchema({
+  // Single-canonical-row cache for the Feishu tenant access token. Invariant
+  // (enforced by feishu/auth.ts `storeToken`/`planTokenStore`, ADR-0031): at
+  // most ONE row at a time, written in place. Intentionally unindexed — a
+  // one-row table needs no index, and keeping it single-row bounds the OCC
+  // read/write set so a token-refresh burst can't self-conflict.
   feishuTokens: defineTable({
     tokenType: v.literal("tenant_access_token"),
     token: v.string(),

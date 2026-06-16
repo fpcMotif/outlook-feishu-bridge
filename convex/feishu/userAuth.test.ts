@@ -6,6 +6,7 @@ import {
   classifyTouchOutcome,
   exchangeCodeForUserToken,
   getUserAccessToken,
+  planUserTokenStore,
   toPublicSession,
 } from "./userAuth";
 import { getTenantAccessToken } from "./auth";
@@ -215,6 +216,16 @@ describe("getUserAccessToken", () => {
     await expect(getUserAccessToken(ctx, "sess-flaky")).rejects.toThrow(/Temporary Feishu authentication/i);
     expect(mockFetch).toHaveBeenCalledTimes(2); // initial + one retry
     expect(runMutation).not.toHaveBeenCalled(); // session preserved
+  });
+});
+
+describe("planUserTokenStore", () => {
+  it("inserts a fresh row when the session has no stored token yet", () => {
+    expect(planUserTokenStore(null)).toEqual({ action: "insert" });
+  });
+
+  it("patches the existing row in place (stable _id — no delete+insert churn, ADR-0031)", () => {
+    expect(planUserTokenStore({ _id: "row-1" })).toEqual({ action: "patch", target: "row-1" });
   });
 });
 

@@ -128,7 +128,7 @@ describe("useCustomerSearchServerIndex", () => {
   });
 
   it("re-asks the mirror (liveAllowed:false) after the live leg answered empty (30s negative cache)", async () => {
-    const searchCustomers = vi.fn(async () => ({
+    const searchCustomers = vi.fn(async (_args?: Record<string, unknown>) => ({
       records: [],
       source: "live" as const,
       backfilled: 0,

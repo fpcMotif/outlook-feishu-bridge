@@ -35,16 +35,16 @@ export async function runWithConcurrency<T>(
   let cursor = 0;
 
   const pump = async (): Promise<void> => {
-    while (cursor < items.length) {
-      const index = cursor;
-      cursor += 1;
-      try {
-        await worker(items[index], index);
-      } catch {
-        // The worker owns its own failure surface (the upload reducer records the
-        // error row); swallow here so one bad item can't reject the whole pool.
-      }
+    const index = cursor;
+    cursor += 1;
+    if (index >= items.length) return;
+    try {
+      await worker(items[index], index);
+    } catch {
+      // The worker owns its own failure surface (the upload reducer records the
+      // error row); swallow here so one bad item can't reject the whole pool.
     }
+    return pump();
   };
 
   await Promise.all(Array.from({ length: poolSize }, () => pump()));

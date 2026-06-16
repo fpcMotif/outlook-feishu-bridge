@@ -2,8 +2,7 @@ import { type ReactNode } from "react";
 
 import { AlertCircle } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Badge, Button } from "@/design-system";
 import { cn } from "@/lib/utils";
 
 import { extOf, iconFor } from "./attachmentFileDisplay";
@@ -43,13 +42,13 @@ function FileTypeIcon({ name }: { name: string }) {
   return (
     <span
       className={cn(
-        "flex size-10 shrink-0 items-center justify-center rounded-xl border",
+        "flex size-9 shrink-0 items-center justify-center rounded-lg border",
         bg,
         border,
       )}
       aria-hidden="true"
     >
-      <Icon className={cn("size-5", tint)} strokeWidth={1.75} />
+      <Icon className={cn("size-4.5", tint)} strokeWidth={1.75} />
     </span>
   );
 }
@@ -149,20 +148,25 @@ function AttachmentIdentity({
   name,
   displayName,
   subtitle,
+  inlineMeta = false,
 }: {
   name: string;
   displayName?: string;
   subtitle?: ReactNode;
+  inlineMeta?: boolean;
 }) {
   return (
     <div className="min-w-0 flex-1">
       <div className="flex min-w-0 items-center gap-2">
-        <span className="truncate text-sm font-medium text-foreground">
+        <span
+          className="truncate text-sm font-medium text-foreground"
+          title={name}
+        >
           {displayName ?? name}
         </span>
-        <ExtBadge name={name} />
+        {inlineMeta ? null : <ExtBadge name={name} />}
       </div>
-      {subtitle ? (
+      {subtitle && !inlineMeta ? (
         <div className="text-muted-foreground mt-0.5 flex min-w-0 items-center gap-2 text-[11px] leading-4 tabular-nums">
           {subtitle}
         </div>
@@ -225,6 +229,7 @@ interface AttachmentRowProps {
   status?: ReactNode;
   selected?: boolean;
   fileIcon?: ReactNode;
+  inlineMeta?: boolean;
   onRemove?: () => void;
   removeLabel?: string;
   pinControls?: boolean;
@@ -240,6 +245,7 @@ export function AttachmentRow({
   status,
   selected = false,
   fileIcon,
+  inlineMeta = false,
   onRemove,
   removeLabel,
   pinControls = false,
@@ -249,7 +255,7 @@ export function AttachmentRow({
     <div
       title={title}
       className={cn(
-        "group/attachment relative flex items-center gap-3 px-4 py-3 transition-colors duration-150 ease-[var(--ease-out-strong)]",
+        "group/attachment relative flex min-h-14 items-center gap-3 px-4 py-2 transition-colors duration-150 ease-[var(--ease-out-strong)]",
         selected ? "bg-primary/5" : ROW_HOVER_BG,
       )}
     >
@@ -259,6 +265,7 @@ export function AttachmentRow({
         name={name}
         displayName={displayName}
         subtitle={subtitle}
+        inlineMeta={inlineMeta}
       />
       <AttachmentTrailing
         status={status}

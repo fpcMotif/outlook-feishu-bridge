@@ -1,6 +1,7 @@
-import { Button } from "@/components/ui/button";
 import { Loader2 } from "lucide-react";
 
+import { Button } from "@/design-system";
+import { InlineActionButton } from "@/design-system/taskpane";
 import { cn } from "@/lib/utils";
 import { FeishuLogo } from "./FeishuLogo";
 
@@ -60,20 +61,17 @@ function BackupLoginButton({
   onLoginFallback: () => void;
 }) {
   return (
-    <button
-      type="button"
+    <InlineActionButton
       onClick={onLoginFallback}
       disabled={disabled}
       className={cn(
-        "inline-flex min-h-10 items-center justify-center text-xs font-medium underline-offset-2 transition-[color,scale] duration-150 ease-[var(--ease-out-strong)]",
-        "disabled:cursor-not-allowed disabled:text-muted-foreground/55 disabled:hover:no-underline disabled:active:scale-100",
         disabled
           ? "text-muted-foreground/55"
           : "text-muted-foreground hover:text-primary hover:underline active:scale-[0.97]",
       )}
     >
       Use backup login (email code)
-    </button>
+    </InlineActionButton>
   );
 }
 

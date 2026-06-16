@@ -1,5 +1,6 @@
+import { TaskpaneSection } from "@/design-system/taskpane";
+
 import { RequestCards } from "./RequestCards";
-import { TaskpaneSection } from "./TaskpaneSection";
 
 export function NewRequestSection({
   values,
@@ -9,7 +10,7 @@ export function NewRequestSection({
   onChange: (id: string, value: string) => void;
 }) {
   return (
-    <TaskpaneSection id="new-request-title" title="New request">
+    <TaskpaneSection id="new-request-title" title="Request">
       <RequestCards values={values} onChange={onChange} />
     </TaskpaneSection>
   );

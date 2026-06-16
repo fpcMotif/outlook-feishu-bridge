@@ -5,8 +5,8 @@ name: Deploy Global Host (Cloudflare Pages)
 # (ADR-0009). The CN ECS Host is deployed separately via scripts/deploy.sh.
 #
 # Required GitHub config (Settings -> Secrets and variables -> Actions):
-#   secrets.CLOUDFLARE_API_TOKEN   Cloudflare token with "Cloudflare Pages: Edit"
-#   secrets.CLOUDFLARE_ACCOUNT_ID  2402c36e78fa02ee53d19857978cf1aa
+#   CLOUDFLARE_API_TOKEN   Cloudflare token with "Cloudflare Pages: Edit"
+#   CLOUDFLARE_ACCOUNT_ID  2402c36e78fa02ee53d19857978cf1aa
 #   vars.VITE_FEISHU_APP_ID        public Feishu app id baked into the bundle
 # Optional:
 #   vars.VITE_CONVEX_URL / vars.VITE_CONVEX_SITE_URL  override the defaults below
@@ -32,7 +32,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
 
-      - run: bun install
+      - run: bun install --ignore-scripts --frozen-lockfile
 
       - name: Build SPA (base=/)
         run: bun run build -- --base=/

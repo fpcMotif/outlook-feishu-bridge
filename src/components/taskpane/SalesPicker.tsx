@@ -9,17 +9,16 @@ import {
 } from "react";
 import { UserRound } from "lucide-react";
 
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/design-system";
+import {
+  TaskpaneSearchDropdown,
+  TaskpaneSelectionRow,
+} from "@/design-system/taskpane";
 import { CoworkerOption } from "./CoworkerPicker";
 import type { Coworker } from "./coworkers";
 import { useCoworkerSearch } from "../../hooks/useCoworkerSearch";
-import { TaskpaneSearchDropdown } from "./TaskpaneSearchDropdown";
-import { TaskpaneSelectionRow } from "./TaskpaneSelectionRow";
-import {
-  TASKPANE_SEARCH_PANEL_HEADER,
-  TASKPANE_SEARCH_PANEL_SHELL_HEADER,
-  TASKPANE_SEARCH_PANEL_TITLE,
-} from "./taskpaneSearchPanelLayout";
+import { TaskpanePickerPanel } from "./TaskpanePickerPanel";
+import { TASKPANE_SEARCH_PANEL_SHELL_HEADER } from "./taskpaneSearchPanelLayout";
 
 const PREVIEW_JENNY_AVATAR = "https://example.test/jenny.png";
 
@@ -100,16 +99,13 @@ function SalesSearchPanel({
   }, [dismissable, onDismiss]);
 
   return (
-    <div
-      ref={panelRef}
-      className={TASKPANE_SEARCH_PANEL_SHELL_HEADER}
-      aria-labelledby="sales-search-title"
+    <TaskpanePickerPanel
+      title="sales"
+      srTitle="Sales rep"
+      titleId="sales-picker-title"
+      panelRef={panelRef}
+      shellClassName={TASKPANE_SEARCH_PANEL_SHELL_HEADER}
     >
-      <div className={TASKPANE_SEARCH_PANEL_HEADER}>
-        <span id="sales-search-title" className={TASKPANE_SEARCH_PANEL_TITLE}>
-          Pick a sale
-        </span>
-      </div>
       <TaskpaneSearchDropdown
         label="Search Feishu sales"
         value={query}
@@ -121,7 +117,7 @@ function SalesSearchPanel({
       >
         {children}
       </TaskpaneSearchDropdown>
-    </div>
+    </TaskpanePickerPanel>
   );
 }
 
@@ -229,16 +225,24 @@ export function SalesPicker({
 
   if (!showSearch) {
     return (
-      <TaskpaneSelectionRow
-        dataRow="sales"
-        leading={selectedLeading}
-        label={selectedSales.name}
-        enterStagger={enterStagger}
-        onChange={() => {
-          setChanging(true);
-          setQuery("");
-        }}
-      />
+      <TaskpanePickerPanel
+        title="sales"
+        srTitle="Sales rep"
+        titleId="sales-picker-title"
+        shellClassName={TASKPANE_SEARCH_PANEL_SHELL_HEADER}
+      >
+        <TaskpaneSelectionRow
+          dataRow="sales"
+          leading={selectedLeading}
+          label={selectedSales.name}
+          enterStagger={enterStagger}
+          inset={false}
+          onChange={() => {
+            setChanging(true);
+            setQuery("");
+          }}
+        />
+      </TaskpanePickerPanel>
     );
   }
 

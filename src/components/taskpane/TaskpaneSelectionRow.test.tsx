@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { UserRound } from "lucide-react";
 import { describe, expect, it } from "vitest";
 
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/design-system";
 import { TaskpaneSelectionRow } from "./TaskpaneSelectionRow";
 
 describe("TaskpaneSelectionRow", () => {
@@ -38,5 +38,35 @@ describe("TaskpaneSelectionRow", () => {
     const leadingSlot = row?.querySelector(':scope > span[aria-hidden="true"]');
     expect(leadingSlot).not.toHaveClass("text-muted-foreground");
     expect(row?.querySelector('[data-slot="avatar"]')).toBeInTheDocument();
+  });
+
+  it("uses search-field rhythm when embedded inside a picker panel", () => {
+    render(
+      <TaskpaneSelectionRow
+        dataRow="sales"
+        label="Jenny Xu"
+        inset={false}
+      />,
+    );
+
+    const row = document.querySelector('[data-sales-row="true"]');
+    expect(row).toHaveClass("min-h-11", "rounded-xl", "bg-background", "shadow-edge");
+    expect(row).not.toHaveClass("min-h-14", "px-3");
+  });
+
+  it("renders the picker action as an icon-only 40px target", () => {
+    render(
+      <TaskpaneSelectionRow
+        dataRow="sales"
+        label="Jenny Xu"
+        inset={false}
+        onChange={() => {}}
+      />,
+    );
+
+    const action = screen.getByRole("button", { name: /pick another/i });
+    expect(action).toHaveClass("size-10", "rounded-full");
+    expect(action).not.toHaveTextContent(/change/i);
+    expect(action.querySelector("svg")).toBeInTheDocument();
   });
 });

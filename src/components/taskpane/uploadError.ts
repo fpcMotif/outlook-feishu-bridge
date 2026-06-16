@@ -36,9 +36,13 @@ export function humanizeUploadError(raw?: string | null): string {
 
 /** Ids of uploads that failed and can be retried (valid picks only). */
 export function collectFailedUploadIds(files: UploadedFile[]): string[] {
-  return files
-    .filter((u) => u.rejection === null && u.status === "error")
-    .map((u) => u.id);
+  const ids: string[] = [];
+  for (const u of files) {
+    if (u.rejection === null && u.status === "error") {
+      ids.push(u.id);
+    }
+  }
+  return ids;
 }
 
 export function countFailedUploads(files: UploadedFile[]): number {

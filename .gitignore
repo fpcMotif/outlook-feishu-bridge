@@ -17,6 +17,7 @@ test-results
 *.pem
 .env
 .env.deploy
+.env.convex
 
 # Generated sideload manifests (scripts/manifest.sh output); source is public/manifest.xml
 /manifest-*.xml

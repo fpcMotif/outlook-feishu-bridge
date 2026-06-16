@@ -10,6 +10,7 @@ export function TaskpaneSearchDropdown({
   value,
   onChange,
   placeholder,
+  rightSlot,
   open,
   listLabel,
   emptyMessage,
@@ -20,6 +21,7 @@ export function TaskpaneSearchDropdown({
   value: string
   onChange: (value: string) => void
   placeholder: string
+  rightSlot?: ReactNode
   open: boolean
   listLabel: string
   emptyMessage: string
@@ -45,6 +47,7 @@ export function TaskpaneSearchDropdown({
         value={value}
         onChange={onChange}
         placeholder={placeholder}
+        rightSlot={rightSlot}
         expanded={open}
         controlsId={listId}
         activeDescendantId={activeDescendantId}

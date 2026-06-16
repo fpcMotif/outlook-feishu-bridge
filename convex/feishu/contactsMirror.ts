@@ -55,17 +55,20 @@ import {
   exceedsAssumedMax,
   nextPageTokenOrStop,
   partitionActive,
-  runContactsMirrorRefresh,
   staleContactIds,
   worstStopReason,
-  type ContactCrawlResult,
-  type ContactsMirrorRefreshPort,
-  type ContactsRefreshFinish,
   type ContactStopReason,
-  type ContactWriteTotals,
   type FeishuDepartment,
   type PruneTotals,
 } from "./contactsMirrorSync";
+import {
+  runMirrorRefresh,
+  sleep,
+  type MirrorCrawl,
+  type MirrorRefreshOutcome,
+  type MirrorRefreshPort,
+  type MirrorWriteTotals,
+} from "./mirrorRefresh";
 
 // Feishu's documented contact page_size ceiling is 50 (find_by_department &
 // department children). The mirror walks until has_more=false — no MAX_PAGES cap
@@ -233,6 +236,34 @@ export const recordSyncCompletion = internalMutation({
   },
 });
 
+// Failure watermark: stamp the failed verdict so an incomplete/empty run is
+// visible rather than silent, WITHOUT touching lastFullSyncAt — nothing was
+// written, so data freshness still belongs to the last good run.
+export const recordSyncFailure = internalMutation({
+  args: {
+    lastStopReason: v.union(
+      v.literal("missingPageToken"),
+      v.literal("duplicatePageToken"),
+      v.literal("incomplete"),
+      v.literal("emptySource"),
+    ),
+    lastFinishedAt: v.number(),
+    lastDurationMs: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db.query("feishuContactsMirrorState").first();
+    if (existing) {
+      await ctx.db.patch(existing._id, args);
+    } else {
+      await ctx.db.insert("feishuContactsMirrorState", {
+        lastFullSyncAt: 0,
+        lastUserCount: 0,
+        ...args,
+      });
+    }
+  },
+});
+
 // Public ranked search over the mirror's searchBlob (CJK-expanded query). Slim
 // projection, bounded take. Exposed for a future colleague picker.
 export const search = query({
@@ -299,13 +330,6 @@ interface FindByDepartmentResponse {
   items?: FeishuContactUser[];
   has_more?: boolean;
   page_token?: string;
-}
-
-function sleep(ms: number): Promise<void> {
-  if (ms <= 0) return Promise.resolve();
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
 }
 
 async function waitForPageSlot(previousRequestStartedAt: number): Promise<number> {
@@ -398,7 +422,17 @@ async function walkDepartmentMembers(
   return { active, skippedResigned, stopReason };
 }
 
-async function crawlDirectory(ctx: ActionCtx): Promise<ContactCrawlResult> {
+// The assembled crawl handed to the Mirror Refresh engine: the engine keys
+// (assembledRows / seenKeys / stopReason) plus the contacts-specific context
+// the watermark needs. assembledRows is required — the directory crawl is
+// always assembled (gated write), never streamed.
+interface ContactsCrawl extends MirrorCrawl<ContactUpsertRow, ContactStopReason> {
+  assembledRows: readonly ContactUpsertRow[];
+  departmentCount: number;
+  skippedResigned: number;
+}
+
+async function crawlDirectory(ctx: ActionCtx): Promise<ContactsCrawl> {
   const departments = await walkDepartments(ctx);
   // Scan root (direct members at the top) plus every descendant department.
   const departmentIds = [ROOT_DEPARTMENT_ID, ...departments.departmentIds];
@@ -415,9 +449,16 @@ async function crawlDirectory(ctx: ActionCtx): Promise<ContactCrawlResult> {
   }
   const uniqueUsers = dedupeUsersByOpenId(rawUsers);
   const rows = uniqueUsers.map((user) => mapUserToRow(user, departments.nameById));
+  // The biweekly assumption: the directory is ≤ 800 entries. A breach is logged
+  // loudly (revisit paging/cost) but never fails the run.
+  if (exceedsAssumedMax(rows.length)) {
+    console.error(
+      `[contacts-mirror] ASSUMPTION BREACH users=${rows.length} exceeds assumed max ${ASSUMED_MAX_CONTACTS} — revisit paging/cost`,
+    );
+  }
   return {
-    rows,
-    seenOpenIds: new Set(rows.map((row) => row.openId)),
+    assembledRows: rows,
+    seenKeys: new Set(rows.map((row) => row.openId)),
     departmentCount: departments.departmentIds.length,
     skippedResigned,
     stopReason: worstStopReason(stopReasons),
@@ -428,8 +469,8 @@ async function writeRows(
   ctx: ActionCtx,
   rows: readonly ContactUpsertRow[],
   mirroredAt: number,
-): Promise<ContactWriteTotals> {
-  const totals: ContactWriteTotals = { inserted: 0, updated: 0, unchanged: 0 };
+): Promise<MirrorWriteTotals> {
+  const totals: MirrorWriteTotals = { inserted: 0, updated: 0, unchanged: 0 };
   const batches: ContactUpsertRow[][] = [];
   for (let i = 0; i < rows.length; i += APPLY_BATCH_SIZE) {
     batches.push(rows.slice(i, i + APPLY_BATCH_SIZE));
@@ -451,8 +492,9 @@ async function writeRows(
 }
 
 // Tombstone any mirror row whose openId was not seen this run. Wired as the
-// engine's `tombstone` port — runContactsMirrorRefresh only calls it behind the
-// shouldPruneStaleContacts gate, so this never runs after a partial crawl.
+// engine's `tombstone` port — runMirrorRefresh only calls it behind the
+// completeness + empty-source gates, so this never runs after a partial or
+// empty crawl.
 async function pruneStaleContacts(
   ctx: ActionCtx,
   seenOpenIds: ReadonlySet<string>,
@@ -478,7 +520,7 @@ async function pruneStaleContacts(
   return totals;
 }
 
-interface FullSyncResult extends ContactWriteTotals {
+interface FullSyncResult extends MirrorWriteTotals {
   userCount: number;
   departmentCount: number;
   skippedResigned: number;
@@ -489,39 +531,50 @@ interface FullSyncResult extends ContactWriteTotals {
 }
 
 // The real Contacts Refresh port: crawl the directory via Feishu, write /
-// tombstone / finish via Convex. The engine (contactsMirrorSync.runContacts-
-// MirrorRefresh) owns the completeness gate and the all-or-nothing prune gate;
-// this adapter only supplies the I/O — and finishFullSync escalates a non-complete
-// crawl into a thrown error (leaving the watermark untouched), which keeps the
-// engine itself non-throwing.
+// tombstone / finish via Convex. The shared Mirror Refresh engine
+// (mirrorRefresh.runMirrorRefresh) owns the completeness, empty-source and
+// prune gates; this adapter only supplies the I/O — and finishFullSync
+// escalates a non-complete run into a thrown error (after stamping a failure
+// watermark), which keeps the engine itself non-throwing.
 function makeContactsRefreshPort(
   ctx: ActionCtx,
-): ContactsMirrorRefreshPort<FullSyncResult> {
+): MirrorRefreshPort<ContactUpsertRow, ContactStopReason, ContactsCrawl, FullSyncResult> {
   return {
     crawl: () => crawlDirectory(ctx),
-    writeRows: (rows, mirroredAt) => writeRows(ctx, rows, mirroredAt),
+    write: (rows, mirroredAt) => writeRows(ctx, rows, mirroredAt),
     tombstone: (seen) => pruneStaleContacts(ctx, seen),
-    finish: (args) => finishFullSync(ctx, args),
+    finish: (outcome) => finishFullSync(ctx, outcome),
   };
 }
 
-// Stamp the watermark + assemble the result on a complete crawl; throw (without
-// stamping) on a partial one, so a failed run leaves the last good watermark and
-// never writes/prunes an incomplete directory (ADR-0023).
+// Stamp the full watermark + assemble the result on a complete run. On a failed
+// run (partial or empty-source crawl — nothing was written or pruned), stamp a
+// FAILURE watermark so the bad run is visible, then throw. The failure stamp
+// deliberately does NOT touch lastFullSyncAt: nothing was refreshed, so the
+// data-freshness watermark must keep pointing at the last good run.
 async function finishFullSync(
   ctx: ActionCtx,
-  { crawl, mirroredAt, writes, prune, complete }: ContactsRefreshFinish,
+  outcome: MirrorRefreshOutcome<ContactsCrawl, ContactStopReason>,
 ): Promise<FullSyncResult> {
+  const { crawl, mirroredAt, stopReason, writes, prune, complete } = outcome;
+  const finishedAt = Date.now();
   if (!complete) {
+    // stopReason can't be "complete" on a failed run; the fallback only
+    // satisfies the type and forward-compatibility.
+    const failureReason = stopReason === "complete" ? "incomplete" : stopReason;
+    await ctx.runMutation(internal.feishu.contactsMirror.recordSyncFailure, {
+      lastStopReason: failureReason,
+      lastFinishedAt: finishedAt,
+      lastDurationMs: finishedAt - mirroredAt,
+    });
     throw new Error(
-      `Contacts mirror stopped before completion: reason=${crawl.stopReason} ` +
-        `departments=${crawl.departmentCount} users=${crawl.rows.length}`,
+      `Contacts mirror stopped before completion: reason=${stopReason} ` +
+        `departments=${crawl.departmentCount} users=${crawl.assembledRows.length}`,
     );
   }
-  const finishedAt = Date.now();
   await ctx.runMutation(internal.feishu.contactsMirror.recordSyncCompletion, {
     lastFullSyncAt: mirroredAt,
-    lastUserCount: crawl.rows.length,
+    lastUserCount: crawl.assembledRows.length,
     lastDepartmentCount: crawl.departmentCount,
     lastInsertedCount: writes.inserted,
     lastUpdatedCount: writes.updated,
@@ -535,7 +588,7 @@ async function finishFullSync(
   });
   return {
     ...writes,
-    userCount: crawl.rows.length,
+    userCount: crawl.assembledRows.length,
     departmentCount: crawl.departmentCount,
     skippedResigned: crawl.skippedResigned,
     stopReason: crawl.stopReason,
@@ -546,9 +599,12 @@ async function finishFullSync(
 }
 
 // Page the live Feishu directory → upsert the mirror → prune leavers, all behind
-// the pure engine's gates. The single-flight lease is already held by the caller.
+// the shared engine's gates. The single-flight lease is already held by the caller.
 function runFullSync(ctx: ActionCtx, startedAt: number): Promise<FullSyncResult> {
-  return runContactsMirrorRefresh(makeContactsRefreshPort(ctx), { startedAt });
+  return runMirrorRefresh(makeContactsRefreshPort(ctx), {
+    startedAt,
+    label: "contacts-mirror",
+  });
 }
 
 function skippedResult(): FullSyncResult {

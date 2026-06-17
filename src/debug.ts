@@ -80,7 +80,7 @@ export function subscribeDebug(fn: () => void): () => void {
 
 // Format one console arg for the buffer. Module-scope: captures nothing, so it
 // is shared rather than re-allocated per initDebug call.
-function fmt(a: unknown): string {
+export function fmt(a: unknown): string {
   if (typeof a === "string") return a;
   if (a instanceof Error) return a.stack ?? a.message;
   try {

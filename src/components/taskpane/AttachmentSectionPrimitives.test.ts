@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   uploadDisplayProgressTarget,
+  uploadLinearStep,
   uploadSimulatedCap,
-  uploadSmoothedStep,
 } from "./uploadDisplayProgress";
 
 describe("uploadDisplayProgressTarget", () => {
@@ -29,12 +29,11 @@ describe("uploadSimulatedCap", () => {
   });
 });
 
-describe("uploadSmoothedStep", () => {
-  it("eases toward the target without overshooting", () => {
-    const first = uploadSmoothedStep(0, 50);
-    expect(first.next).toBeGreaterThan(0);
-    expect(first.next).toBeLessThan(50);
-    const settled = uploadSmoothedStep(49.8, 50);
+describe("uploadLinearStep", () => {
+  it("climbs at a steady rate and clamps to the target", () => {
+    const first = uploadLinearStep(0, 50, 100, 0.1);
+    expect(first).toEqual({ next: 10, done: false });
+    const settled = uploadLinearStep(49.8, 50, 100, 0.1);
     expect(settled).toEqual({ next: 50, done: true });
   });
 });

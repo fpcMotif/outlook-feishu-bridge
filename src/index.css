@@ -482,16 +482,6 @@
   }
 }
 
-@keyframes upload-fill-indeterminate {
-  0%,
-  100% {
-    transform: scaleY(0.25);
-  }
-  50% {
-    transform: scaleY(0.65);
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   .submit-dock-btn {
     transition-property: background-color, box-shadow, color;

@@ -89,12 +89,13 @@ async function fetchUserInfo(accessToken: string): Promise<UserInfo> {
   return json.data;
 }
 
-function escapeHtml(s: string): string {
+export function escapeHtml(s: string): string {
   return s
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
 function scriptSafeJsonLiteral(value: unknown): string {

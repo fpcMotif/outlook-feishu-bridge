@@ -6,6 +6,9 @@ import { relativeSubmittedTime } from "./relativeSubmittedTime";
 
 const NOW = new Date("2026-06-02T05:00:00Z").getTime();
 
+const liRows = () =>
+  screen.getByRole("list", { name: /Sync completion steps/i }).querySelectorAll("li");
+
 describe("relativeSubmittedTime", () => {
   it("uses Just now only when no backend timestamp is available", () => {
     expect(relativeSubmittedTime(undefined, NOW)).toBe("Just now");
@@ -117,8 +120,6 @@ describe("ReceivedScreen submitted timestamp", () => {
 
 describe("ReceivedScreen attachment soft-gate (ADR-0027)", () => {
   const url = "https://feishu.cn/base/app?table=tbl&record=rec1";
-  const liRows = () =>
-    screen.getByRole("list", { name: /Sync completion steps/i }).querySelectorAll("li");
 
   it("no attachments: Open in Feishu is the primary CTA, with no attachment step", () => {
     render(<ReceivedScreen coworkerCount={1} recordId="rec1" detailUrl={url} />);

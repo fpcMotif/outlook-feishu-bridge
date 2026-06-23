@@ -228,7 +228,7 @@ export interface UploadRetryOptions {
 // byte-poster and the backoff delay are injected so this stays unit-testable
 // without a real XHR or real timers. This is what absorbs the single-reset-on-a-
 // flaky-link failure that used to surface to the user as an unrecoverable upload.
-export async function uploadBlobWithRetry(
+export function uploadBlobWithRetry(
   generateUploadUrl: () => Promise<string>,
   blob: Blob,
   onProgress: UploadProgressListener | undefined,
@@ -302,7 +302,7 @@ export interface FileReadOptions {
 // budget is spent we throw a tagged, user-actionable error — the genuine re-add
 // case (a handle invalidated by a re-sync keeps failing no matter how often the
 // same File object is re-read). Delay is injected so tests run without real timers.
-export async function readFileBytesWithRetry(
+export function readFileBytesWithRetry(
   file: Pick<Blob, "arrayBuffer">,
   options?: FileReadOptions,
 ): Promise<ArrayBuffer> {

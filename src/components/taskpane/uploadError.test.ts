@@ -45,7 +45,7 @@ describe("humanizeUploadError", () => {
 
   it("falls back to the friendly default for null/unknown", () => {
     expect(humanizeUploadError(null)).toBe("Couldn't upload — tap Retry");
-    expect(humanizeUploadError(undefined)).toBe("Couldn't upload — tap Retry");
+    expect(humanizeUploadError()).toBe("Couldn't upload — tap Retry");
     expect(humanizeUploadError("kaboom")).toBe("Couldn't upload — tap Retry");
   });
 });

@@ -15,13 +15,8 @@
         "max-lines": "off",
         "max-lines-per-function": "off",
         "no-inline-comments": "off",
-        "no-useless-undefined": "off",
-        "consistent-function-scoping": "off",
         "prefer-string-replace-all": "off",
-        "no-array-callback-reference": "off",
-        "no-promise-executor-return": "off",
-        "prefer-at": "off",
-        "no-array-sort": "off"
+        "prefer-at": "off"
       }
     }
   ]

@@ -33,8 +33,10 @@ function requestSyncSnapshotKeys(identity: RequestSyncIdentity): string[] {
   if (!userEmail) return [];
   const keys: string[] = [];
   if (conversationId) {
-    keys.push(`conversation:${userEmail}\n${conversationId}`);
-    keys.push(`${userEmail}\n${conversationId}`);
+    keys.push(
+      `conversation:${userEmail}\n${conversationId}`,
+      `${userEmail}\n${conversationId}`,
+    );
   }
   if (internetMessageId) keys.push(`message:${userEmail}\n${internetMessageId}`);
   return keys;

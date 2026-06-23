@@ -36,6 +36,45 @@ function readBodyInBackground(
     });
 }
 
+function performRead(
+  generation: number,
+  readGeneration: { current: number },
+  setMailItem: Dispatch<SetStateAction<MailItemData | null>>,
+  setLoading: Dispatch<SetStateAction<boolean>>,
+  setError: Dispatch<SetStateAction<string | null>>,
+): void {
+  setLoading(true);
+  setError(null);
+  dlog("readCurrentItem: start");
+  const tRead = performance.now();
+  try {
+    const item = Office.context?.mailbox?.item as ReadItem | undefined;
+    dlog(`readCurrentItem: mailbox item present=${Boolean(item)}`);
+    if (!item) {
+      throw new Error("No mail item selected (not inside Outlook, or no message open)");
+    }
+    if (isComposeItem(item)) {
+      throw new Error(
+        "feishu-sync works with received emails - open a received message in the reading pane (not a compose/reply window), then try again.",
+      );
+    }
+    const data = extractMailData(Office, item, "");
+    dlog(
+      `readCurrentItem: OK subject="${data.subject.slice(0, 40)}" attachments=${data.attachments.length}`,
+    );
+    dtime("read mail metadata", tRead);
+    dload("mail metadata readable - load cycle done");
+    setMailItem(data);
+    setLoading(false);
+    readBodyInBackground(generation, readGeneration, setMailItem);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Unknown error";
+    dlog(`readCurrentItem: ERROR ${msg}`);
+    setError(msg);
+    setLoading(false);
+  }
+}
+
 export function useMailItem(autoRead = false) {
   const [mailItem, setMailItem] = useState<MailItemData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -46,36 +85,7 @@ export function useMailItem(autoRead = false) {
   const readCurrentItem = useCallback(() => {
     const generation = readGeneration.current + 1;
     readGeneration.current = generation;
-    setLoading(true);
-    setError(null);
-    dlog("readCurrentItem: start");
-    const tRead = performance.now();
-    try {
-      const item = Office.context?.mailbox?.item as ReadItem | undefined;
-      dlog(`readCurrentItem: mailbox item present=${Boolean(item)}`);
-      if (!item) {
-        throw new Error("No mail item selected (not inside Outlook, or no message open)");
-      }
-      if (isComposeItem(item)) {
-        throw new Error(
-          "feishu-sync works with received emails - open a received message in the reading pane (not a compose/reply window), then try again.",
-        );
-      }
-      const data = extractMailData(Office, item, "");
-      dlog(
-        `readCurrentItem: OK subject="${data.subject.slice(0, 40)}" attachments=${data.attachments.length}`,
-      );
-      dtime("read mail metadata", tRead);
-      dload("mail metadata readable - load cycle done");
-      setMailItem(data);
-      setLoading(false);
-      readBodyInBackground(generation, readGeneration, setMailItem);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Unknown error";
-      dlog(`readCurrentItem: ERROR ${msg}`);
-      setError(msg);
-      setLoading(false);
-    }
+    performRead(generation, readGeneration, setMailItem, setLoading, setError);
   }, []);
 
   useEffect(() => {

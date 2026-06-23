@@ -23,6 +23,12 @@ coverage
 # Generated sideload manifests (scripts/manifest.sh output); source is public/manifest.xml
 /manifest-*.xml
 
+# Generated agent wiki snapshot (factory-droid). Local staging only — its real home
+# is droid cloud + the GitHub wiki repo, so it must never be committed here (a tracked
+# copy would drift from the published wiki). Source of truth for agent rules is
+# CLAUDE.md / convex/_generated/ai/guidelines.md, NOT this snapshot.
+droid-wiki/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

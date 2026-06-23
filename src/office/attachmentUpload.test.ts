@@ -304,7 +304,7 @@ describe("uploadBlobWithRetry", () => {
       .fn()
       .mockRejectedValueOnce(transportError("Convex storage upload failed (network)"))
       .mockResolvedValueOnce({ storageId: "st_ok" });
-    const delay = vi.fn().mockResolvedValue(undefined);
+    const delay = vi.fn(() => Promise.resolve());
 
     await expect(
       uploadBlobWithRetry(generateUploadUrl, blob, undefined, postBytes, {
@@ -328,7 +328,7 @@ describe("uploadBlobWithRetry", () => {
       .mockRejectedValueOnce(transportError("Convex storage upload failed (network)"))
       .mockRejectedValueOnce(transportError("Convex storage upload failed (network)"))
       .mockResolvedValueOnce({ storageId: "st_ok" });
-    const delay = vi.fn().mockResolvedValue(undefined);
+    const delay = vi.fn(() => Promise.resolve());
 
     await expect(
       uploadBlobWithRetry(generateUploadUrl, blob, undefined, postBytes, {
@@ -350,7 +350,7 @@ describe("uploadBlobWithRetry", () => {
     const postBytes = vi
       .fn()
       .mockRejectedValue(new Error("Convex storage upload failed (413)"));
-    const delay = vi.fn().mockResolvedValue(undefined);
+    const delay = vi.fn(() => Promise.resolve());
 
     await expect(
       uploadBlobWithRetry(generateUploadUrl, blob, undefined, postBytes, { delay }),
@@ -364,7 +364,7 @@ describe("uploadBlobWithRetry", () => {
     const generateUploadUrl = vi.fn().mockResolvedValue("https://up/1");
     const fatal = transportError("Convex storage upload failed (network)");
     const postBytes = vi.fn().mockRejectedValue(fatal);
-    const delay = vi.fn().mockResolvedValue(undefined);
+    const delay = vi.fn(() => Promise.resolve());
 
     await expect(
       uploadBlobWithRetry(generateUploadUrl, blob, undefined, postBytes, {
@@ -398,7 +398,7 @@ describe("readFileBytesWithRetry", () => {
         .mockRejectedValueOnce(new Error("NotReadableError"))
         .mockResolvedValueOnce(new ArrayBuffer(5)),
     };
-    const delay = vi.fn().mockResolvedValue(undefined);
+    const delay = vi.fn(() => Promise.resolve());
 
     const bytes = await readFileBytesWithRetry(file, { backoffMs: 10, delay });
 
@@ -411,7 +411,7 @@ describe("readFileBytesWithRetry", () => {
     const file = {
       arrayBuffer: vi.fn().mockRejectedValue(new Error("NotReadableError")),
     };
-    const delay = vi.fn().mockResolvedValue(undefined);
+    const delay = vi.fn(() => Promise.resolve());
 
     const err = await readFileBytesWithRetry(file, {
       attempts: 3,

@@ -292,6 +292,81 @@ bash scripts/deploy.sh cloudflare           # build base=/ + wrangler pages depl
   unquoted makes `source` treat `|` as a pipe → the variable comes out empty.
 - **GitHub over SSH may be blocked** (e.g. from Mainland China) → `git push`
   hangs. Push over HTTPS: `git push https://github.com/<org>/<repo>.git HEAD:<branch>`.
-- **GitHub Actions** deploy is unavailable when the account's Actions billing is
-  exhausted; `scripts/deploy.sh` is the fallback (a self-hosted runner on the
-  ECS box would re-automate it for free).
+- **GitHub Actions auto-deploy** is wired in
+  [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) — see §7.
+  `scripts/deploy.sh` stays the manual fallback (and the CI `ecs` job reuses it
+  verbatim) for when Actions billing is exhausted or US→CN SSH is down.
+
+## 7. CI / auto-deploy (GitHub Actions)
+
+[`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) is the source of
+truth for "push to `main` → it ships":
+
+- **`push` to `main`** → a `checks` gate (typecheck + lint + scoped backend tests)
+  then three deploys **in parallel**: `convex` (`bunx convex deploy`), `cloudflare`
+  (Global Host, §5), `ecs` (CN Host over SSH, §1).
+- **`pull_request` to `main`** → `checks` only — fast feedback, never deploys.
+- **manual** → Actions tab → "Deploy (main)" → *Run workflow* (`workflow_dispatch`).
+
+The CI `ecs` job runs **`bash scripts/deploy.sh frontend`** verbatim, so §1/§5's
+`deploy.sh` stays the one deploy implementation — CI and local share it.
+
+### Required GitHub config (Settings → Secrets and variables → Actions)
+
+| Kind | Name | Value |
+| ---- | ---- | ----- |
+| Secret | `CONVEX_DEPLOY_KEY` | Convex Dashboard → Project Settings → Deploy Keys |
+| Secret | `CLOUDFLARE_API_TOKEN` | token with *Cloudflare Pages: Edit* |
+| Secret | `CLOUDFLARE_ACCOUNT_ID` | `2402c36e78fa02ee53d19857978cf1aa` |
+| Secret | `DEPLOY_HOST` | ECS SSH target (an IP is fine) |
+| Secret | `DEPLOY_SSH_KEY` | the **private** key (paste the whole PEM) whose public half is in the box's `deploy` user `authorized_keys` |
+| Secret | `VITE_SENTRY_DSN` | *(optional)* Sentry ingest |
+| Var | `VITE_CONVEX_URL` | `https://steady-setter-706.convex.cloud` |
+| Var | `VITE_CONVEX_SITE_URL` | `https://steady-setter-706.convex.site` |
+| Var | `VITE_FEISHU_APP_ID` | public Feishu app id |
+| Var | `DEPLOY_USER` | `deploy` |
+| Var | `ADDIN_ECS_HOST` | public manifest domain (e.g. `wmdev.zeuja.com`) |
+
+These are the same values you already deploy with locally (`.env.deploy` /
+`.env.convex`), just stored in GitHub. Secrets are masked in logs; variables are not.
+
+### dev now → prod later (the one-secret cutover)
+
+`bunx convex deploy` ships to whatever deployment `CONVEX_DEPLOY_KEY` belongs to,
+so promotion is config-only — no workflow edit:
+
+1. Mint a **Production** deploy key (Dashboard → Deploy Keys) and overwrite the
+   `CONVEX_DEPLOY_KEY` secret.
+2. Repoint the build: set the `VITE_CONVEX_URL` / `VITE_CONVEX_SITE_URL` **variables**
+   to the prod deployment's URLs (the SPA on both hosts then talks to prod).
+3. Seed prod's backend env + re-whitelist the Feishu redirect (§4):
+   `bash scripts/convex-env-sync.sh --prod` — see [MIGRATION.md](MIGRATION.md).
+
+Until then, leave them on the current (dev) deployment and each push auto-syncs it.
+
+### Gate scope
+
+`checks` runs `bun run typecheck`, `bun run lint`, and `bunx vitest run convex` —
+the whole backend unit suite, **not** the forbidden full `bun run test`; it
+auto-includes the `customersMirror` split. Widen with positional filters
+(`… convex submitSyncGate intakeReducer`) or trim a heavy sim with
+`--exclude '**/attachmentFill.scale.test.ts'`.
+
+### US→CN SSH and the self-hosted escape hatch
+
+Hosted runners live outside Mainland China, so the `ecs` job's SSH to Aliyun can be
+slow/blocked and spends Actions minutes (it's `timeout-minutes: 15` so a hung SSH
+fails fast). If it bites, move **only** the `ecs` job onto a **self-hosted runner on
+the box** — it builds locally with no network hop, runs free even with Actions
+billing exhausted, and needs no `DEPLOY_SSH_KEY`:
+
+1. On the box: repo Settings → Actions → Runners → *New self-hosted runner*, run the
+   Linux steps, then `sudo ./svc.sh install && sudo ./svc.sh start`.
+2. In `deploy.yml` set the `ecs` job to `runs-on: [self-hosted, linux]`; since it now
+   targets itself, point `DEPLOY_HOST` at `127.0.0.1` (SSH to localhost).
+
+### Ordering
+
+`convex`, `cloudflare`, and `ecs` run in parallel for speed; a Convex deploy failure
+does **not** block the frontends. To enforce backend-first, add `convex` to the host
+jobs' `needs:` (`needs: [checks, convex]`).

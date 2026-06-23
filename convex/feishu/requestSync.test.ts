@@ -11,6 +11,8 @@ import type { SelectedCoworker } from "../emailRecord";
 const jenny: SelectedCoworker = { openId: "ou_1fa1e520f980675ed46ff40aa177a488", name: "Jenny Xu" };
 const dave: SelectedCoworker = { openId: "ou_a61fa1232a614a04639cd33695d0a7da", name: "Dave Lin" };
 const ERR = "Bitable Sync requires exactly one Feishu coworker";
+const noCoworkers: SelectedCoworker[] | undefined = undefined;
+const resolvesVoid: undefined = undefined;
 
 describe("requireExactlyOneCoworker", () => {
   it("returns the array unchanged when exactly one coworker is present", () => {
@@ -21,7 +23,7 @@ describe("requireExactlyOneCoworker", () => {
   });
 
   it("throws when given undefined", () => {
-    expect(() => requireExactlyOneCoworker(undefined)).toThrow(ERR);
+    expect(() => requireExactlyOneCoworker(noCoworkers)).toThrow(ERR);
   });
 
   it("throws when given zero coworkers", () => {
@@ -357,7 +359,7 @@ describe("reconcilePendingBitableSync", () => {
     ]);
     noDueFills(runQuery);
     const runAction = vi.fn();
-    const runMutation = vi.fn().mockResolvedValue(undefined);
+    const runMutation = vi.fn().mockResolvedValue(resolvesVoid);
     const scheduler = { runAfter: vi.fn() };
 
     await expect(

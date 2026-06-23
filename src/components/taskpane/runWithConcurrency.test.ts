@@ -89,7 +89,7 @@ describe("runWithConcurrency", () => {
         if (n === 1) throw new Error("boom");
       }),
     ).resolves.toBeUndefined();
-    expect(seen.sort()).toEqual([0, 1, 2, 3]);
+    expect(seen.toSorted()).toEqual([0, 1, 2, 3]);
   });
 
   it("clamps the pool to the item count when limit exceeds it", async () => {

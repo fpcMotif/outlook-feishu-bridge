@@ -13,12 +13,18 @@ import { AvatarImage } from "./avatar-image";
 // probe fires its `load` event. jsdom never fires that on its own, so we stub
 // window.Image with a fake that lets us drive a synchronous `load`, then render
 // inside an Avatar.Root and flip the probe to "loaded".
+//
+// Radix's load handler does NOT trust the event alone — it re-derives the status
+// from the image's `complete`/`naturalWidth` (getImageLoadingStatus:
+// `complete ? naturalWidth > 0 ? "loaded" : "error" : "loading"`). So the probe
+// must report complete + non-zero naturalWidth at dispatch time, or the status
+// resolves back to "loading"/"error" and the <img> never commits.
 class FakeImage extends EventTarget {
   src = "";
   referrerPolicy = "";
   crossOrigin: string | null = null;
-  // `complete` stays false so resolveLoadingStatus reports "loading" initially;
-  // the dispatched `load` event then transitions it to "loaded".
+  // Start "loading" (complete=false); renderLoadedImage flips these to a
+  // loaded state right before dispatching the `load` event.
   complete = false;
   naturalWidth = 0;
 }
@@ -47,8 +53,14 @@ function renderLoadedImage(props: React.ComponentProps<typeof AvatarImage>) {
     </AvatarPrimitive.Root>,
   );
   // Drive the Radix probe Image to "loaded" so the real <img> commits.
+  // getImageLoadingStatus reads complete + naturalWidth, so set both before
+  // the event fires.
   act(() => {
-    lastImage?.dispatchEvent(new Event("load"));
+    if (lastImage) {
+      lastImage.complete = true;
+      lastImage.naturalWidth = 1;
+      lastImage.dispatchEvent(new Event("load"));
+    }
   });
   return utils;
 }

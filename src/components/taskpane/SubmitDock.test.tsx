@@ -71,4 +71,61 @@ describe("SubmitDock confirm countdown", () => {
     expect(live).toHaveTextContent(/ready to submit/i);
     expect(screen.getByRole("button", { name: "Sync with Jenny" })).toBeEnabled();
   });
+
+  it("reseeds the countdown when the form snapshot (confirmResetKey) changes", () => {
+    vi.useFakeTimers();
+    const onReviewStart = vi.fn();
+    const onSubmit = vi.fn();
+    const { container, rerender } = render(
+      <SubmitDock
+        count={1}
+        canSubmit={true}
+        sending={false}
+        hint="Pick a coworker"
+        label="Sync with Jenny"
+        confirmResetKey="k1"
+        onReviewStart={onReviewStart}
+        onSubmit={onSubmit}
+      />,
+    );
+
+    // First snapshot arms the window and fires the review scroll once.
+    expect(onReviewStart).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('[aria-live="polite"]')).toHaveTextContent(
+      /submitting in 3 seconds/i,
+    );
+
+    // Run it all the way down so the dock is fully armed and enabled.
+    act(() => {
+      vi.advanceTimersByTime(3000);
+    });
+    expect(container.querySelector('[aria-live="polite"]')).toHaveTextContent(
+      /ready to submit/i,
+    );
+    expect(screen.getByRole("button", { name: "Sync with Jenny" })).toBeEnabled();
+
+    // The user edits the form -> a new snapshot key. The countdown MUST start over:
+    // the gate is keyed on cycleKey, so a changed key remounts it and the 3s review
+    // window re-arms (button disabled again, onReviewStart fires once more). This is
+    // the reseed the old render-phase ref tracker could silently skip on a discarded
+    // render; the test also fails outright if the key={cycleKey} remount is removed.
+    rerender(
+      <SubmitDock
+        count={1}
+        canSubmit={true}
+        sending={false}
+        hint="Pick a coworker"
+        label="Sync with Jenny"
+        confirmResetKey="k2"
+        onReviewStart={onReviewStart}
+        onSubmit={onSubmit}
+      />,
+    );
+
+    expect(onReviewStart).toHaveBeenCalledTimes(2);
+    expect(container.querySelector('[aria-live="polite"]')).toHaveTextContent(
+      /submitting in 3 seconds/i,
+    );
+    expect(screen.getByRole("button", { name: "Checking attachments" })).toBeDisabled();
+  });
 });

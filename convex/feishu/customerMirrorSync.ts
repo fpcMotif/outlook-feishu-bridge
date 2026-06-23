@@ -10,9 +10,15 @@
 // complete when the rows we paged match Feishu's reported `total`; a shortfall
 // or a non-clean stop reason is promoted to a hard, audited failure.
 
+// One Feishu record/search item (the fields the mirror reads on the way in).
+export interface FeishuRecord {
+  record_id: string;
+  fields: Record<string, unknown>;
+}
+
 // One Feishu record/search page response (the fields the loop reads).
 export interface SearchResponse {
-  items?: { record_id: string; fields: Record<string, unknown> }[];
+  items?: FeishuRecord[];
   has_more?: boolean;
   page_token?: string;
   // Feishu records/search returns the table's total record count on every page

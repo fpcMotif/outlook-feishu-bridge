@@ -12,7 +12,8 @@ import { isBitableSyncDue, STALE_PENDING_REARM_GRACE_MS } from "./bitableSyncRet
  * NEVER inline this literal at a call site — it is the single named default,
  * overridden by the `BITABLE_OWNED_ROW_UPDATE_WINDOW_MS` Convex env var.
  */
-export const DEFAULT_BITABLE_UPDATE_WINDOW_MS = 2 * 60 * 60 * 1_000; // 2 h
+// 2 h
+export const DEFAULT_BITABLE_UPDATE_WINDOW_MS = 2 * 60 * 60 * 1_000;
 
 /** Configurable freshness window: env wins, named default fallback. */
 export function bitableUpdateWindowMs(): number {
@@ -35,9 +36,12 @@ export function mayUpdateOwnedBitableRow(
   now: number,
   windowMs: number = bitableUpdateWindowMs(),
 ): boolean {
-  if (!row.bitableRecordId || !row.bitableClientToken) return false; // not ours / no provenance
-  if (row.bitableRowMintedAt === undefined) return false; // unknown age → refuse
-  return now - row.bitableRowMintedAt <= windowMs; // fresh, not ancient
+  // not ours / no provenance
+  if (!row.bitableRecordId || !row.bitableClientToken) return false;
+  // unknown age → refuse
+  if (row.bitableRowMintedAt === undefined) return false;
+  // fresh, not ancient
+  return now - row.bitableRowMintedAt <= windowMs;
 }
 
 /**
@@ -61,10 +65,12 @@ export function shouldRearmAttachmentFill(
   now: number,
   graceMs: number = STALE_PENDING_REARM_GRACE_MS,
 ): boolean {
-  if (!row.bitableRecordId) return false; // row not created yet → create lifecycle's job
+  // row not created yet → create lifecycle's job
+  if (!row.bitableRecordId) return false;
   const s = row.bitableAttachmentStatus;
   if (s !== "pending" && s !== "filling" && s !== "failed") {
-    return false; // filled / no attachment lifecycle
+    // filled / no attachment lifecycle
+    return false;
   }
   return isBitableSyncDue(row.attachmentNextRetryAt, now - graceMs);
 }
@@ -114,9 +120,9 @@ export function buildFillTotal(row: FillTimingRow, filledAt: number): FillTotal 
       ? row.bitableRowMintedAt - row.syncReceivedAt
       : null;
   const fillMs =
-    row.bitableRowMintedAt !== undefined ? filledAt - row.bitableRowMintedAt : null;
+    row.bitableRowMintedAt === undefined ? null : filledAt - row.bitableRowMintedAt;
   const totalMs =
-    row.submitClickedAt !== undefined ? filledAt - row.submitClickedAt : null;
+    row.submitClickedAt === undefined ? null : filledAt - row.submitClickedAt;
   const parts = [
     "[fillTotal]",
     `trace=${traceId ?? "-"}`,

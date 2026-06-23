@@ -53,7 +53,7 @@ vi.mock("../storage", () => ({
   getStorageBytes: (...args: unknown[]) => mocks.getStorageBytes(...args),
 }));
 
-import { createHarness, type Harness } from "./attachmentFillSim";
+import { createHarness, restoreEnv, type Harness } from "./attachmentFillSim";
 import { mayUpdateOwnedBitableRow, DEFAULT_BITABLE_UPDATE_WINDOW_MS } from "./attachmentFill";
 import type { ScheduledJob } from "./attachmentFillSim";
 
@@ -83,13 +83,9 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
-  const restore = (key: string, val: string | undefined): void => {
-    if (val === undefined) delete process.env[key];
-    else process.env[key] = val;
-  };
-  restore("FEISHU_BITABLE_APP_TOKEN", origApp);
-  restore("FEISHU_BITABLE_TABLE_ID", origTable);
-  restore("BITABLE_OWNED_ROW_UPDATE_WINDOW_MS", origWindow);
+  restoreEnv("FEISHU_BITABLE_APP_TOKEN", origApp);
+  restoreEnv("FEISHU_BITABLE_TABLE_ID", origTable);
+  restoreEnv("BITABLE_OWNED_ROW_UPDATE_WINDOW_MS", origWindow);
 });
 
 // ---------------------------------------------------------------------------

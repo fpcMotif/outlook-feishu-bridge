@@ -37,7 +37,7 @@ describe("isComposeItem", () => {
 
   it("is false for read-mode or empty items", () => {
     expect(isComposeItem({ subject: "Quarterly quote" })).toBe(false);
-    expect(isComposeItem(undefined)).toBe(false);
+    expect(isComposeItem(undefined as unknown)).toBe(false);
     expect(isComposeItem(null)).toBe(false);
   });
 });
@@ -53,14 +53,14 @@ describe("emailList", () => {
   });
 
   it("returns [] when the value is undefined or not an array", () => {
-    expect(emailList(undefined)).toEqual([]);
+    expect(emailList(undefined as undefined)).toEqual([]);
     expect(emailList({} as unknown as Office.EmailAddressDetails[])).toEqual([]);
   });
 });
 
 describe("convertToRestId", () => {
   it("returns an empty string for an empty id", () => {
-    expect(convertToRestId(stubOffice(), undefined)).toBe("");
+    expect(convertToRestId(stubOffice(), undefined as undefined)).toBe("");
     expect(convertToRestId(stubOffice(), "")).toBe("");
   });
 

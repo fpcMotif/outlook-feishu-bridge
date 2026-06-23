@@ -25,6 +25,8 @@ const upload = (
   selected: rejection === null,
 });
 
+const countPill = () => screen.getByText(/\/10/);
+
 function setup(
   props: {
     mailAttachments?: AttachmentInfo[];
@@ -205,7 +207,6 @@ describe("AttachmentSection", () => {
       selectedIds: ["a1", "a2"],
       uploadedFiles: [],
     });
-    const countPill = () => screen.getByText(/\/10/);
 
     expect(countPill()).not.toHaveClass("attachment-count-down-bounce");
 

@@ -214,6 +214,45 @@ export interface EmailRecordResultIds {
   sentToBitable?: boolean;
 }
 
+// The fields a freshly-synced Email Record never carries: the retired delivery
+// metadata (bot/chat/contacts/groups + Feishu doc + per-category selections) and
+// the lifecycle legs that the fill/sync mutations stamp later, not the client.
+// A module-level constant so the mapping below stays under the per-function line
+// cap; the values are exactly what the inline literal held.
+const EMPTY_EMAIL_RECORD_LIFECYCLE = {
+  sentToBot: false,
+  sentToChat: false,
+  sentToContacts: undefined,
+  sentToGroups: undefined,
+  // ADR-0022: new rows no longer populate the per-category selections; the
+  // field stays in the schema only for historical rows.
+  requestSelections: undefined,
+  feishuMessageId: undefined,
+  pdfFileKey: undefined,
+  attachmentFileKeys: undefined,
+  feishuDocUrl: undefined,
+  feishuDocToken: undefined,
+  bitableClientToken: undefined,
+  bitableSyncStatus: undefined,
+  bitableLastError: undefined,
+  bitableLastAttemptAt: undefined,
+  bitableAttemptCount: undefined,
+  bitableNextRetryAt: undefined,
+  bitableRowMintedAt: undefined,
+  // Sources ride the backup; the rest of the attachment lifecycle is set by
+  // the fill mutations (beginBitableSync arms the status when sources exist).
+  bitableAttachmentStatus: undefined,
+  bitableAttachmentFileTokens: undefined,
+  bitableAttachmentSkipped: undefined,
+  attachmentAttemptCount: undefined,
+  attachmentNextRetryAt: undefined,
+  // Client-minted trace + click time ride the backup; the server-stamped legs
+  // (syncReceivedAt, attachmentsFilledAt) are set later by the sync/fill
+  // mutations, never carried from the client.
+  syncReceivedAt: undefined,
+  attachmentsFilledAt: undefined,
+} satisfies Partial<EmailRecord>;
+
 // Map a completed Bitable Sync onto the Email Record to persist. The only logic
 // here is body→bodyPreview truncation plus the retired delivery flags staying
 // false for schema compatibility — pure, no DB, no I/O, so it is unit-tested.
@@ -234,45 +273,15 @@ export function toEmailRecord(
     userEmail: input.userEmail,
     requestSyncKey: buildRequestSyncKey(input.userEmail, input.conversationId) ?? undefined,
     dateTimeCreated: input.dateTimeCreated,
-    sentToBot: false,
-    sentToChat: false,
     sentToBitable: ids.sentToBitable ?? true,
-    sentToContacts: undefined,
-    sentToGroups: undefined,
     requestNote: input.requestNote,
-    // ADR-0022: new rows no longer populate the per-category selections; the
-    // field stays in the schema only for historical rows.
-    requestSelections: undefined,
     selectedCoworkers: input.selectedCoworkers,
     selectedCustomer: input.selectedCustomer,
     initiator: input.initiator,
-    feishuMessageId: undefined,
     bitableRecordId: ids.bitableRecordId,
-    pdfFileKey: undefined,
-    attachmentFileKeys: undefined,
-    feishuDocUrl: undefined,
-    feishuDocToken: undefined,
-    bitableClientToken: undefined,
-    bitableSyncStatus: undefined,
-    bitableLastError: undefined,
-    bitableLastAttemptAt: undefined,
-    bitableAttemptCount: undefined,
-    bitableNextRetryAt: undefined,
-    bitableRowMintedAt: undefined,
-    // Sources ride the backup; the rest of the attachment lifecycle is set by
-    // the fill mutations (beginBitableSync arms the status when sources exist).
     bitableAttachmentSources: input.attachmentSources,
-    bitableAttachmentStatus: undefined,
-    bitableAttachmentFileTokens: undefined,
-    bitableAttachmentSkipped: undefined,
-    attachmentAttemptCount: undefined,
-    attachmentNextRetryAt: undefined,
-    // Client-minted trace + click time ride the backup; the server-stamped legs
-    // (syncReceivedAt, attachmentsFilledAt) are set later by the sync/fill
-    // mutations, never carried from the client.
     syncTraceId: input.syncTraceId,
     submitClickedAt: input.submitClickedAt,
-    syncReceivedAt: undefined,
-    attachmentsFilledAt: undefined,
+    ...EMPTY_EMAIL_RECORD_LIFECYCLE,
   };
 }

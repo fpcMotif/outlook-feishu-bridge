@@ -11,6 +11,19 @@ vi.mock("./client", async () => {
 
 const mockFetch = vi.mocked(feishuFetch);
 
+const row = (id: string, expiresAt: number) => ({ _id: id, expiresAt });
+
+function fakeCtx(opts: {
+  cached?: string | null;
+  runMutation?: ReturnType<typeof vi.fn>;
+}) {
+  const runQuery = vi.fn(async () => opts.cached ?? null);
+  const runMutation = opts.runMutation ?? vi.fn(async () => {});
+  return { runQuery, runMutation } as unknown as Parameters<
+    typeof getTenantAccessToken
+  >[0] & { runQuery: typeof runQuery; runMutation: typeof runMutation };
+}
+
 describe("selectFreshToken", () => {
   it("returns the token only when expiresAt is strictly after now", () => {
     expect(selectFreshToken({ token: "t1", expiresAt: 2000 }, 1000)).toBe("t1");
@@ -26,7 +39,6 @@ describe("selectFreshToken", () => {
 
 describe("planTokenStore", () => {
   const NOW = 1_000_000;
-  const row = (id: string, expiresAt: number) => ({ _id: id, expiresAt });
 
   it("inserts when the table is empty", () => {
     expect(planTokenStore([], NOW)).toEqual({ action: "insert", deleteIds: [] });
@@ -115,17 +127,6 @@ describe("getTenantAccessToken", () => {
     vi.restoreAllMocks();
   });
 
-  function fakeCtx(opts: {
-    cached?: string | null;
-    runMutation?: ReturnType<typeof vi.fn>;
-  }) {
-    const runQuery = vi.fn(async () => opts.cached ?? null);
-    const runMutation = opts.runMutation ?? vi.fn(async () => undefined);
-    return { runQuery, runMutation } as unknown as Parameters<
-      typeof getTenantAccessToken
-    >[0] & { runQuery: typeof runQuery; runMutation: typeof runMutation };
-  }
-
   it("returns the cached token without calling fetch", async () => {
     const ctx = fakeCtx({ cached: "cached-token" });
     await expect(getTenantAccessToken(ctx)).resolves.toBe("cached-token");
@@ -145,7 +146,7 @@ describe("getTenantAccessToken", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(1_000_000));
     mockFetch.mockResolvedValue({ tenant_access_token: "tok", expire: 7200 });
-    const runMutation = vi.fn(async (_ref: unknown, _args: unknown) => undefined);
+    const runMutation = vi.fn(async (_ref: unknown, _args: unknown) => {});
     const ctx = fakeCtx({ cached: null, runMutation });
 
     await expect(getTenantAccessToken(ctx)).resolves.toBe("tok");
@@ -168,7 +169,7 @@ describe("getTenantAccessToken", () => {
         "Documents read from or written to the table feishuTokens changed",
       );
     });
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     await expect(
       getTenantAccessToken(fakeCtx({ cached: null, runMutation })),
@@ -178,7 +179,7 @@ describe("getTenantAccessToken", () => {
 
   it("propagates Feishu errors and does not store a token", async () => {
     mockFetch.mockRejectedValue(new FeishuError(99991663, "app secret invalid", "Feishu auth"));
-    const runMutation = vi.fn(async () => undefined);
+    const runMutation = vi.fn(async () => {});
     await expect(getTenantAccessToken(fakeCtx({ cached: null, runMutation }))).rejects.toMatchObject({
       name: "FeishuError",
       code: 99991663,

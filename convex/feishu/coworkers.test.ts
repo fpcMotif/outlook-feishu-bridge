@@ -65,20 +65,20 @@ type FakeQueryChainAfterIndex = {
   take: (n: number) => Promise<CacheRow[]>;
 };
 
+type Constraint =
+  | { op: "eq"; field: keyof CacheRow; value: unknown }
+  | { op: "lt"; field: keyof CacheRow; value: number };
+
+const matches = (row: CacheRow | SessionRow, constraint: Constraint) => {
+  if (constraint.op === "eq") return row[constraint.field as keyof typeof row] === constraint.value;
+  const fieldValue = row[constraint.field as keyof typeof row];
+  return typeof fieldValue === "number" && fieldValue < constraint.value;
+};
+
 const makeFakeDb = (initialRows: CacheRow[] = [], initialSessions: SessionRow[] = []): FakeDb => {
   const rows = [...initialRows];
   const sessions = [...initialSessions];
   let nextId = rows.length;
-
-  type Constraint =
-    | { op: "eq"; field: keyof CacheRow; value: unknown }
-    | { op: "lt"; field: keyof CacheRow; value: number };
-
-  const matches = (row: CacheRow | SessionRow, constraint: Constraint) => {
-    if (constraint.op === "eq") return row[constraint.field as keyof typeof row] === constraint.value;
-    const fieldValue = row[constraint.field as keyof typeof row];
-    return typeof fieldValue === "number" && fieldValue < constraint.value;
-  };
 
   const tableRows = (table: string): Array<CacheRow | SessionRow> =>
     table === "feishuUserTokens" ? sessions : rows;
@@ -115,7 +115,7 @@ const makeFakeDb = (initialRows: CacheRow[] = [], initialSessions: SessionRow[] 
       take: async (n: number) => {
         const cacheRows = listRows().filter((row): row is CacheRow => "cachedAt" in row);
         if (order === "desc") {
-          return [...cacheRows].sort((a, b) => b.cachedAt - a.cachedAt).slice(0, n);
+          return cacheRows.toSorted((a, b) => b.cachedAt - a.cachedAt).slice(0, n);
         }
         return cacheRows.slice(0, n);
       },
@@ -427,7 +427,7 @@ describe("searchCoworkers action cache behavior", () => {
       cachedAt: Date.now(),
       results: [{ openId: "ou_cached", name: "Cached Alice", avatarUrl: "https://feishu/cached.png" }],
     }));
-    const runMutation = vi.fn(async () => undefined);
+    const runMutation = vi.fn(async () => {});
 
     const ctx = { runQuery, runMutation } as unknown as ActionCtx;
 
@@ -448,7 +448,7 @@ describe("searchCoworkers action cache behavior", () => {
 
   it("falls back to Feishu when cache is cold", async () => {
     const runQuery = vi.fn(async () => null);
-    const runMutation = vi.fn(async () => undefined);
+    const runMutation = vi.fn(async () => {});
     resolveFeishuTokenMock.mockResolvedValue("resolved-token");
     callFeishuMock.mockResolvedValue(userOpenSearch);
 
@@ -492,7 +492,7 @@ describe("searchCoworkers action cache behavior", () => {
       cachedAt: Date.now(),
       results: [{ openId: "ou_cached", name: "Cached Alice" }],
     }));
-    const runMutation = vi.fn(async () => undefined);
+    const runMutation = vi.fn(async () => {});
     callFeishuMock.mockResolvedValue(userOpenSearch);
 
     const ctx = { runQuery, runMutation } as unknown as ActionCtx;
@@ -514,7 +514,7 @@ describe("searchCoworkers action cache behavior", () => {
 
   it("returns [] for blank query before cache/match and without token roundtrip", async () => {
     const runQuery = vi.fn(async () => null);
-    const runMutation = vi.fn(async () => undefined);
+    const runMutation = vi.fn(async () => {});
     const ctx = { runQuery, runMutation } as unknown as ActionCtx;
 
     const found = await searchCoworkersHandler(ctx, {
@@ -530,7 +530,7 @@ describe("searchCoworkers action cache behavior", () => {
 
   it("returns [] for one-character query before token, cache, or Feishu work", async () => {
     const runQuery = vi.fn(async () => null);
-    const runMutation = vi.fn(async () => undefined);
+    const runMutation = vi.fn(async () => {});
     const ctx = { runQuery, runMutation } as unknown as ActionCtx;
 
     const found = await searchCoworkersHandler(ctx, {

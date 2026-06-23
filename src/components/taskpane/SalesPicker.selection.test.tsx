@@ -8,6 +8,17 @@ import { SalesPicker } from "./SalesPicker";
 const TEST_AVATAR =
   "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
 
+function ControlledPicker() {
+  const [selected, setSelected] = useState<Coworker | null>(null);
+  return (
+    <SalesPicker
+      sessionId="sess"
+      selectedSales={selected}
+      onSelect={setSelected}
+    />
+  );
+}
+
 vi.mock("../../hooks/useCoworkerSearch", () => {
   const testAvatar =
     "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
@@ -40,7 +51,7 @@ describe("SalesPicker selected row", () => {
 
     // Visible chip is decorative; the labelled element carries the fuller name.
     expect(screen.getByText("sales")).toHaveAttribute("aria-hidden", "true");
-    const label = document.getElementById("sales-picker-title");
+    const label = document.querySelector("#sales-picker-title");
     expect(label).toHaveTextContent("Sales rep");
     expect(label).toHaveClass("sr-only");
     expect(
@@ -83,16 +94,6 @@ describe("SalesPicker selected row", () => {
   });
 
   it("does not stagger enter when the user explicitly picks sales", async () => {
-    function ControlledPicker() {
-      const [selected, setSelected] = useState<Coworker | null>(null);
-      return (
-        <SalesPicker
-          sessionId="sess"
-          selectedSales={selected}
-          onSelect={setSelected}
-        />
-      );
-    }
     render(<ControlledPicker />);
 
     fireEvent.change(screen.getByLabelText("Search Feishu sales"), {

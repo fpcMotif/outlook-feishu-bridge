@@ -30,6 +30,8 @@ import type { ActionCtx } from "../_generated/server";
 
 const APP_TOKEN = "appToken123";
 
+const noop = (): void => {};
+
 type UploadAttachmentsHandler = (
   ctx: ActionCtx,
   args: { sources: { storageId: string; fileName: string }[] },
@@ -39,7 +41,7 @@ const uploadAttachmentsHandler = (
   uploadAttachmentsToDrive as unknown as { _handler: UploadAttachmentsHandler }
 )._handler;
 
-const storageDelete = vi.fn();
+const storageDelete = vi.fn<() => Promise<void>>();
 const ctx = { storage: { delete: storageDelete } } as unknown as ActionCtx;
 
 const originalAppToken = process.env.FEISHU_BITABLE_APP_TOKEN;
@@ -50,7 +52,7 @@ beforeEach(() => {
   resolveFeishuToken.mockResolvedValue("tenant-token");
   getStorageBytes.mockReset();
   storageDelete.mockReset();
-  storageDelete.mockResolvedValue(undefined);
+  storageDelete.mockResolvedValue();
   process.env.FEISHU_BITABLE_APP_TOKEN = APP_TOKEN;
 });
 
@@ -128,7 +130,7 @@ describe("uploadAttachmentsToDrive action", () => {
   });
 
   it("prefetches only one staged blob ahead of the serial Drive upload", async () => {
-    let resolveFirstUpload: (value: { file_token: string }) => void = () => {};
+    let resolveFirstUpload: (value: { file_token: string }) => void = noop;
     const firstUpload = new Promise<{ file_token: string }>((resolve) => {
       resolveFirstUpload = resolve;
     });
@@ -146,7 +148,9 @@ describe("uploadAttachmentsToDrive action", () => {
       ],
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 0);
+    });
     expect(getStorageBytes).toHaveBeenCalledTimes(2);
     expect(callFeishu).toHaveBeenCalledTimes(1);
 
@@ -219,7 +223,9 @@ describe("mapWithConcurrency", () => {
     const fn = async (n: number): Promise<number> => {
       active += 1;
       peak = Math.max(peak, active);
-      await new Promise((r) => setTimeout(r, 5));
+      await new Promise((r) => {
+        setTimeout(r, 5);
+      });
       active -= 1;
       return n * 2;
     };
@@ -235,7 +241,9 @@ describe("mapWithConcurrency", () => {
     await mapWithConcurrency([1, 2], 10, async (n) => {
       active += 1;
       peak = Math.max(peak, active);
-      await new Promise((r) => setTimeout(r, 1));
+      await new Promise((r) => {
+        setTimeout(r, 1);
+      });
       active -= 1;
       return n;
     });

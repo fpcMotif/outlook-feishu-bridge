@@ -37,7 +37,7 @@ describe("isFeishuRateLimited", () => {
   it("is false for a generic Error and for non-error values", () => {
     expect(isFeishuRateLimited(new Error("network down"))).toBe(false);
     expect(isFeishuRateLimited("nope")).toBe(false);
-    expect(isFeishuRateLimited(undefined)).toBe(false);
+    expect(isFeishuRateLimited(null)).toBe(false);
   });
 });
 

@@ -16,6 +16,9 @@ vi.mock("convex/react", () => ({
 const mockUseAction = vi.mocked(useAction);
 const mockUseQuery = vi.mocked(useQuery);
 
+// useQuery returns `undefined` while the Convex lookup is still loading.
+const loadingLookup = void 0;
+
 const identity = {
   userEmail: "jenny.xu@fenchem.com",
   conversationId: "conv-1",
@@ -55,7 +58,7 @@ describe("useRequestSync", () => {
       coworkerCount: 1,
       syncedAt: Date.now() - 60_000,
     });
-    mockUseQuery.mockReturnValue(undefined);
+    mockUseQuery.mockReturnValue(loadingLookup);
 
     const { result } = renderHook(() => useRequestSync(identity));
 
@@ -71,7 +74,7 @@ describe("useRequestSync", () => {
       recordId: "rec_cached",
       detailUrl: "https://feishu.cn/base/rec_cached",
     });
-    mockUseQuery.mockReturnValue(undefined);
+    mockUseQuery.mockReturnValue(loadingLookup);
 
     const { result } = renderHook(() =>
       useRequestSync({

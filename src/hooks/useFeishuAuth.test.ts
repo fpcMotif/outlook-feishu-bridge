@@ -21,12 +21,14 @@ vi.mock("convex/react", () => ({
 const mockUseQuery = vi.mocked(useQuery);
 const mockUseMutation = vi.mocked(useMutation);
 const mockUseAction = vi.mocked(useAction);
+// useQuery returns undefined until Convex resolves (the still-loading frame).
+const QUERY_LOADING = undefined as ReturnType<typeof useQuery>;
 
 // touchSession action stub; tests override the resolved status as needed.
 function setTouchResult(status: "absent" | "ok" | "terminal" | "never") {
   mockUseAction.mockReturnValue(
     vi.fn(async () =>
-      status === "never" ? await new Promise(() => undefined) : status,
+      status === "never" ? await new Promise(() => {}) : status,
     ) as unknown as ReturnType<typeof useAction>,
   );
 }
@@ -37,7 +39,7 @@ describe("auth fast resume", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-06-04T08:00:00.000Z"));
     mockUseMutation.mockReturnValue(
-      vi.fn(async () => undefined) as unknown as ReturnType<typeof useMutation>,
+      vi.fn(async () => {}) as unknown as ReturnType<typeof useMutation>,
     );
     // Default: touchSession resolves 'ok' (live/refreshed) and never clears.
     setTouchResult("ok");
@@ -84,7 +86,7 @@ describe("auth fast resume", () => {
   it("opens as logged in immediately from a fresh auth snapshot while Convex validates", () => {
     localStorage.setItem("feishu_session_id", "sess-1");
     rememberAuthSnapshot("sess-1", { openId: "ou_jenny", userName: "Jenny Xu" }, Date.now() + 60_000);
-    mockUseQuery.mockReturnValue(undefined);
+    mockUseQuery.mockReturnValue(QUERY_LOADING);
 
     const { result } = renderHook(() => useFeishuAuth());
 
@@ -96,7 +98,7 @@ describe("auth fast resume", () => {
   it("clears the instant resume snapshot when Convex rejects the session", async () => {
     localStorage.setItem("feishu_session_id", "sess-1");
     rememberAuthSnapshot("sess-1", { openId: "ou_jenny", userName: "Jenny Xu" }, Date.now() + 60_000);
-    let session: unknown = undefined;
+    let session: unknown;
     mockUseQuery.mockImplementation(() => session);
 
     const { result, rerender } = renderHook(() => useFeishuAuth());
@@ -121,7 +123,7 @@ describe("auth fast resume", () => {
     localStorage.setItem("feishu_session_id", "sess-1");
     // Access token expires in 60s; presence horizon is ~30 days.
     rememberAuthSnapshot("sess-1", { openId: "ou_jenny", userName: "Jenny Xu" }, Date.now() + 60_000);
-    mockUseQuery.mockReturnValue(undefined);
+    mockUseQuery.mockReturnValue(QUERY_LOADING);
 
     // Advance past the OLD 2h access-token gate; the snapshot must still resume.
     vi.setSystemTime(new Date(Date.now() + 3 * 60 * 60 * 1000));
@@ -134,7 +136,7 @@ describe("auth fast resume", () => {
   it("drops the instant resume once the presence horizon lapses", () => {
     localStorage.setItem("feishu_session_id", "sess-1");
     rememberAuthSnapshot("sess-1", { openId: "ou_jenny" }, Date.now() + 60_000);
-    mockUseQuery.mockReturnValue(undefined);
+    mockUseQuery.mockReturnValue(QUERY_LOADING);
 
     vi.setSystemTime(new Date(Date.now() + PRESENCE_TTL_MS + 1));
     const { result } = renderHook(() => useFeishuAuth());
@@ -147,7 +149,7 @@ describe("auth fast resume", () => {
   it("does not revert to a checking shell after getUserSession resolves non-null", async () => {
     localStorage.setItem("feishu_session_id", "sess-1");
     rememberAuthSnapshot("sess-1", { openId: "ou_jenny", userName: "Jenny Xu" }, Date.now() + 60_000);
-    let session: unknown = undefined;
+    let session: unknown;
     mockUseQuery.mockImplementation(() => session);
 
     const { result, rerender } = renderHook(() => useFeishuAuth());
@@ -176,7 +178,7 @@ describe("auth fast resume", () => {
     rememberAuthSnapshot("sess-1", { openId: "ou_jenny" }, Date.now() + 60_000);
     // getUserSession stays in-flight (undefined) the whole time — only the
     // touchSession verdict tears the seam down.
-    mockUseQuery.mockReturnValue(undefined);
+    mockUseQuery.mockReturnValue(QUERY_LOADING);
     setTouchResult("terminal");
 
     const { result } = renderHook(() => useFeishuAuth());

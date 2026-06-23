@@ -17,7 +17,7 @@ describe("customerSearchHelpers", () => {
   it("returns every text match (the display cap is the caller's job, ADR-0020)", () => {
     const records = Array.from({ length: 100 }, (_, index) => customer(index));
 
-    const matches = filterLocalCustomers(records, "acme", false, undefined);
+    const matches = filterLocalCustomers(records, "acme", false);
 
     expect(matches).toHaveLength(100);
   });
@@ -25,7 +25,7 @@ describe("customerSearchHelpers", () => {
   it("returns nothing for an empty query when not filtering to mine", () => {
     const records = [customer(1)];
 
-    expect(filterLocalCustomers(records, "", false, undefined)).toHaveLength(0);
+    expect(filterLocalCustomers(records, "", false)).toHaveLength(0);
   });
 
   it("returns owned customers when Show mine is on with no query", () => {

@@ -15,6 +15,7 @@ import {
 import {
   stageAttachmentSources,
   type AttachmentSource,
+  type AttachmentStagingDeps,
   type StagedAttachmentSource,
 } from "../../office/attachmentUpload";
 import { dlog, dtime } from "../../debug";
@@ -31,58 +32,65 @@ export interface AttachmentSyncResult {
   failed: AttachmentFailure[];
 }
 
+async function runAttachmentSync(
+  stagingDeps: AttachmentStagingDeps,
+  selectedMail: { id: string; name: string }[],
+  uploads: UploadedFile[],
+): Promise<AttachmentSyncResult> {
+  const started = performance.now();
+  const selectedUploads = uploads.filter(
+    (upload) => upload.rejection === null && upload.selected,
+  ).length;
+  dlog(
+    `attachment sync start: mail=${selectedMail.length} uploads=${selectedUploads}`,
+  );
+  const office = (globalThis as { Office?: OfficeLike }).Office;
+  const item = office?.context?.mailbox?.item as
+    | AttachmentContentReader
+    | undefined;
+  const downloadMail = (attachment: {
+    id: string;
+    name: string;
+  }): Promise<AttachmentSource> =>
+    office && item
+      ? downloadMailAttachment(office, item, attachment)
+      : Promise.reject(
+          new Error("Mail attachment download is unavailable in this host"),
+        );
+
+  const gatherStarted = performance.now();
+  const { sources: gathered, failed } = await gatherAttachmentSources(
+    downloadMail,
+    selectedMail,
+    uploads,
+  );
+  dtime(
+    `attachment source gather (${gathered.length} ready, ${failed.length} failed)`,
+    gatherStarted,
+  );
+  // Stage the bytes to Convex — the only wait before the row exists, and the
+  // hard deadline (Office.js bytes die once the pane closes). The Drive mint +
+  // any per-file skip now happen server-side in the Attachment Fill, surfaced
+  // via getBitableSyncByConversation.attachmentStatus (ADR-0027).
+  const stageStarted = performance.now();
+  const sources =
+    gathered.length > 0 ? await stageAttachmentSources(stagingDeps, gathered) : [];
+  dtime(`attachment stage (${sources.length} staged)`, stageStarted);
+  dtime(
+    `attachment sync total (${sources.length} staged, ${failed.length} failed)`,
+    started,
+  );
+  return { sources, failed };
+}
+
 export function useAttachmentSync(): (
   selectedMail: { id: string; name: string }[],
   uploads: UploadedFile[],
 ) => Promise<AttachmentSyncResult> {
   const stagingDeps = useAttachmentStaging();
   return useCallback(
-    async (selectedMail, uploads) => {
-      const started = performance.now();
-      const selectedUploads = uploads.filter(
-        (upload) => upload.rejection === null && upload.selected,
-      ).length;
-      dlog(
-        `attachment sync start: mail=${selectedMail.length} uploads=${selectedUploads}`,
-      );
-      const office = (globalThis as { Office?: OfficeLike }).Office;
-      const item = office?.context?.mailbox?.item as
-        | AttachmentContentReader
-        | undefined;
-      const downloadMail = (attachment: {
-        id: string;
-        name: string;
-      }): Promise<AttachmentSource> =>
-        office && item
-          ? downloadMailAttachment(office, item, attachment)
-          : Promise.reject(
-              new Error("Mail attachment download is unavailable in this host"),
-            );
-
-      const gatherStarted = performance.now();
-      const { sources: gathered, failed } = await gatherAttachmentSources(
-        downloadMail,
-        selectedMail,
-        uploads,
-      );
-      dtime(
-        `attachment source gather (${gathered.length} ready, ${failed.length} failed)`,
-        gatherStarted,
-      );
-      // Stage the bytes to Convex — the only wait before the row exists, and the
-      // hard deadline (Office.js bytes die once the pane closes). The Drive mint +
-      // any per-file skip now happen server-side in the Attachment Fill, surfaced
-      // via getBitableSyncByConversation.attachmentStatus (ADR-0027).
-      const stageStarted = performance.now();
-      const sources =
-        gathered.length > 0 ? await stageAttachmentSources(stagingDeps, gathered) : [];
-      dtime(`attachment stage (${sources.length} staged)`, stageStarted);
-      dtime(
-        `attachment sync total (${sources.length} staged, ${failed.length} failed)`,
-        started,
-      );
-      return { sources, failed };
-    },
+    (selectedMail, uploads) =>
+      runAttachmentSync(stagingDeps, selectedMail, uploads),
     [stagingDeps],
   );
 }

@@ -53,7 +53,7 @@ vi.mock("../storage", () => ({
 }));
 
 // 3. Imports AFTER the mocks.
-import { createHarness, type Harness, type FillLookup } from "./attachmentFillSim";
+import { createHarness, restoreEnv, type Harness, type FillLookup } from "./attachmentFillSim";
 import { STALE_PENDING_REARM_GRACE_MS } from "./bitableSyncRetry";
 import { getBitableSyncByConversation } from "../emails";
 import type { OutlookIntake } from "./attachmentFillSim";
@@ -81,13 +81,9 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
-  const restore = (key: string, val: string | undefined): void => {
-    if (val === undefined) delete process.env[key];
-    else process.env[key] = val;
-  };
-  restore("FEISHU_BITABLE_APP_TOKEN", originalAppToken);
-  restore("FEISHU_BITABLE_TABLE_ID", originalTableId);
-  restore("BITABLE_OWNED_ROW_UPDATE_WINDOW_MS", originalWindow);
+  restoreEnv("FEISHU_BITABLE_APP_TOKEN", originalAppToken);
+  restoreEnv("FEISHU_BITABLE_TABLE_ID", originalTableId);
+  restoreEnv("BITABLE_OWNED_ROW_UPDATE_WINDOW_MS", originalWindow);
 });
 
 // ---------------------------------------------------------------------------

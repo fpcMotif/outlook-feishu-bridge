@@ -23,6 +23,20 @@ const STOCK: CustomerRecord = {
   owner: null,
 };
 
+const uploadedFile = (id: string): UploadedFile => ({
+  id,
+  file: new File([], `${id}.pdf`, { type: "application/pdf" }),
+  rejection: null,
+  selected: true,
+  status: "complete",
+  progress: 100,
+  storageId: `st_${id}`,
+  uploadError: null,
+});
+
+const makeFile = (name: string): File =>
+  new File(["data"], name, { type: "application/pdf" });
+
 describe("initialIntakeState", () => {
   it("seeds clientEmail and mailFrom from the sender and starts on the build screen", () => {
     const s = initialIntakeState("a@b.com");
@@ -54,19 +68,8 @@ describe("initialIntakeState", () => {
 });
 
 describe("intakeReducer upload restore", () => {
-  const file = (id: string): UploadedFile => ({
-    id,
-    file: new File([], `${id}.pdf`, { type: "application/pdf" }),
-    rejection: null,
-    selected: true,
-    status: "complete",
-    progress: 100,
-    storageId: `st_${id}`,
-    uploadError: null,
-  });
-
   it("seeds uploadedFiles from the object initializer (restore-on-mount)", () => {
-    const s = initialIntakeState({ mailFrom: "a@b.com", restoredUploads: [file("u1")] });
+    const s = initialIntakeState({ mailFrom: "a@b.com", restoredUploads: [uploadedFile("u1")] });
     expect(s.uploadedFiles.map((u) => u.id)).toEqual(["u1"]);
     expect(s.clientEmail).toBe("a@b.com");
   });
@@ -76,8 +79,8 @@ describe("intakeReducer upload restore", () => {
   });
 
   it("uploadsRestored appends without dropping existing uploads", () => {
-    const base = initialIntakeState({ mailFrom: "a@b.com", restoredUploads: [file("u1")] });
-    const next = intakeReducer(base, { type: "uploadsRestored", files: [file("u2")] });
+    const base = initialIntakeState({ mailFrom: "a@b.com", restoredUploads: [uploadedFile("u1")] });
+    const next = intakeReducer(base, { type: "uploadsRestored", files: [uploadedFile("u2")] });
     expect(next.uploadedFiles.map((u) => u.id)).toEqual(["u1", "u2"]);
   });
 });
@@ -257,8 +260,6 @@ describe("intakeReducer sync state", () => {
 
 describe("intakeReducer attachment selection", () => {
   const base = initialIntakeState("a@b.com");
-  const file = (name: string): File =>
-    new File(["data"], name, { type: "application/pdf" });
 
   it("seeds empty attachment selections", () => {
     expect(base.selectedAttachmentIds).toEqual([]);
@@ -271,7 +272,7 @@ describe("intakeReducer attachment selection", () => {
     const withUpload = intakeReducer(base, {
       type: "filesAdded",
       files: [
-        { id: "u1", file: file("a.pdf"), rejection: null, selected: true },
+        { id: "u1", file: makeFile("a.pdf"), rejection: null, selected: true },
       ],
     });
 
@@ -353,8 +354,8 @@ describe("intakeReducer attachment selection", () => {
 
   it("filesAdded appends uploads and uploadedFileRemoved drops one by id", () => {
     const files: UploadedFile[] = [
-      { id: "u1", file: file("a.pdf"), rejection: null, selected: true },
-      { id: "u2", file: file("b.png"), rejection: null, selected: true },
+      { id: "u1", file: makeFile("a.pdf"), rejection: null, selected: true },
+      { id: "u2", file: makeFile("b.png"), rejection: null, selected: true },
     ];
     const added = intakeReducer(base, { type: "filesAdded", files });
     expect(added.uploadedFiles.map((f) => f.id)).toEqual(["u1", "u2"]);
@@ -370,7 +371,7 @@ describe("intakeReducer attachment selection", () => {
     const added = intakeReducer(base, {
       type: "filesAdded",
       files: [
-        { id: "u1", file: file("a.pdf"), rejection: null, selected: true },
+        { id: "u1", file: makeFile("a.pdf"), rejection: null, selected: true },
       ],
     });
 
@@ -389,7 +390,7 @@ describe("intakeReducer attachment selection", () => {
         (_, i) => `att_${i}`,
       ),
       uploadedFiles: [
-        { id: "u1", file: file("a.pdf"), rejection: null, selected: false },
+        { id: "u1", file: makeFile("a.pdf"), rejection: null, selected: false },
       ],
     };
     const next = intakeReducer(full, { type: "uploadedFileToggled", id: "u1" });
@@ -400,11 +401,11 @@ describe("intakeReducer attachment selection", () => {
     const added = intakeReducer(base, {
       type: "filesAdded",
       files: [
-        { id: "u1", file: file("a.pdf"), rejection: null, selected: false },
-        { id: "u2", file: file("b.pdf"), rejection: null, selected: false },
+        { id: "u1", file: makeFile("a.pdf"), rejection: null, selected: false },
+        { id: "u2", file: makeFile("b.pdf"), rejection: null, selected: false },
         {
           id: "u3",
-          file: file("bad.exe"),
+          file: makeFile("bad.exe"),
           rejection: "unsupported type",
           selected: false,
         },
@@ -429,8 +430,8 @@ describe("intakeReducer attachment selection", () => {
       ...base,
       selectedAttachmentIds: Array.from({ length: 9 }, (_, i) => `att_${i}`),
       uploadedFiles: [
-        { id: "u1", file: file("a.pdf"), rejection: null, selected: false },
-        { id: "u2", file: file("b.pdf"), rejection: null, selected: false },
+        { id: "u1", file: makeFile("a.pdf"), rejection: null, selected: false },
+        { id: "u2", file: makeFile("b.pdf"), rejection: null, selected: false },
       ],
     };
 
@@ -452,7 +453,7 @@ describe("intakeReducer attachment selection", () => {
       files: [
         {
           id: "u1",
-          file: file("a.pdf"),
+          file: makeFile("a.pdf"),
           rejection: null,
           selected: true,
           status: "pending",
@@ -491,7 +492,7 @@ describe("intakeReducer attachment selection", () => {
       files: [
         {
           id: "u1",
-          file: file("a.pdf"),
+          file: makeFile("a.pdf"),
           rejection: null,
           selected: true,
           status: "pending",
@@ -516,7 +517,7 @@ describe("intakeReducer attachment selection", () => {
       files: [
         {
           id: "u1",
-          file: file("a.pdf"),
+          file: makeFile("a.pdf"),
           rejection: null,
           selected: true,
           status: "uploading",
@@ -538,7 +539,7 @@ describe("intakeReducer attachment selection", () => {
       files: [
         {
           id: "u1",
-          file: file("a.pdf"),
+          file: makeFile("a.pdf"),
           rejection: null,
           selected: true,
           status: "uploading",
@@ -561,7 +562,7 @@ describe("intakeReducer attachment selection", () => {
       files: [
         {
           id: "u1",
-          file: file("a.pdf"),
+          file: makeFile("a.pdf"),
           rejection: null,
           selected: true,
           status: "error",
@@ -587,7 +588,7 @@ describe("intakeReducer attachment selection", () => {
     s = intakeReducer(s, {
       type: "filesAdded",
       files: [
-        { id: "u1", file: file("a.pdf"), rejection: null, selected: true },
+        { id: "u1", file: makeFile("a.pdf"), rejection: null, selected: true },
       ],
     });
     const reset = intakeReducer(s, { type: "startedOver" });

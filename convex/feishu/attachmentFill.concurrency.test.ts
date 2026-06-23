@@ -62,7 +62,7 @@ vi.mock("../storage", () => ({
 //    the real fillRowAttachments handler through the harness dispatcher (we never
 //    re-implement pipeline logic in the test — runAction resolves the ref to its
 //    registered ._handler via the harness Registry, with the unified harness ctx).
-import { createHarness, type Harness, type FillLookup } from "./attachmentFillSim";
+import { createHarness, restoreEnv, type Harness, type FillLookup } from "./attachmentFillSim";
 import { internal } from "../_generated/api";
 
 const APP_TOKEN = "appTok";
@@ -87,13 +87,9 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
-  const restore = (key: string, val: string | undefined): void => {
-    if (val === undefined) delete process.env[key];
-    else process.env[key] = val;
-  };
-  restore("FEISHU_BITABLE_APP_TOKEN", originalAppToken);
-  restore("FEISHU_BITABLE_TABLE_ID", originalTableId);
-  restore("FEISHU_DRIVE_UPLOAD_CONCURRENCY", originalConcurrency);
+  restoreEnv("FEISHU_BITABLE_APP_TOKEN", originalAppToken);
+  restoreEnv("FEISHU_BITABLE_TABLE_ID", originalTableId);
+  restoreEnv("FEISHU_DRIVE_UPLOAD_CONCURRENCY", originalConcurrency);
 });
 
 // Reach the REAL fillRowAttachments handler through the harness dispatcher (its

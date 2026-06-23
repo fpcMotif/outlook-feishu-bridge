@@ -49,3 +49,8 @@ export {
   type ScheduledJob,
   type HarnessClock,
 } from "./fakeConvex";
+
+export function restoreEnv(key: string, val: string | undefined): void {
+  if (val === undefined) delete process.env[key];
+  else process.env[key] = val;
+}

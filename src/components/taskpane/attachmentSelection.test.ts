@@ -97,12 +97,12 @@ describe("filterDuplicateUploadFiles", () => {
   });
 });
 
-describe("buildUploadedFiles", () => {
-  const ids = () => {
-    let n = 0;
-    return () => `u${n++}`;
-  };
+const ids = () => {
+  let n = 0;
+  return () => `u${n++}`;
+};
 
+describe("buildUploadedFiles", () => {
   it("flags unsupported types via uploadRejectionReason and mints ids", () => {
     const result = buildUploadedFiles([new File(["x"], "bad.exe")], ids(), 5);
     expect(result).toEqual([

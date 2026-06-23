@@ -51,6 +51,24 @@ function firstMutationPayload(runMutation: { mock: { calls: unknown[][] } }): Re
   return (runMutation.mock.calls[0]?.[1] ?? {}) as Record<string, unknown>;
 }
 
+function fakeExchangeCtx() {
+  const runMutation = vi.fn(async () => {});
+  return {
+    ctx: { runMutation } as unknown as Parameters<typeof exchangeCodeForUserToken>[0],
+    runMutation,
+  };
+}
+
+function fakeAccessCtx(session: unknown) {
+  const runQuery = vi.fn(async () => session);
+  const runMutation = vi.fn(async () => {});
+  return {
+    ctx: { runQuery, runMutation } as unknown as Parameters<typeof getUserAccessToken>[0],
+    runQuery,
+    runMutation,
+  };
+}
+
 describe("exchangeCodeForUserToken", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -61,14 +79,6 @@ describe("exchangeCodeForUserToken", () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
   });
-
-  function fakeCtx() {
-    const runMutation = vi.fn(async () => undefined);
-    return {
-      ctx: { runMutation } as unknown as Parameters<typeof exchangeCodeForUserToken>[0],
-      runMutation,
-    };
-  }
 
   it("exchanges a code, fetches user_info, and stores the Feishu session", async () => {
     vi.useFakeTimers();
@@ -84,7 +94,7 @@ describe("exchangeCodeForUserToken", () => {
       },
       { data: { open_id: "ou_jenny", name: "Jenny", avatar_url: "http://a" } },
     ]);
-    const { ctx, runMutation } = fakeCtx();
+    const { ctx, runMutation } = fakeExchangeCtx();
 
     await exchangeCodeForUserToken(ctx, "auth-code-xyz", "sess-1");
 
@@ -113,7 +123,7 @@ describe("exchangeCodeForUserToken", () => {
 
   it("does not persist when the token exchange fails", async () => {
     mockFetch.mockRejectedValueOnce(new FeishuError(20037, "code expired", "Feishu user auth"));
-    const { ctx, runMutation } = fakeCtx();
+    const { ctx, runMutation } = fakeExchangeCtx();
     await expect(exchangeCodeForUserToken(ctx, "stale-code", "sess-3")).rejects.toMatchObject({
       name: "FeishuError",
       code: 20037,
@@ -132,18 +142,8 @@ describe("getUserAccessToken", () => {
     vi.restoreAllMocks();
   });
 
-  function fakeCtx(session: unknown) {
-    const runQuery = vi.fn(async () => session);
-    const runMutation = vi.fn(async () => undefined);
-    return {
-      ctx: { runQuery, runMutation } as unknown as Parameters<typeof getUserAccessToken>[0],
-      runQuery,
-      runMutation,
-    };
-  }
-
   it("throws when no session exists", async () => {
-    const { ctx } = fakeCtx(null);
+    const { ctx } = fakeAccessCtx(null);
     await expect(getUserAccessToken(ctx, "sess-x")).rejects.toThrow(
       "User not authenticated. Please login to Feishu first.",
     );
@@ -151,7 +151,7 @@ describe("getUserAccessToken", () => {
   });
 
   it("returns a still-valid stored access token without refreshing", async () => {
-    const { ctx, runMutation } = fakeCtx({
+    const { ctx, runMutation } = fakeAccessCtx({
       accessToken: "still-valid",
       refreshToken: "rt",
       expiresAt: Date.now() + 60_000,
@@ -173,7 +173,7 @@ describe("getUserAccessToken", () => {
       },
       { data: { open_id: "ou_z", name: "Zed", avatar_url: "http://z" } },
     ]);
-    const { ctx, runMutation } = fakeCtx({
+    const { ctx, runMutation } = fakeAccessCtx({
       accessToken: "old-at",
       refreshToken: "old-rt",
       expiresAt: Date.now() - 1000,
@@ -195,7 +195,7 @@ describe("getUserAccessToken", () => {
 
   it("deletes the session and throws on a terminal refresh failure (dead refresh_token)", async () => {
     mockFetch.mockRejectedValue(new FeishuError(20037, "refresh token expired", "Feishu token refresh"));
-    const { ctx, runMutation } = fakeCtx({
+    const { ctx, runMutation } = fakeAccessCtx({
       accessToken: "old-at",
       refreshToken: "dead-rt",
       expiresAt: Date.now() - 1000,
@@ -208,7 +208,7 @@ describe("getUserAccessToken", () => {
 
   it("retries once then throws transient without deleting the session", async () => {
     mockFetch.mockRejectedValue(new FeishuError(-1, "non-JSON response (status=502)", "Feishu token refresh"));
-    const { ctx, runMutation } = fakeCtx({
+    const { ctx, runMutation } = fakeAccessCtx({
       accessToken: "old-at",
       refreshToken: "rt",
       expiresAt: Date.now() - 1000,
@@ -238,7 +238,8 @@ describe("classifyRefreshError", () => {
   });
   it("treats a thrown network error (no Feishu verdict) as transient", () => {
     expect(classifyRefreshError(new TypeError("fetch failed"))).toBe("transient");
-    expect(classifyRefreshError(undefined)).toBe("transient");
+    const noVerdict: unknown = undefined;
+    expect(classifyRefreshError(noVerdict)).toBe("transient");
   });
 });
 

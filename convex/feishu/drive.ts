@@ -62,7 +62,7 @@ export async function mapWithConcurrency<T, R>(
   fn: (item: T, index: number) => Promise<R>,
 ): Promise<R[]> {
   if (items.length === 0) return [];
-  const results = new Array<R>(items.length);
+  const results = Array.from<R>({ length: items.length });
   const width = Math.max(1, Math.min(limit, items.length));
   let next = 0;
   const worker = async (): Promise<void> => {
@@ -178,6 +178,48 @@ async function prepareDriveSource(
   return { ...source, bytes };
 }
 
+// SERIAL, not Promise.all: `medias/upload_all` does not support concurrent
+// calls and is QPS-limited (ADR-0022). We prefetch one storage blob ahead so
+// the current Drive upload overlaps the next Convex storage read.
+// PER-FILE fault tolerance: a dead storageId (a GC'd or already-consumed
+// staged file — e.g. a restored draft pointing at a synced-then-deleted blob)
+// is SKIPPED, never aborting the batch. An attachment failure must never flip
+// the whole sync to syncFailed and discard the user's just-typed notes.
+async function drainPreparedSources(
+  ctx: ActionCtx,
+  sources: readonly DriveSource[],
+  firstPrepared: Promise<PreparedDriveSource>,
+  startPrepare: (source: DriveSource) => Promise<PreparedDriveSource>,
+  appToken: string,
+  tenantToken: string,
+): Promise<{ attachments: { fileToken: string }[]; skipped: string[] }> {
+  const attachments: { fileToken: string }[] = [];
+  const skipped: string[] = [];
+  let nextPrepared: Promise<PreparedDriveSource> | null = firstPrepared;
+  for (let index = 0; index < sources.length; index++) {
+    const prepared = nextPrepared!;
+    const afterNext = sources[index + 1];
+    nextPrepared = afterNext ? startPrepare(afterNext) : null;
+    const fileName = sources[index].fileName;
+    try {
+      // eslint-disable-next-line react-doctor/async-await-in-loop -- bounded pipeline: each Drive upload depends on this prepared source
+      const source = await prepared;
+      // eslint-disable-next-line react-doctor/async-await-in-loop -- serial by design: medias/upload_all is 5 QPS-limited (ADR-0022); parallel trips 99991400
+      const fileToken = await withFeishuRateLimitRetry(() =>
+        uploadMediaToDrive(ctx, new Blob([source.bytes]), source.fileName, appToken, tenantToken),
+      );
+      // eslint-disable-next-line react-doctor/async-await-in-loop -- cleanup tied to this iteration's upload
+      await ctx.storage.delete(source.storageId);
+      attachments.push({ fileToken });
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      console.warn(`[drive] skipped attachment "${fileName}": ${message}`);
+      skipped.push(fileName);
+    }
+  }
+  return { attachments, skipped };
+}
+
 // PUBLIC action the taskpane calls: relay each staged file to Drive and return
 // the minted tokens in input order — exactly the `attachments` shape syncRequest
 // consumes. Staged storage objects are deleted after a successful upload.
@@ -202,39 +244,16 @@ export const uploadAttachmentsToDrive = action({
       void prepared.catch(() => {});
       return prepared;
     };
-    let nextPrepared: Promise<PreparedDriveSource> | null = startPrepare(args.sources[0]);
+    const firstPrepared = startPrepare(args.sources[0]);
     const tenantToken = await tenantTokenPromise;
 
-    // SERIAL, not Promise.all: `medias/upload_all` does not support concurrent
-    // calls and is QPS-limited (ADR-0022). We prefetch one storage blob ahead so
-    // the current Drive upload overlaps the next Convex storage read.
-    // PER-FILE fault tolerance: a dead storageId (a GC'd or already-consumed
-    // staged file — e.g. a restored draft pointing at a synced-then-deleted blob)
-    // is SKIPPED, never aborting the batch. An attachment failure must never flip
-    // the whole sync to syncFailed and discard the user's just-typed notes.
-    const attachments: { fileToken: string }[] = [];
-    const skipped: string[] = [];
-    for (let index = 0; index < args.sources.length; index++) {
-      const prepared = nextPrepared!;
-      const afterNext = args.sources[index + 1];
-      nextPrepared = afterNext ? startPrepare(afterNext) : null;
-      const fileName = args.sources[index].fileName;
-      try {
-        // eslint-disable-next-line react-doctor/async-await-in-loop -- bounded pipeline: each Drive upload depends on this prepared source
-        const source = await prepared;
-        // eslint-disable-next-line react-doctor/async-await-in-loop -- serial by design: medias/upload_all is 5 QPS-limited (ADR-0022); parallel trips 99991400
-        const fileToken = await withFeishuRateLimitRetry(() =>
-          uploadMediaToDrive(ctx, new Blob([source.bytes]), source.fileName, appToken, tenantToken),
-        );
-        // eslint-disable-next-line react-doctor/async-await-in-loop -- cleanup tied to this iteration's upload
-        await ctx.storage.delete(source.storageId);
-        attachments.push({ fileToken });
-      } catch (e: unknown) {
-        const message = e instanceof Error ? e.message : String(e);
-        console.warn(`[drive] skipped attachment "${fileName}": ${message}`);
-        skipped.push(fileName);
-      }
-    }
-    return { attachments, skipped };
+    return drainPreparedSources(
+      ctx,
+      args.sources,
+      firstPrepared,
+      startPrepare,
+      appToken,
+      tenantToken,
+    );
   },
 });

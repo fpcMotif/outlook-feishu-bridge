@@ -309,8 +309,8 @@ describe("weak point #5 — begin re-attempt wipes minted tokens / resets source
     const remainingAfter = (after.bitableAttachmentSources ?? []) as {
       storageId: string;
     }[];
-    expect(remainingAfter.map((s) => s.storageId).sort()).toEqual(
-      fullSources.map((s) => s.storageId).sort(),
+    expect(remainingAfter.map((s) => s.storageId).toSorted()).toEqual(
+      fullSources.map((s) => s.storageId).toSorted(),
     );
     // Status was re-armed to 'pending' and the row is still not created.
     expect(after.bitableAttachmentStatus).toBe("pending");

@@ -76,6 +76,29 @@ export function dedupeRowsByRecordId(
   return [...new Map(rows.map((row) => [row.recordId, row])).values()];
 }
 
+// Field-by-field equality of a mirror upsert against the row already stored, so
+// a full refresh only rewrites the search index when something actually moved.
+export function customerRowChanged(
+  existing: CustomerUpsertRow,
+  next: CustomerUpsertRow,
+): boolean {
+  return (
+    existing.recordId !== next.recordId ||
+    existing.name !== next.name ||
+    existing.domain !== next.domain ||
+    // domainKey participates so the first full sync after the column shipped
+    // re-stamps every row (undefined !== canonical value). The applyPage
+    // explicit-undefined spread also triggers this check when a cell is cleared.
+    existing.domainKey !== next.domainKey ||
+    existing.fullName !== next.fullName ||
+    existing.accountNo !== next.accountNo ||
+    existing.countryRegion !== next.countryRegion ||
+    existing.ownerOpenId !== next.ownerOpenId ||
+    existing.ownerName !== next.ownerName ||
+    existing.searchBlob !== next.searchBlob
+  );
+}
+
 export function mirrorDocToCustomer(hit: CustomerMirrorDoc): CustomerRecord {
   return {
     recordId: hit.recordId,

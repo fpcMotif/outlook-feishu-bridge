@@ -25,6 +25,9 @@ const ctx = { _marker: "ctx" } as unknown as ActionCtx;
 const APP_TOKEN = "appToken123";
 const CLIENT_TABLE_ID = "tbl4TE2GV472sKzp";
 const SERVICE_TABLE_ID = "tbl_service";
+// Exercises the "no email supplied" branch of matchClientRecordId
+// (its third parameter is `string | undefined` and required).
+const NO_EMAIL: string | undefined = undefined;
 
 type CreateServiceRecordHandler = (
   ctx: ActionCtx,
@@ -45,7 +48,7 @@ afterEach(() => {
 
 describe("matchClientRecordId", () => {
   it("returns null without calling Feishu when no searchable domain exists", async () => {
-    await expect(matchClientRecordId(ctx, APP_TOKEN, undefined)).resolves.toBeNull();
+    await expect(matchClientRecordId(ctx, APP_TOKEN, NO_EMAIL)).resolves.toBeNull();
     await expect(matchClientRecordId(ctx, APP_TOKEN, "user@")).resolves.toBeNull();
     expect(callFeishu).not.toHaveBeenCalled();
   });

@@ -51,7 +51,7 @@ vi.mock("../storage", () => ({
 // 3. Import the harness AFTER the mocks. We also import two REAL SUT constants
 //    directly (NOT mocking those modules) so the fixtures match the SUT's own
 //    thresholds exactly: the 20-MiB oversize cutoff and the rearm grace window.
-import { createHarness, makeBytes, type Harness } from "./attachmentFillSim";
+import { createHarness, makeBytes, restoreEnv, type Harness } from "./attachmentFillSim";
 import { MAX_MEDIA_UPLOAD_BYTES } from "./drive";
 import { STALE_PENDING_REARM_GRACE_MS } from "./bitableSyncRetry";
 
@@ -89,10 +89,6 @@ afterEach(() => {
   restoreEnv("BITABLE_OWNED_ROW_UPDATE_WINDOW_MS", originalWindow);
 });
 
-function restoreEnv(key: string, prev: string | undefined): void {
-  if (prev === undefined) delete process.env[key];
-  else process.env[key] = prev;
-}
 
 /** The Email Record for an intake, asserted present. */
 function recordOf(intake: ReturnType<Harness["makeIntake"]>) {

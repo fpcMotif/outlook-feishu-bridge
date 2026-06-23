@@ -1,50 +1,168 @@
-name: Deploy Global Host (Cloudflare Pages)
+name: Deploy (main)
 
-# Builds the SPA at base=/ (root) and publishes it to the Cloudflare Pages
-# project `outlook-feishu-bridge` — the Global Host for the non-CN audience
-# (ADR-0009). The CN ECS Host is deployed separately via scripts/deploy.sh.
+# ─────────────────────────────────────────────────────────────────────────────
+# One backend + two SPA hosts (ADR-0009), one workflow.
 #
-# Required GitHub config (Settings -> Secrets and variables -> Actions):
-#   CLOUDFLARE_API_TOKEN   Cloudflare token with "Cloudflare Pages: Edit"
-#   CLOUDFLARE_ACCOUNT_ID  2402c36e78fa02ee53d19857978cf1aa
-#   vars.VITE_FEISHU_APP_ID        public Feishu app id baked into the bundle
-# Optional:
-#   vars.VITE_CONVEX_URL / vars.VITE_CONVEX_SITE_URL  override the defaults below
-#   vars.VITE_SENTRY_DSN           Sentry ingest (direct on Pages, no /_sentry/ tunnel)
+#   push    → main : checks → (convex ‖ cloudflare ‖ ecs)   three deploys in parallel
+#   pull_request    : checks only (fast feedback, never deploys)
+#   manual          : workflow_dispatch
+#
+# Required GitHub config  —  Settings → Secrets and variables → Actions
+#
+#   Secrets:
+#     CONVEX_DEPLOY_KEY       Convex deploy key (Dashboard → Project Settings →
+#                             Deploy Keys). Today this is the key for your current
+#                             (dev) deployment. To cut over to prod LATER, mint a
+#                             *Production* key and update THIS one secret — no
+#                             workflow edit needed (see docs/DEPLOY.md §7).
+#     CLOUDFLARE_API_TOKEN    Token with the "Cloudflare Pages: Edit" permission.
+#     CLOUDFLARE_ACCOUNT_ID   2402c36e78fa02ee53d19857978cf1aa
+#     DEPLOY_HOST             ECS SSH target — an IP is fine.
+#     DEPLOY_SSH_KEY          PRIVATE key whose public half is in the `deploy`
+#                             user's ~/.ssh/authorized_keys on the box.
+#     VITE_SENTRY_DSN         (optional) Sentry ingest baked into the bundle.
+#
+#   Variables (vars.*, non-secret — defaults below if unset):
+#     VITE_CONVEX_URL         https://steady-setter-706.convex.cloud
+#     VITE_CONVEX_SITE_URL    https://steady-setter-706.convex.site
+#     VITE_FEISHU_APP_ID      public Feishu app id baked into the bundle
+#     DEPLOY_USER             ECS deploy user (defaults to "deploy")
+#     ADDIN_ECS_HOST          public domain baked into the manifest (e.g. wmdev.zeuja.com)
+#
+# NOTE: GitHub's hosted runners live outside Mainland China, so the `ecs` job
+# SSHes US→CN. If that is slow or blocked, move the `ecs` job to a SELF-HOSTED
+# runner ON the box (free even with Actions billing exhausted) — docs/DEPLOY.md §7.
+# ─────────────────────────────────────────────────────────────────────────────
 
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
+concurrency:
+  # Never cancel an in-flight main deploy mid-release; do cancel superseded PR checks.
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  deploy:
+  # ── Gate: typecheck + lint + scoped backend tests ──────────────────────────
+  checks:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+      - run: bun install --frozen-lockfile
+      - name: Typecheck
+        run: bun run typecheck
+      - name: Lint
+        run: bun run lint
+      - name: Backend smoke tests (scoped — NOT the full suite)
+        # CLAUDE.md forbids the full `bun run test`. This runs every backend
+        # (convex/) unit test — the production-critical Bitable create-path,
+        # customer mirror/search, and auth logic — and auto-includes the
+        # customersMirror → domainMatch/search/sync split. Widen by appending
+        # positional filters, e.g. `bunx vitest run convex submitSyncGate
+        # intakeReducer useRequestSync`; skip a heavy sim with
+        # `--exclude '**/attachmentFill.scale.test.ts'`.
+        run: bunx vitest run convex
+
+  # ── Backend: Convex functions ──────────────────────────────────────────────
+  convex:
+    needs: checks
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --ignore-scripts --frozen-lockfile
+      - name: Deploy Convex functions
+        # Non-interactive when CONVEX_DEPLOY_KEY is set. Deploys to whatever
+        # deployment that key belongs to (dev now, prod after the key swap).
+        run: bunx convex deploy
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+
+  # ── Global Host: Cloudflare Pages (non-CN, served at /) ─────────────────────
+  cloudflare:
+    # Gate on convex so a failed/cancelled backend deploy skips the frontend instead
+    # of shipping a SPA that calls functions/schema the backend never received (DEPLOY.md §Ordering).
+    needs: [checks, convex]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
       deployments: write
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version-file: .node-version
-
       - uses: oven-sh/setup-bun@v2
-
       - run: bun install --ignore-scripts --frozen-lockfile
-
       - name: Build SPA (base=/)
         run: bun run build -- --base=/
         env:
           VITE_CONVEX_URL: ${{ vars.VITE_CONVEX_URL || 'https://steady-setter-706.convex.cloud' }}
           VITE_CONVEX_SITE_URL: ${{ vars.VITE_CONVEX_SITE_URL || 'https://steady-setter-706.convex.site' }}
           VITE_FEISHU_APP_ID: ${{ vars.VITE_FEISHU_APP_ID }}
-          VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
-
+          VITE_SENTRY_DSN: ${{ secrets.VITE_SENTRY_DSN }}
+      - name: Bake hosted manifest (global, no version bump)
+        # Replace the raw public/manifest.xml template Vite copies verbatim into
+        # dist/ with a real, version-stamped manifest so the hosted /manifest.xml
+        # is valid (DEPLOY.md §3). No bump — versions are bumped + committed by hand.
+        run: MANIFEST_VERSION="$(cat manifest.version)" bun scripts/manifest.mjs --global --output dist/manifest.xml
       - name: Publish to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy dist --project-name=outlook-feishu-bridge --branch=main
+
+  # ── CN Host: Aliyun ECS over SSH (served at /addin/) ────────────────────────
+  ecs:
+    # Gate on convex (see cloudflare job) — never ship the CN frontend against an un-migrated backend.
+    needs: [checks, convex]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --ignore-scripts --frozen-lockfile
+      - name: Write deploy SSH key
+        run: |
+          install -m600 /dev/null "$RUNNER_TEMP/deploy_key"
+          printf '%s\n' "$DEPLOY_SSH_KEY_CONTENT" > "$RUNNER_TEMP/deploy_key"
+        env:
+          DEPLOY_SSH_KEY_CONTENT: ${{ secrets.DEPLOY_SSH_KEY }}
+      - name: Build + ship SPA to ECS Host (base=/addin/, SSH atomic release)
+        # Reuses scripts/deploy.sh frontend verbatim — the same path used locally —
+        # so the build, manifest bake, and atomic symlink release stay single-sourced.
+        run: bash scripts/deploy.sh frontend
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER || 'deploy' }}
+          DEPLOY_SSH_KEY: ${{ runner.temp }}/deploy_key
+          ADDIN_ECS_HOST: ${{ vars.ADDIN_ECS_HOST }}
+          VITE_CONVEX_URL: ${{ vars.VITE_CONVEX_URL || 'https://steady-setter-706.convex.cloud' }}
+          VITE_CONVEX_SITE_URL: ${{ vars.VITE_CONVEX_SITE_URL || 'https://steady-setter-706.convex.site' }}
+          VITE_FEISHU_APP_ID: ${{ vars.VITE_FEISHU_APP_ID }}
+          VITE_SENTRY_DSN: ${{ secrets.VITE_SENTRY_DSN }}

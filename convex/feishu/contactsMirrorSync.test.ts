@@ -269,7 +269,7 @@ function makeFakePort(crawl: ContactCrawlResult, seedOrphans: string[] = []) {
       tombstoneCalls += 1;
       const scanned = store.size;
       let deleted = 0;
-      for (const id of [...store.keys()]) {
+      for (const id of Array.from(store.keys())) {
         if (!seen.has(id)) {
           store.delete(id);
           deleted += 1;
@@ -303,7 +303,7 @@ describe("runContactsMirrorRefresh (engine)", () => {
     expect(fake.tombstoneCalls).toBe(1);
     expect(out.prune.deleted).toBe(1);
     expect(fake.store.has("orphan")).toBe(false);
-    expect([...fake.store.keys()].sort()).toEqual(["a", "b"]);
+    expect([...fake.store.keys()].toSorted()).toEqual(["a", "b"]);
   });
 
   it("runs the prune on a complete crawl with no orphans (scans, deletes nothing)", async () => {

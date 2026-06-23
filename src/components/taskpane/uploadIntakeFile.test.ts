@@ -267,7 +267,9 @@ describe("uploadIntakeFileToStorage", () => {
     vi.mocked(postBytesToConvexWithProgress).mockImplementation(async () => {
       active += 1;
       peak = Math.max(peak, active);
-      await new Promise<void>((resolve) => releases.push(resolve));
+      await new Promise<void>((resolve) => {
+        releases.push(resolve);
+      });
       active -= 1;
       return { storageId: "st" };
     });
@@ -293,7 +295,9 @@ describe("uploadIntakeFileToStorage", () => {
     // cap is never exceeded.
     while (vi.mocked(postBytesToConvexWithProgress).mock.calls.length < rows.length) {
       while (releases.length > 0) releases.shift()?.();
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      });
     }
     while (releases.length > 0) releases.shift()?.();
     await vi.waitFor(() => {

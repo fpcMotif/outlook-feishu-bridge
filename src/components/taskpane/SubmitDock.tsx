@@ -8,6 +8,20 @@ const CONFIRM_COUNTDOWN_SECONDS = 3;
 
 type ConfirmPhase = "idle" | "counting" | "ready";
 
+// The chrome inputs every render of the dock button needs, regardless of whether
+// a review countdown is currently armed. Passed as one object so the parent and the
+// countdown gate hand the presentational button the same bundle without prop drift.
+type SubmitDockChrome = {
+  count: number;
+  canSubmit: boolean;
+  sending: boolean;
+  hint: string;
+  label?: string;
+  confirmEnabled: boolean;
+  confirmResetKey?: string;
+  onSubmit: () => void;
+};
+
 function dockLabel({
   count,
   sending,
@@ -74,78 +88,20 @@ function SubmitDockBusyLabel({ label }: { label: string }) {
   );
 }
 
-export function SubmitDock({
-  count,
-  canSubmit,
-  sending,
-  hint,
-  label,
-  confirmResetKey,
-  onReviewStart,
-  onSubmit,
+// Presentational button: pure function of (chrome, phase, remaining). Holds NO
+// countdown state of its own, so it can never desync from the gate that drives it.
+function DockButton({
+  chrome,
+  phase,
+  remaining,
 }: {
-  count: number;
-  canSubmit: boolean;
-  sending: boolean;
-  hint: string;
-  label?: string;
-  confirmResetKey?: string;
-  onReviewStart?: () => void;
-  onSubmit: () => void;
+  chrome: SubmitDockChrome;
+  phase: ConfirmPhase;
+  remaining: number;
 }) {
+  const { count, canSubmit, sending, hint, label, confirmEnabled, confirmResetKey, onSubmit } = chrome;
   const live = canSubmit && !sending;
-  const confirmEnabled = confirmResetKey !== undefined;
-  const [confirmPhase, setConfirmPhase] = useState<ConfirmPhase>("idle");
-  const [confirmRemaining, setConfirmRemaining] = useState(CONFIRM_COUNTDOWN_SECONDS);
-
-  // The single source of truth for the review countdown: a stable key for "the
-  // dock is live and reviewable as this exact form snapshot". `null` whenever
-  // confirm is off or the dock isn't live; any change to it restarts the window.
-  const cycleKey = confirmEnabled && live ? (confirmResetKey ?? "") : null;
-
-  // Reseed the countdown state DURING RENDER when the cycle changes — React's
-  // "adjust state when a prop changes" pattern, rather than syncing prop-derived
-  // state from inside an effect. Seeded with the initial cycleKey so it only fires
-  // on an actual change; the initial live cycle reads as "counting" via
-  // effectivePhase below. The timer owns the tick-down; this just (re)arms it.
-  const [renderedCycleKey, setRenderedCycleKey] = useState(cycleKey);
-  if (cycleKey !== renderedCycleKey) {
-    setRenderedCycleKey(cycleKey);
-    setConfirmPhase(cycleKey === null ? "idle" : "counting");
-    setConfirmRemaining(CONFIRM_COUNTDOWN_SECONDS);
-  }
-
-  // onReviewStart scrolls the attachments into view — a DOM side effect that must
-  // never run during render. Hold it in a ref so the lifecycle effect can call
-  // the latest version without taking an unstable inline prop as a dependency.
-  const onReviewStartRef = useRef(onReviewStart);
-  onReviewStartRef.current = onReviewStart;
-
-  // SIDE EFFECTS ONLY, keyed on cycleKey: scroll the attachments into view and run
-  // the 1s tick that walks confirmRemaining down to "ready". No prop->state sync
-  // here (that's the render-phase reseed above); the tick is genuinely temporal.
-  useEffect(() => {
-    if (cycleKey === null) return;
-    onReviewStartRef.current?.();
-    const timer = window.setInterval(() => {
-      setConfirmRemaining((remaining) => {
-        if (remaining <= 1) {
-          setConfirmPhase("ready");
-          window.clearInterval(timer);
-          return 0;
-        }
-        return remaining - 1;
-      });
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, [cycleKey]);
-
-  // Belt-and-braces: should any frame render before the timer ticks, a live+enabled
-  // dock still reads as "counting" rather than flashing the ready copy.
-  const effectivePhase: ConfirmPhase =
-    cycleKey !== null && confirmPhase === "idle" ? "counting" : confirmPhase;
-
-  const waitingForConfirm = confirmEnabled && live && effectivePhase !== "ready";
+  const waitingForConfirm = confirmEnabled && live && phase !== "ready";
   const visuallyLive = live && !waitingForConfirm;
   const displayLabel = dockLabel({
     count,
@@ -154,7 +110,7 @@ export function SubmitDock({
     hint,
     live,
     confirmEnabled,
-    confirmPhase: confirmEnabled ? effectivePhase : "idle",
+    confirmPhase: confirmEnabled ? phase : "idle",
   });
   const showingConfirmCountdown = waitingForConfirm;
   const showingBusyFeedback = sending || showingConfirmCountdown;
@@ -162,16 +118,14 @@ export function SubmitDock({
   // the sr-only live region below (the previous build left it silent for AT).
   const liveAnnouncement =
     confirmEnabled && live
-      ? effectivePhase === "ready"
+      ? phase === "ready"
         ? "Attachments reviewed — ready to submit."
-        : `Reviewing attachments — submitting in ${confirmRemaining} second${
-            confirmRemaining === 1 ? "" : "s"
-          }.`
+        : `Reviewing attachments — submitting in ${remaining} second${remaining === 1 ? "" : "s"}.`
       : "";
   const icon = useMemo(() => {
     if (sending) return null;
     if (!live || !confirmEnabled) return null;
-    if (effectivePhase !== "ready") {
+    if (phase !== "ready") {
       return (
         // Countdown: a destructive ring depletes across the confirm window
         // (one continuous animation keyed to confirmResetKey so each review restarts it).
@@ -199,36 +153,32 @@ export function SubmitDock({
             />
           </svg>
           <span
-            key={confirmRemaining}
+            key={remaining}
             className="animate-pop-in text-[12px] font-bold tabular-nums [color:var(--submit-dock-countdown-color)]"
           >
-            {confirmRemaining}
+            {remaining}
           </span>
         </span>
       );
     }
-    if (effectivePhase === "ready") {
-      return <ArrowRight className="submit-dock-arrow size-[18px] shrink-0 opacity-90" aria-hidden />;
-    }
-    return null;
-  }, [confirmEnabled, effectivePhase, confirmRemaining, confirmResetKey, live, sending]);
+    return <ArrowRight className="submit-dock-arrow size-[18px] shrink-0 opacity-90" aria-hidden />;
+  }, [confirmEnabled, phase, remaining, confirmResetKey, live, sending]);
 
   const handleClick = () => {
     if (!live) return;
     // While confirm is armed, the button is disabled until the review window
     // elapses, so a click only ever lands when there's nothing left to wait for.
-    if (!confirmEnabled || effectivePhase === "ready") onSubmit();
+    if (!confirmEnabled || phase === "ready") onSubmit();
   };
 
   return (
-    <div className={submitDockChromeClass}>
-      <div className={submitDockScrollFadeClass} />
+    <>
       <button
         type="button"
         onClick={handleClick}
         disabled={!live || waitingForConfirm}
         data-live={visuallyLive ? "" : undefined}
-        className={submitDockButtonClass(visuallyLive, confirmEnabled ? effectivePhase : "idle")}
+        className={submitDockButtonClass(visuallyLive, confirmEnabled ? phase : "idle")}
       >
         {showingConfirmCountdown ? icon : null}
         <span className="inline-flex min-w-0 flex-1 items-center gap-2">
@@ -245,6 +195,98 @@ export function SubmitDock({
       <span className="sr-only" aria-live="polite">
         {liveAnnouncement}
       </span>
+    </>
+  );
+}
+
+// The armed review window. Mounted with key={cycleKey} by the parent, so a changed
+// form snapshot RECREATES this gate from scratch (React docs: "Resetting all state
+// when a prop changes" → use a key). That remount is what reseeds the countdown —
+// there is no render-phase ref tracker and no setState during render, so nothing can
+// desync if React starts a render and discards it. The phase is derived, not stored.
+function ConfirmCountdownGate({
+  chrome,
+  onReviewStart,
+}: {
+  chrome: SubmitDockChrome;
+  onReviewStart?: () => void;
+}) {
+  const [remaining, setRemaining] = useState(CONFIRM_COUNTDOWN_SECONDS);
+  const phase: ConfirmPhase = remaining > 0 ? "counting" : "ready";
+
+  // onReviewStart is an inline prop (fresh identity each parent render). Read the
+  // latest through a ref so the mount effect can fire it once WITHOUT taking an
+  // unstable dependency — a legitimate ref: it never feeds the JSX or gates a render.
+  const onReviewStartRef = useRef(onReviewStart);
+  onReviewStartRef.current = onReviewStart;
+
+  // SIDE EFFECTS ONLY: scroll the attachments into view once, then tick the window
+  // down. Runs once per mount, i.e. once per cycleKey, because the parent's key
+  // remounts this component on every change.
+  useEffect(() => {
+    onReviewStartRef.current?.();
+    const timer = window.setInterval(() => {
+      setRemaining((value) => {
+        if (value <= 1) {
+          window.clearInterval(timer);
+          return 0;
+        }
+        return value - 1;
+      });
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  return <DockButton chrome={chrome} phase={phase} remaining={remaining} />;
+}
+
+export function SubmitDock({
+  count,
+  canSubmit,
+  sending,
+  hint,
+  label,
+  confirmResetKey,
+  onReviewStart,
+  onSubmit,
+}: {
+  count: number;
+  canSubmit: boolean;
+  sending: boolean;
+  hint: string;
+  label?: string;
+  confirmResetKey?: string;
+  onReviewStart?: () => void;
+  onSubmit: () => void;
+}) {
+  const live = canSubmit && !sending;
+  const confirmEnabled = confirmResetKey !== undefined;
+
+  // The single source of truth for the review countdown: a stable key for "the dock
+  // is live and reviewable as this exact form snapshot". `null` whenever confirm is
+  // off or the dock isn't live; any change to it remounts the gate and restarts the
+  // window (the remount IS the reseed — no render-phase state sync needed).
+  const cycleKey = confirmEnabled && live ? (confirmResetKey ?? "") : null;
+
+  const chrome: SubmitDockChrome = {
+    count,
+    canSubmit,
+    sending,
+    hint,
+    label,
+    confirmEnabled,
+    confirmResetKey,
+    onSubmit,
+  };
+
+  return (
+    <div className={submitDockChromeClass}>
+      <div className={submitDockScrollFadeClass} />
+      {cycleKey === null ? (
+        <DockButton chrome={chrome} phase="idle" remaining={CONFIRM_COUNTDOWN_SECONDS} />
+      ) : (
+        <ConfirmCountdownGate key={cycleKey} chrome={chrome} onReviewStart={onReviewStart} />
+      )}
     </div>
   );
 }

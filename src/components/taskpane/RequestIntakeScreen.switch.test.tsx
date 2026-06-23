@@ -110,6 +110,12 @@ function reopenSalesSearch(row: Element | null) {
   );
 }
 
+const salesRow = () => document.querySelector('[data-sales-row="true"]');
+
+// The attachment row strips the extension for display but keeps the full name
+// as the element's aria-label — assert on that (robust against the display).
+const uploadRow = (name: string) => document.querySelector(`[aria-label="${name}"]`);
+
 beforeEach(() => {
   clearIntakeDraftCache();
   resetUploadDrafts();
@@ -154,7 +160,6 @@ describe("RequestIntakeScreen — pinned-pane email switch", () => {
   });
 
   it("keeps a reassigned Sales when navigating WITHIN the same thread (conversation-scoped, ADR-0025)", async () => {
-    const salesRow = () => document.querySelector('[data-sales-row="true"]');
     const { rerender } = render(screenFor(BASE));
 
     // Reassign Sales to a colleague for this conversation.
@@ -179,7 +184,6 @@ describe("RequestIntakeScreen — pinned-pane email switch", () => {
   });
 
   it("restores a reassigned Sales after leaving the conversation and returning", async () => {
-    const salesRow = () => document.querySelector('[data-sales-row="true"]');
     const { rerender } = render(screenFor(BASE));
 
     reopenSalesSearch(salesRow());
@@ -204,10 +208,6 @@ describe("RequestIntakeScreen — pinned-pane email switch", () => {
 
     expect(salesRow()).toHaveTextContent("Michael Chen");
   });
-
-  // The attachment row strips the extension for display but keeps the full name
-  // as the element's aria-label — assert on that (robust against the display).
-  const uploadRow = (name: string) => document.querySelector(`[aria-label="${name}"]`);
 
   it("restores a cached upload draft on return to the conversation (no re-upload)", () => {
     const key = buildUploadDraftKey("ou_rep", BASE.userEmail, BASE.conversationId);

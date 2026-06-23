@@ -2,91 +2,27 @@ import {
   internalMutation,
   internalQuery,
   query,
-  type MutationCtx,
-  type QueryCtx,
 } from "./_generated/server";
 import { v } from "convex/values";
 
-import { internal } from "./_generated/api";
 import { buildRequestSyncKey, emailRecordFields } from "./emailRecord";
-import type { Doc } from "./_generated/dataModel";
-import {
-  BITABLE_NEXT_RETRY_MIN,
-  isBitableSyncDue,
-  planBitableSyncFailure,
-  resolveBitableNextRetryAt,
-  shouldRearmStaleSync,
-} from "./feishu/bitableSyncRetry";
-import { buildFillTotal, shouldRearmAttachmentFill } from "./feishu/attachmentFill";
+import { shouldRearmStaleSync } from "./feishu/bitableSyncRetry";
+import { shouldRearmAttachmentFill } from "./feishu/attachmentFill";
 import { buildConfiguredBitableRecordDetailUrl } from "./feishu/bitableUrl";
-import { poisonedOutboxReason } from "./feishu/previewFixtures";
-
-const RECONCILE_BATCH_LIMIT = 20;
-const ERROR_PREVIEW_MAX = 500;
-
-interface EmailRecordLookup {
-  requestSyncKey?: string;
-  internetMessageId?: string;
-  userEmail?: string;
-  conversationId?: string;
-}
-
-async function findExistingEmailRecord(
-  ctx: QueryCtx | MutationCtx,
-  lookup: EmailRecordLookup,
-): Promise<Doc<"emailRecords"> | null> {
-  if (lookup.requestSyncKey) {
-    const bySyncKey = await ctx.db
-      .query("emailRecords")
-      .withIndex("by_requestSyncKey", (q) => q.eq("requestSyncKey", lookup.requestSyncKey))
-      .first();
-    if (bySyncKey) return bySyncKey;
-  }
-
-  const internetMessageId = lookup.internetMessageId;
-  if (internetMessageId) {
-    const byMessage = await ctx.db
-      .query("emailRecords")
-      .withIndex("by_internetMessageId", (q) => q.eq("internetMessageId", internetMessageId))
-      .first();
-    if (byMessage) return byMessage;
-  }
-
-  const normalizedEmail = lookup.userEmail?.trim().toLowerCase();
-  const conversationId = lookup.conversationId?.trim();
-  if (!normalizedEmail || !conversationId) return null;
-
-  const candidates = await ctx.db
-    .query("emailRecords")
-    .withIndex("by_conversationId", (q) => q.eq("conversationId", conversationId))
-    .order("desc")
-    .take(20);
-  return (
-    candidates.find((record) => record.userEmail?.trim().toLowerCase() === normalizedEmail) ??
-    null
-  );
-}
-
-async function patchAbandonedBitableSync(
-  ctx: MutationCtx,
-  lookup: EmailRecordLookup,
-  error: string,
-  attemptedAt: number,
-): Promise<void> {
-  const existing = await findExistingEmailRecord(ctx, lookup);
-  if (!existing) return;
-  if (existing.bitableRecordId || existing.bitableSyncStatus === "synced") return;
-  const attemptCount = (existing.bitableAttemptCount ?? 0) + 1;
-  // Poison/abandon is terminal: a distinct `abandoned` status (not `failed` + an
-  // undefined next-retry) so the row can never be re-selected as "due".
-  await ctx.db.patch(existing._id, {
-    bitableSyncStatus: "abandoned",
-    bitableLastAttemptAt: attemptedAt,
-    bitableLastError: error.slice(0, ERROR_PREVIEW_MAX),
-    bitableAttemptCount: attemptCount,
-    bitableNextRetryAt: undefined,
-  });
-}
+import {
+  findExistingEmailRecord,
+  patchAbandonedBitableSync,
+  runBeginBitableSync,
+  runMarkBitableSyncFailed,
+  runMarkBitableSyncSucceeded,
+} from "./emailRecordLookup";
+import {
+  runListDueAttachmentFills,
+  runListDueBitableSyncRecords,
+  runMarkAttachmentsFailed,
+  runMarkAttachmentsFilled,
+  runRecordAttachmentProgress,
+} from "./emailRecordFill";
 
 export const storeEmailRecord = internalMutation({
   args: emailRecordFields,
@@ -103,72 +39,7 @@ export const beginBitableSync = internalMutation({
     ...emailRecordFields,
     bitableClientToken: v.string(),
   },
-  handler: async (ctx, args) => {
-    const now = Date.now();
-    const abandonReason = poisonedOutboxReason({
-      internetMessageId: args.internetMessageId,
-      conversationId: args.conversationId,
-      selectedCoworkers: args.selectedCoworkers,
-    });
-    if (abandonReason) {
-      await patchAbandonedBitableSync(ctx, args, abandonReason, now);
-      const existing = await findExistingEmailRecord(ctx, args);
-      return {
-        bitableClientToken: existing?.bitableClientToken ?? args.bitableClientToken,
-        bitableRecordId: null,
-        detailUrl: null,
-        shouldSchedule: false,
-      };
-    }
-
-    const existing = await findExistingEmailRecord(ctx, args);
-    const bitableClientToken = existing?.bitableClientToken ?? args.bitableClientToken;
-    const shouldSchedule = !existing || existing.bitableSyncStatus === "failed";
-    if (existing?.bitableRecordId) {
-      return {
-        bitableClientToken,
-        bitableRecordId: existing.bitableRecordId,
-        detailUrl: buildConfiguredBitableRecordDetailUrl(existing.bitableRecordId),
-        shouldSchedule: false,
-      };
-    }
-
-    // Deferred Attachment Fill (ADR-0027): if the intake carried staged sources,
-    // arm the attachment lifecycle as `pending` so markBitableSyncSucceeded can
-    // kick the fill once the row exists. No sources → no attachment lifecycle.
-    const hasAttachmentSources = (args.bitableAttachmentSources?.length ?? 0) > 0;
-    const recordFields = {
-      ...args,
-      bitableClientToken,
-      bitableSyncStatus: "pending" as const,
-      bitableNextRetryAt: now,
-      bitableAttemptCount: existing?.bitableAttemptCount ?? 0,
-      sentToBitable: args.sentToBitable,
-      // Server-stamped start of the click→filled span; set once on first arm so a
-      // retry/reopen never resets the clock (the client-minted submitClickedAt +
-      // syncTraceId ride in via ...args).
-      syncReceivedAt: existing?.syncReceivedAt ?? now,
-      bitableAttachmentStatus: hasAttachmentSources ? ("pending" as const) : undefined,
-      bitableAttachmentFileTokens: undefined,
-      bitableAttachmentSkipped: undefined,
-      attachmentAttemptCount: undefined,
-      // Heartbeat clock: a `pending` fill is only rearmed once its next-retry
-      // goes stale past the grace window, so arm it at `now`; the fill refreshes
-      // it each wave, and a crashed fill stops refreshing → becomes rearmable.
-      attachmentNextRetryAt: hasAttachmentSources ? now : undefined,
-    };
-
-    if (existing) {
-      await ctx.db.patch(existing._id, recordFields);
-      return { bitableClientToken, bitableRecordId: null, detailUrl: null, shouldSchedule };
-    }
-
-    await ctx.db.insert("emailRecords", {
-      ...recordFields,
-      createdAt: now,
-    });
-    return { bitableClientToken, bitableRecordId: null, detailUrl: null, shouldSchedule };
-  },
+  handler: (ctx, args) => runBeginBitableSync(ctx, args),
 });
 
 export const abandonBitableSync = internalMutation({
@@ -178,9 +49,7 @@ export const abandonBitableSync = internalMutation({
     error: v.string(),
     attemptedAt: v.number(),
   },
-  handler: async (ctx, args) => {
-    await patchAbandonedBitableSync(ctx, args, args.error, args.attemptedAt);
-  },
+  handler: (ctx, args) => patchAbandonedBitableSync(ctx, args, args.error, args.attemptedAt),
 });
 
 export const markBitableSyncSucceeded = internalMutation({
@@ -190,44 +59,7 @@ export const markBitableSyncSucceeded = internalMutation({
     bitableRecordId: v.string(),
     attemptedAt: v.number(),
   },
-  handler: async (ctx, args) => {
-    const existing = await findExistingEmailRecord(ctx, args);
-    if (!existing) {
-      throw new Error(`No Email Record backup found for ${args.internetMessageId}`);
-    }
-    // Stamp the mint time once (the freshness clock for mayUpdateOwnedBitableRow).
-    const bitableRowMintedAt = existing.bitableRowMintedAt ?? args.attemptedAt;
-    await ctx.db.patch(existing._id, {
-      bitableRecordId: args.bitableRecordId,
-      sentToBitable: true,
-      bitableSyncStatus: "synced",
-      bitableLastAttemptAt: args.attemptedAt,
-      bitableLastError: undefined,
-      bitableNextRetryAt: undefined,
-      bitableRowMintedAt,
-    });
-    // Kick the deferred Attachment Fill from INSIDE this mutation (ADR-0027), so
-    // the scheduled fill is guaranteed to see the committed bitableRecordId +
-    // bitableRowMintedAt that the runtime fence asserts against.
-    const hasSources = (existing.bitableAttachmentSources?.length ?? 0) > 0;
-    if (hasSources && existing.bitableAttachmentStatus !== "filled") {
-      await ctx.scheduler.runAfter(0, internal.feishu.requestSync.fillRowAttachments, {
-        internetMessageId: args.internetMessageId,
-        requestSyncKey: args.requestSyncKey,
-      });
-    }
-    // [syncTotal]: click → row synced — the SyncScreen's server-side span,
-    // mirroring [fillTotal] for the deferred-fill tail. clickToSynced uses the
-    // client-minted submitClickedAt; armToSynced is the server-internal create.
-    const syncedAt = args.attemptedAt;
-    const clickToSyncedMs = existing.submitClickedAt ? syncedAt - existing.submitClickedAt : null;
-    const armToSyncedMs = existing.syncReceivedAt ? syncedAt - existing.syncReceivedAt : null;
-    console.log(
-      `[syncTotal] trace=${existing.syncTraceId ?? "—"} recordId=${args.bitableRecordId} ` +
-        `clickToSynced=${clickToSyncedMs ?? "?"}ms armToSynced=${armToSyncedMs ?? "?"}ms`,
-    );
-    return { detailUrl: buildConfiguredBitableRecordDetailUrl(args.bitableRecordId) };
-  },
+  handler: (ctx, args) => runMarkBitableSyncSucceeded(ctx, args),
 });
 
 export const markBitableSyncFailed = internalMutation({
@@ -237,25 +69,7 @@ export const markBitableSyncFailed = internalMutation({
     error: v.string(),
     attemptedAt: v.number(),
   },
-  handler: async (ctx, args) => {
-    const existing = await findExistingEmailRecord(ctx, args);
-    if (!existing) return null;
-    if (existing.bitableRecordId || existing.bitableSyncStatus === "synced") return null;
-    const attemptCount = (existing.bitableAttemptCount ?? 0) + 1;
-    // The planner decides retry-vs-retire: `failed` + a future next-retry while
-    // attempts remain, or terminal `abandoned` at MAX / on a permanent error.
-    const plan = planBitableSyncFailure(attemptCount, args.attemptedAt, args.error);
-    await ctx.db.patch(existing._id, {
-      bitableSyncStatus: plan.status,
-      bitableLastAttemptAt: args.attemptedAt,
-      bitableLastError: args.error.slice(0, ERROR_PREVIEW_MAX),
-      bitableAttemptCount: attemptCount,
-      bitableNextRetryAt: plan.nextRetryAt,
-    });
-    // Convex values can't hold `undefined`; null tells the action the chain is
-    // terminal. A numeric delay is the action's cue to self-schedule the next try.
-    return { status: plan.status, retryDelayMs: plan.retryDelayMs ?? null };
-  },
+  handler: (ctx, args) => runMarkBitableSyncFailed(ctx, args),
 });
 
 // ===== Deferred Attachment Fill (ADR-0027) =====
@@ -289,29 +103,7 @@ export const recordAttachmentProgress = internalMutation({
     skippedNames: v.array(v.string()),
     completedStorageIds: v.array(v.string()),
   },
-  handler: async (ctx, args) => {
-    const existing = await findExistingEmailRecord(ctx, args);
-    if (!existing) return;
-    const completed = new Set(args.completedStorageIds);
-    await ctx.db.patch(existing._id, {
-      bitableAttachmentFileTokens: [
-        ...(existing.bitableAttachmentFileTokens ?? []),
-        ...args.mintedTokens,
-      ],
-      bitableAttachmentSkipped: [
-        ...(existing.bitableAttachmentSkipped ?? []),
-        ...args.skippedNames,
-      ],
-      bitableAttachmentSources: (existing.bitableAttachmentSources ?? []).filter(
-        (s) => !completed.has(s.storageId),
-      ),
-      // Mark `filling` and refresh the heartbeat — an actively-progressing fill
-      // keeps pushing its rearm clock forward (so it is never double-driven); a
-      // crashed one goes stale past the grace window and becomes rearmable.
-      bitableAttachmentStatus: "filling",
-      attachmentNextRetryAt: Date.now(),
-    });
-  },
+  handler: (ctx, args) => runRecordAttachmentProgress(ctx, args),
 });
 
 // Index-backed sweep of attachment fills that are stranded due (pending/filling/
@@ -320,52 +112,12 @@ export const recordAttachmentProgress = internalMutation({
 // this is the no-human-in-the-loop backstop. Returns ids the action re-drives.
 export const listDueAttachmentFills = internalQuery({
   args: { now: v.number(), limit: v.optional(v.number()) },
-  handler: async (ctx, args) => {
-    const limit = Math.min(Math.max(args.limit ?? RECONCILE_BATCH_LIMIT, 1), RECONCILE_BATCH_LIMIT);
-    // The three non-terminal statuses index independently — query them in
-    // parallel (one indexed read each) rather than a sequential scan.
-    const perStatus = await Promise.all(
-      (["pending", "filling", "failed"] as const).map((status) =>
-        ctx.db
-          .query("emailRecords")
-          .withIndex("by_attachmentStatus_and_attachmentNextRetryAt", (q) =>
-            q
-              .eq("bitableAttachmentStatus", status)
-              .gte("attachmentNextRetryAt", BITABLE_NEXT_RETRY_MIN)
-              .lte("attachmentNextRetryAt", args.now),
-          )
-          .take(limit),
-      ),
-    );
-    const due: { internetMessageId: string; requestSyncKey?: string }[] = [];
-    for (const row of perStatus.flat()) {
-      // Only rows that actually have a created Base row + remaining work.
-      if (row.bitableRecordId && (row.bitableAttachmentSources?.length ?? 0) > 0) {
-        due.push({ internetMessageId: row.internetMessageId, requestSyncKey: row.requestSyncKey });
-      }
-    }
-    return due.slice(0, limit);
-  },
+  handler: (ctx, args) => runListDueAttachmentFills(ctx, args),
 });
 
 export const markAttachmentsFilled = internalMutation({
   args: { internetMessageId: v.string(), requestSyncKey: v.optional(v.string()) },
-  handler: async (ctx, args) => {
-    const existing = await findExistingEmailRecord(ctx, args);
-    if (!existing) return;
-    const filledAt = Date.now();
-    await ctx.db.patch(existing._id, {
-      bitableAttachmentStatus: "filled",
-      attachmentNextRetryAt: undefined,
-      attachmentsFilledAt: existing.attachmentsFilledAt ?? filledAt,
-    });
-    // One structured, grep-able line measuring the TRUE click→fully-written
-    // latency — the per-Feishu-call logs cannot, because the client pane is long
-    // gone by the time the deferred fill fences. Surfaces in `bunx convex logs`
-    // as `[fillTotal] … totalMs=…` (buildFillTotal reads the tokens/skips that
-    // recordAttachmentProgress already persisted before this fence).
-    console.log(buildFillTotal(existing, filledAt).line);
-  },
+  handler: (ctx, args) => runMarkAttachmentsFilled(ctx, args),
 });
 
 // Terminal-or-retryable attachment failure. Reuses the bitable backoff shape;
@@ -378,19 +130,7 @@ export const markAttachmentsFailed = internalMutation({
     error: v.string(),
     attemptedAt: v.number(),
   },
-  handler: async (ctx, args) => {
-    const existing = await findExistingEmailRecord(ctx, args);
-    if (!existing) return { retryDelayMs: null };
-    const attemptCount = (existing.attachmentAttemptCount ?? 0) + 1;
-    const nextRetryAt = resolveBitableNextRetryAt(attemptCount, args.attemptedAt, args.error);
-    await ctx.db.patch(existing._id, {
-      bitableAttachmentStatus: "failed",
-      attachmentAttemptCount: attemptCount,
-      attachmentNextRetryAt: nextRetryAt,
-      bitableLastError: args.error.slice(0, ERROR_PREVIEW_MAX),
-    });
-    return { retryDelayMs: nextRetryAt === undefined ? null : nextRetryAt - args.attemptedAt };
-  },
+  handler: (ctx, args) => runMarkAttachmentsFailed(ctx, args),
 });
 
 export const listDueBitableSyncRecords = internalQuery({
@@ -398,35 +138,7 @@ export const listDueBitableSyncRecords = internalQuery({
     now: v.number(),
     limit: v.optional(v.number()),
   },
-  handler: async (ctx, args) => {
-    const limit = Math.min(
-      Math.max(args.limit ?? RECONCILE_BATCH_LIMIT, 1),
-      RECONCILE_BATCH_LIMIT,
-    );
-    // Lower-bound the range by BITABLE_NEXT_RETRY_MIN so the undefined "never
-    // retry again" sentinel (which sorts below all numbers in a Convex index) is
-    // excluded — otherwise exhausted / permanent-error rows stay forever "due"
-    // and the reconcile cron retries them past MAX_BITABLE_SYNC_ATTEMPTS. The
-    // index narrows; isBitableSyncDue is the authoritative (unit-tested) check.
-    const takeForStatus = async (status: "pending" | "failed") => {
-      const candidates = await ctx.db
-        .query("emailRecords")
-        .withIndex("by_bitableSyncStatus_and_bitableNextRetryAt", (q) =>
-          q
-            .eq("bitableSyncStatus", status)
-            .gte("bitableNextRetryAt", BITABLE_NEXT_RETRY_MIN)
-            .lte("bitableNextRetryAt", args.now),
-        )
-        .take(limit);
-      return candidates.filter((record) =>
-        isBitableSyncDue(record.bitableNextRetryAt, args.now),
-      );
-    };
-    const pending = await takeForStatus("pending");
-    if (pending.length >= limit) return pending.slice(0, limit);
-    const failed = await takeForStatus("failed");
-    return [...pending, ...failed].slice(0, limit);
-  },
+  handler: (ctx, args) => runListDueBitableSyncRecords(ctx, args),
 });
 
 // Server-side re-check for the rearm-on-reopen self-heal: returns the stored

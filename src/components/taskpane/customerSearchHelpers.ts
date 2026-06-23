@@ -25,7 +25,7 @@ export function filterLocalCustomers(
   records: readonly CustomerRecord[],
   q: string,
   showMine: boolean,
-  currentUserOpenId: string | undefined,
+  currentUserOpenId?: string,
 ): CustomerRecord[] {
   if (!q && !showMine) return [];
   const applyOwner = ownerFilterApplies(showMine, q);

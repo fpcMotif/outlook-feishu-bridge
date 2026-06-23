@@ -48,7 +48,7 @@ vi.mock("../storage", () => ({
   getStorageBytes: (...args: unknown[]) => mocks.getStorageBytes(...args),
 }));
 
-import { createHarness, type Harness } from "./attachmentFillSim";
+import { createHarness, restoreEnv, type Harness } from "./attachmentFillSim";
 
 const APP_TOKEN = "appTok";
 const TABLE_ID = "tbl_service";
@@ -77,14 +77,10 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
-  const restore = (key: string, value: string | undefined): void => {
-    if (value === undefined) delete process.env[key];
-    else process.env[key] = value;
-  };
-  restore("FEISHU_BITABLE_APP_TOKEN", originalAppToken);
-  restore("FEISHU_BITABLE_TABLE_ID", originalTableId);
-  restore("BITABLE_OWNED_ROW_UPDATE_WINDOW_MS", originalWindow);
-  restore("FEISHU_DRIVE_UPLOAD_CONCURRENCY", originalConcurrency);
+  restoreEnv("FEISHU_BITABLE_APP_TOKEN", originalAppToken);
+  restoreEnv("FEISHU_BITABLE_TABLE_ID", originalTableId);
+  restoreEnv("BITABLE_OWNED_ROW_UPDATE_WINDOW_MS", originalWindow);
+  restoreEnv("FEISHU_DRIVE_UPLOAD_CONCURRENCY", originalConcurrency);
 });
 
 /**

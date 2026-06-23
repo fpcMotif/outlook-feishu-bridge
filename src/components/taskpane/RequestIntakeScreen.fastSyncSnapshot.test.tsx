@@ -36,6 +36,8 @@ vi.mock("./useAttachmentSync", () => ({
 
 const mockUseAction = vi.mocked(useAction);
 const mockUseQuery = vi.mocked(useQuery);
+// useQuery returns undefined until Convex resolves (the still-loading frame).
+const QUERY_LOADING = undefined as ReturnType<typeof useQuery>;
 
 const originalMail: MailItemData = {
   subject: "Inquiry - bulk L-Carnitine",
@@ -76,7 +78,7 @@ describe("RequestIntakeScreen already-synced fast reopen", () => {
         unknown as ReturnType<typeof useAction>,
     );
     // This reproduces the slow path: Convex has not answered yet.
-    mockUseQuery.mockReturnValue(undefined);
+    mockUseQuery.mockReturnValue(QUERY_LOADING);
   });
 
   it("shows Already synced immediately when only internetMessageId still matches", () => {

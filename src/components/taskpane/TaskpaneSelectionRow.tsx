@@ -21,6 +21,21 @@ function SelectionRowLeading({ leading, icon }: { leading?: ReactNode; icon?: Re
   );
 }
 
+function SelectionRowChange({ onChange, changeLabel }: { onChange?: () => void; changeLabel: string }) {
+  if (!onChange) return null;
+
+  return (
+    <button
+      type="button"
+      onClick={onChange}
+      aria-label={changeLabel}
+      className="text-primary/85 hover:bg-primary/10 hover:text-primary inline-flex size-10 shrink-0 items-center justify-center rounded-full outline-none transition-[background-color,color,transform] duration-150 ease-[var(--ease-out-strong)] active:scale-[0.97] focus-visible:ring-[3px] focus-visible:ring-ring/20"
+    >
+      <ArrowRightLeft className="size-4" strokeWidth={2} aria-hidden="true" />
+    </button>
+  );
+}
+
 /** Shared selected-state row for Customer and Coworker in the intake card stack. */
 export function TaskpaneSelectionRow({
   icon,
@@ -64,16 +79,7 @@ export function TaskpaneSelectionRow({
       <span className="min-w-0 flex-1 whitespace-normal break-words text-xs leading-4 font-semibold">
         {label}
       </span>
-      {onChange ? (
-        <button
-          type="button"
-          onClick={onChange}
-          aria-label={changeLabel}
-          className="text-primary/85 hover:bg-primary/10 hover:text-primary inline-flex size-10 shrink-0 items-center justify-center rounded-full outline-none transition-[background-color,color,transform] duration-150 ease-[var(--ease-out-strong)] active:scale-[0.97] focus-visible:ring-[3px] focus-visible:ring-ring/20"
-        >
-          <ArrowRightLeft className="size-4" strokeWidth={2} aria-hidden="true" />
-        </button>
-      ) : null}
+      <SelectionRowChange onChange={onChange} changeLabel={changeLabel} />
     </div>
   );
 }

@@ -59,6 +59,33 @@ export interface FeishuFetchOptions {
 }
 
 /**
+ * Log the full failure envelope and throw {@link FeishuError}. Dumps everything
+ * Feishu sent back — the bare {code, msg} envelope hides the support log id and
+ * any nested `data.error` detail that triage needs.
+ */
+function throwFeishuFailure(
+  response: Response,
+  parsed: FeishuEnvelope,
+  rawText: string,
+  label: string | undefined,
+): never {
+  const logId =
+    response.headers.get("X-Tt-Logid") ??
+    response.headers.get("x-tt-logid") ??
+    response.headers.get("X-Request-Id") ??
+    "(none)";
+  console.error(
+    `[feishu] ${label ?? "call"} FAILED code=${parsed.code} msg=${parsed.msg} logId=${logId} body=${rawText.slice(0, 1000)}`,
+  );
+  throw new FeishuError(
+    parsed.code,
+    parsed.msg,
+    label ?? "Feishu API",
+    rateLimitResetMs((name) => response.headers.get(name)),
+  );
+}
+
+/**
  * Perform one call to Feishu Open Platform and return the parsed response.
  * Returns the full parsed JSON (callers read `.data` or top-level fields).
  * Throws {@link FeishuError} when the envelope reports failure.
@@ -99,22 +126,7 @@ export async function feishuFetch<T = unknown>(
     parsed.code === 0 ||
     (opts.acceptStatusCode === true && parsed.StatusCode === 0);
   if (!ok) {
-    // Dump everything Feishu sent back — the bare {code, msg} envelope hides
-    // the support log id and any nested `data.error` detail that triage needs.
-    const logId =
-      response.headers.get("X-Tt-Logid") ??
-      response.headers.get("x-tt-logid") ??
-      response.headers.get("X-Request-Id") ??
-      "(none)";
-    console.error(
-      `[feishu] ${opts.label ?? "call"} FAILED code=${parsed.code} msg=${parsed.msg} logId=${logId} body=${rawText.slice(0, 1000)}`,
-    );
-    throw new FeishuError(
-      parsed.code,
-      parsed.msg,
-      opts.label ?? "Feishu API",
-      rateLimitResetMs((name) => response.headers.get(name)),
-    );
+    throwFeishuFailure(response, parsed, rawText, opts.label);
   }
   return parsed as T;
 }
